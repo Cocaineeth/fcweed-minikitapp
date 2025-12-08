@@ -574,6 +574,13 @@ export default function Home() {
     ? parseFloat(stakingStats.pendingFormatted || "0")
     : 0;
 
+  const pendingDisplay =
+    pendingFloat > 0
+      ? pendingFloat >= 1_000_000
+        ? `${(pendingFloat / 1_000_000).toFixed(2)}M`
+        : pendingFloat.toFixed(2)
+      : "0.00";
+
   const totalAvailable = availablePlants.length + availableLands.length;
 
   const toggleId = (
@@ -748,10 +755,8 @@ export default function Home() {
             style={{
               maxWidth: "900px",
               width: "100%",
-              maxHeight: "90vh",
-              height: "90vh",
-              display: "flex",
-              flexDirection: "column",
+              height: "82vh",
+              maxHeight: "82vh",
             }}
           >
             <header className={styles.modalHeader}>
@@ -796,8 +801,11 @@ export default function Home() {
               </div>
               <div className={styles.statCard}>
                 <span className={styles.statLabel}>Pending</span>
-                <span className={styles.statValue}>
-                  {pendingFloat > 0 ? pendingFloat.toFixed(2) : "0.00"}
+                <span
+                  className={styles.statValue}
+                  style={{ fontSize: 13, wordBreak: "break-all" }}
+                >
+                  {pendingDisplay}
                 </span>
               </div>
             </div>
@@ -806,21 +814,14 @@ export default function Home() {
               className={styles.modalBody}
               style={{
                 display: "grid",
-                gridTemplateColumns: "minmax(0,1.1fr) minmax(0,1.2fr)",
-                gap: 12,
-                flex: 1,
-                minHeight: 0,
-                overflow: "hidden",
+                gridTemplateColumns: "minmax(0,1.05fr) minmax(0,1.25fr)",
+                gap: 16,
+                marginTop: 8,
+                overflowY: "auto",
+                paddingBottom: 8,
               }}
             >
-              <div
-                className={styles.nftColumn}
-                style={{
-                  minHeight: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                }}
-              >
+              <div className={styles.nftColumn}>
                 <div className={styles.nftHeader}>
                   <label className={styles.selectAllRow}>
                     <input
@@ -851,12 +852,7 @@ export default function Home() {
 
                 <div
                   className={styles.nftScroll}
-                  style={{
-                    overflowY: "auto",
-                    paddingRight: 8,
-                    flex: 1,
-                    minHeight: 0,
-                  }}
+                  style={{ overflowY: "auto", paddingRight: 8 }}
                 >
                   {totalAvailable === 0 ? (
                     <div className={styles.emptyState}>
@@ -885,8 +881,8 @@ export default function Home() {
                                 alt={`Land #${id}`}
                                 className={styles.nftThumb}
                                 style={{
-                                  width: 64,
-                                  height: 64,
+                                  width: 80,
+                                  height: 80,
                                   borderRadius: 10,
                                   objectFit: "cover",
                                 }}
@@ -921,8 +917,8 @@ export default function Home() {
                                 alt={`Plant #${id}`}
                                 className={styles.nftThumb}
                                 style={{
-                                  width: 64,
-                                  height: 64,
+                                  width: 80,
+                                  height: 80,
                                   borderRadius: 10,
                                   objectFit: "cover",
                                 }}
@@ -940,24 +936,8 @@ export default function Home() {
                 </div>
               </div>
 
-              <div
-                className={styles.manageColumn}
-                style={{
-                  minHeight: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
-                }}
-              >
-                <div
-                  className={styles.manageBox}
-                  style={{
-                    flex: 1,
-                    minHeight: 0,
-                    display: "flex",
-                    flexDirection: "column",
-                  }}
-                >
+              <div className={styles.manageColumn}>
+                <div className={styles.manageBox}>
                   <div className={styles.manageHeader}>
                     <span>
                       {selectedStakedPlants.length +
@@ -967,12 +947,7 @@ export default function Home() {
                   </div>
                   <div
                     className={styles.nftScrollRight}
-                    style={{
-                      overflowY: "auto",
-                      paddingRight: 8,
-                      flex: 1,
-                      minHeight: 0,
-                    }}
+                    style={{ overflowY: "auto", paddingRight: 8 }}
                   >
                     {stakedPlants.length === 0 && stakedLands.length === 0 ? (
                       <div className={styles.emptyState}>
@@ -1009,8 +984,8 @@ export default function Home() {
                                       alt={`Land #${id}`}
                                       className={styles.nftThumb}
                                       style={{
-                                        width: 64,
-                                        height: 64,
+                                        width: 80,
+                                        height: 80,
                                         borderRadius: 10,
                                         objectFit: "cover",
                                       }}
@@ -1057,8 +1032,8 @@ export default function Home() {
                                       alt={`Plant #${id}`}
                                       className={styles.nftThumb}
                                       style={{
-                                        width: 64,
-                                        height: 64,
+                                        width: 80,
+                                        height: 80,
                                         borderRadius: 10,
                                         objectFit: "cover",
                                       }}
@@ -1086,24 +1061,17 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div
-                  className={styles.actionRow}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
+                <div className={styles.actionRow}>
                   <button
                     type="button"
                     className={styles.btnPrimary}
                     disabled={stakeDisabled}
                     onClick={handleStakeSelected}
                     style={{
-                      padding: "8px 18px",
-                      fontSize: 13,
+                      padding: "10px 22px",
+                      fontSize: 14,
                       borderRadius: 999,
-                      minWidth: 86,
+                      minWidth: 88,
                     }}
                   >
                     Stake
@@ -1114,10 +1082,10 @@ export default function Home() {
                     disabled={unstakeDisabled}
                     onClick={handleUnstakeSelected}
                     style={{
-                      padding: "8px 18px",
-                      fontSize: 13,
+                      padding: "10px 22px",
+                      fontSize: 14,
                       borderRadius: 999,
-                      minWidth: 86,
+                      minWidth: 88,
                     }}
                   >
                     Unstake
@@ -1128,10 +1096,10 @@ export default function Home() {
                     disabled={claimDisabled}
                     onClick={handleClaim}
                     style={{
-                      padding: "8px 18px",
-                      fontSize: 13,
+                      padding: "10px 22px",
+                      fontSize: 14,
                       borderRadius: 999,
-                      minWidth: 86,
+                      minWidth: 88,
                     }}
                   >
                     Claim
