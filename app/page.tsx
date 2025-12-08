@@ -25,17 +25,17 @@ const USDC_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
   "function allowance(address owner, address spender) view returns (uint256)",
   "function balanceOf(address owner) view returns (uint256)",
-  "function decimals() view returns (uint8)"
+  "function decimals() view returns (uint8)",
 ];
 
 const LAND_ABI = [
   "function mint(uint256 quantity)",
-  "function mint(address to, uint256 quantity)"
+  "function mint(address to, uint256 quantity)",
 ];
 
 const PLANT_ABI = [
   "function mint(uint256 quantity)",
-  "function mint(address to, uint256 quantity)"
+  "function mint(address to, uint256 quantity)",
 ];
 
 const ERC721_VIEW_ABI = [
@@ -44,7 +44,7 @@ const ERC721_VIEW_ABI = [
   "function totalSupply() view returns (uint256)",
   "function tokenURI(uint256 tokenId) view returns (string)",
   "function isApprovedForAll(address owner, address operator) view returns (bool)",
-  "function setApprovalForAll(address operator, bool approved)"
+  "function setApprovalForAll(address operator, bool approved)",
 ];
 
 const STAKING_ABI = [
@@ -60,7 +60,7 @@ const STAKING_ABI = [
   "function landBoostBps() view returns (uint256)",
   "function tokensPerPlantPerDay() view returns (uint256)",
   "function landStakingEnabled() view returns (bool)",
-  "function claimEnabled() view returns (bool)"
+  "function claimEnabled() view returns (bool)",
 ];
 
 type StakingStats = {
@@ -96,11 +96,15 @@ export default function Home() {
 
   const [selectedAvailPlants, setSelectedAvailPlants] = useState<number[]>([]);
   const [selectedAvailLands, setSelectedAvailLands] = useState<number[]>([]);
-  const [selectedStakedPlants, setSelectedStakedPlants] = useState<number[]>([]);
+  const [selectedStakedPlants, setSelectedStakedPlants] =
+    useState<number[]>([]);
   const [selectedStakedLands, setSelectedStakedLands] = useState<number[]>([]);
 
   const [plantImages, setPlantImages] = useState<Record<number, string>>({});
   const [landImages, setLandImages] = useState<Record<number, string>>({});
+
+  // New: status line so you see what’s happening in-browser AND in mini-app
+  const [mintStatus, setMintStatus] = useState<string>("");
 
   useEffect(() => {
     if (!isMiniAppReady) {
@@ -109,7 +113,9 @@ export default function Home() {
     (async () => {
       try {
         await sdk.actions.ready();
-      } catch {}
+      } catch {
+        // ignore – just means not in mini app
+      }
     })();
   }, [isMiniAppReady, setMiniAppReady]);
 
@@ -117,7 +123,6 @@ export default function Home() {
     const detect = async () => {
       try {
         const anySdk = sdk as any;
-
         if (anySdk.host?.getInfo) {
           await anySdk.host.getInfo();
           setUsingMiniApp(true);
@@ -128,7 +133,6 @@ export default function Home() {
         setUsingMiniApp(false);
       }
     };
-
     detect();
   }, []);
 
@@ -145,19 +149,20 @@ export default function Home() {
       let p: ethers.providers.Web3Provider;
 
       if (usingMiniApp) {
+        // Warpcast mini app provider
         const ethProvider = await sdk.wallet.getEthereumProvider();
         p = new ethers.providers.Web3Provider(ethProvider as any, "any");
       } else {
         const anyWindow = window as any;
         if (!anyWindow.ethereum) {
-          alert(
+          setMintStatus(
             "No wallet found. Open this in the Base app / Warpcast, or install MetaMask."
           );
           setConnecting(false);
           return null;
         }
         await anyWindow.ethereum.request({
-          method: "eth_requestAccounts"
+          method: "eth_requestAccounts",
         });
         p = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
       }
@@ -172,9 +177,11 @@ export default function Home() {
           try {
             await anyWindow.ethereum.request({
               method: "wallet_switchEthereumChain",
-              params: [{ chainId: "0x2105" }]
+              params: [{ chainId: "0x2105" }],
             });
-          } catch {}
+          } catch {
+            // ignore, user can switch manually
+          }
         }
       }
 
@@ -186,12 +193,19 @@ export default function Home() {
       return { signer: s, provider: p, userAddress: addr };
     } catch (err) {
       console.error("Wallet connect failed:", err);
+      if (usingMiniApp) {
+        setMintStatus(
+          "Could not connect Warpcast wallet. Make sure the mini app has wallet permissions."
+        );
+      } else {
+        setMintStatus("Wallet connect failed. Check your wallet and try again.");
+      }
       setConnecting(false);
       return null;
     }
   }
 
-  // === IMPORTANT CHANGE: return boolean so caller knows if it's OK to mint ===
+  // returns true if allowance is OK
   async function ensureUsdcAllowance(
     spender: string,
     required: ethers.BigNumber
@@ -201,9 +215,10 @@ export default function Home() {
 
     const { signer: s, provider: p, userAddress: addr } = ctx;
 
+    setMintStatus("Checking USDC contract on Base…");
     const code = await p!.getCode(USDC_ADDRESS);
     if (code === "0x") {
-      alert(
+      setMintStatus(
         "USDC token not found on this network. Please make sure you are on Base mainnet."
       );
       return false;
@@ -211,11 +226,10 @@ export default function Home() {
 
     const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
 
-    // check balance so we can tell them early if they don't have enough
     try {
       const bal = await usdc.balanceOf(addr);
       if (bal.lt(required)) {
-        alert(
+        setMintStatus(
           `You need at least ${ethers.utils.formatUnits(
             required,
             USDC_DECIMALS
@@ -232,7 +246,7 @@ export default function Home() {
       current = await usdc.allowance(addr, spender);
     } catch (e) {
       console.error("USDC allowance() call reverted:", e);
-      alert(
+      setMintStatus(
         "Error reading USDC allowance. Double-check that you’re on Base and the USDC address is correct."
       );
       return false;
@@ -243,15 +257,10 @@ export default function Home() {
       return true;
     }
 
-    console.log(
-      "Sending USDC approve for",
-      ethers.utils.formatUnits(required, USDC_DECIMALS),
-      "USDC to",
-      spender
-    );
+    setMintStatus("Requesting USDC approve transaction in your wallet…");
     const tx = await usdc.approve(spender, required);
     await tx.wait();
-    console.log("USDC approve confirmed");
+    setMintStatus("USDC approve confirmed. Sending mint transaction…");
     return true;
   }
 
@@ -265,7 +274,6 @@ export default function Home() {
     const iface = nft.interface as ethers.utils.Interface;
 
     let tx;
-
     if (iface.functions["mint(address,uint256)"]) {
       console.log("Calling mint(address,uint256) on", nftAddress);
       tx = await nft["mint(address,uint256)"](ctx.userAddress, quantity);
@@ -277,19 +285,16 @@ export default function Home() {
     }
 
     console.log("Mint tx sent:", tx.hash);
+    setMintStatus("Mint transaction sent. Waiting for confirmation…");
     await tx.wait();
     console.log("Mint tx confirmed");
   }
 
-  // === IMPORTANT CHANGE: no window.confirm, just info alert + flow continues ===
   async function handleMintLand() {
     try {
+      setMintStatus("Preparing to mint 1 Land (199.99 USDC + gas)…");
       const ctx = await ensureWallet();
       if (!ctx) return;
-
-      alert(
-        "Minting 1 Land NFT for 199.99 USDC + gas.\n\nFirst we’ll request USDC approval (if needed), then send the mint transaction."
-      );
 
       const okAllowance = await ensureUsdcAllowance(
         LAND_ADDRESS,
@@ -298,27 +303,26 @@ export default function Home() {
       if (!okAllowance) return;
 
       await callMintWithBestSignature(LAND_ADDRESS, LAND_ABI, 1, ctx);
-      alert("Land mint transaction sent ✅ Check your wallet for confirmation.");
+      setMintStatus(
+        "Land mint submitted ✅ Check your wallet / explorer for confirmation."
+      );
     } catch (err: any) {
       console.error("Mint Land error:", err);
-      alert(
+      const msg =
         err?.reason ||
-          err?.error?.message ||
-          err?.data?.message ||
-          err?.message ||
-          "Mint Land failed"
-      );
+        err?.error?.message ||
+        err?.data?.message ||
+        err?.message ||
+        "Mint Land failed";
+      setMintStatus(`Land mint failed: ${msg}`);
     }
   }
 
   async function handleMintPlant() {
     try {
+      setMintStatus("Preparing to mint 1 Plant (49.99 USDC + gas)…");
       const ctx = await ensureWallet();
       if (!ctx) return;
-
-      alert(
-        "Minting 1 Plant NFT for 49.99 USDC + gas.\n\nFirst we’ll request USDC approval (if needed), then send the mint transaction."
-      );
 
       const okAllowance = await ensureUsdcAllowance(
         PLANT_ADDRESS,
@@ -327,18 +331,18 @@ export default function Home() {
       if (!okAllowance) return;
 
       await callMintWithBestSignature(PLANT_ADDRESS, PLANT_ABI, 1, ctx);
-      alert(
-        "Plant mint transaction sent ✅ Check your wallet for confirmation."
+      setMintStatus(
+        "Plant mint submitted ✅ Check your wallet / explorer for confirmation."
       );
     } catch (err: any) {
       console.error("Mint Plant error:", err);
-      alert(
+      const msg =
         err?.reason ||
-          err?.error?.message ||
-          err?.data?.message ||
-          err?.message ||
-          "Mint Plant failed"
-      );
+        err?.error?.message ||
+        err?.data?.message ||
+        err?.message ||
+        "Mint Plant failed";
+      setMintStatus(`Plant mint failed: ${msg}`);
     }
   }
 
@@ -354,7 +358,7 @@ export default function Home() {
   async function loadOwnedTokens(
     nftAddress: string,
     owner: string,
-    prov: ethers.providers.Provider,
+    prov: ethers.providers.Provider
   ): Promise<number[]> {
     try {
       const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, prov);
@@ -391,7 +395,7 @@ export default function Home() {
   async function fetchNftImages(
     nftAddress: string,
     ids: number[],
-    prov: ethers.providers.Provider,
+    prov: ethers.providers.Provider
   ): Promise<Record<number, string>> {
     const out: Record<number, string> = {};
     if (ids.length === 0) return out;
@@ -429,7 +433,7 @@ export default function Home() {
     const staking = new ethers.Contract(
       STAKING_ADDRESS,
       STAKING_ABI,
-      p as ethers.providers.Provider,
+      p as ethers.providers.Provider
     );
 
     setLoadingStaking(true);
@@ -487,8 +491,12 @@ export default function Home() {
         claimEnabled,
       });
 
-      const allPlantIds = Array.from(new Set([...plantOwned, ...stakedPlantNums]));
-      const allLandIds = Array.from(new Set([...landOwned, ...stakedLandNums]));
+      const allPlantIds = Array.from(
+        new Set([...plantOwned, ...stakedPlantNums])
+      );
+      const allLandIds = Array.from(
+        new Set([...landOwned, ...stakedLandNums])
+      );
 
       const [plantImgs, landImgs] = await Promise.all([
         fetchNftImages(PLANT_ADDRESS, allPlantIds, p),
@@ -519,12 +527,12 @@ export default function Home() {
       signer: ethers.Signer;
       provider: ethers.providers.Provider;
       userAddress: string;
-    },
+    }
   ) {
     const nft = new ethers.Contract(collectionAddress, ERC721_VIEW_ABI, ctx.signer);
     const approved: boolean = await nft.isApprovedForAll(
       ctx.userAddress,
-      STAKING_ADDRESS,
+      STAKING_ADDRESS
     );
     if (!approved) {
       const tx = await nft.setApprovalForAll(STAKING_ADDRESS, true);
@@ -540,14 +548,14 @@ export default function Home() {
     const toStakeLands = selectedAvailLands;
 
     if (toStakePlants.length === 0 && toStakeLands.length === 0) {
-      alert("No NFTs selected to stake.");
+      setMintStatus("No NFTs selected to stake.");
       return;
     }
 
     const staking = new ethers.Contract(
       STAKING_ADDRESS,
       STAKING_ABI,
-      ctx.signer,
+      ctx.signer
     );
 
     try {
@@ -556,7 +564,7 @@ export default function Home() {
       if (toStakePlants.length > 0) {
         await ensureCollectionApproval(PLANT_ADDRESS, ctx);
         const tx = await staking.stakePlants(
-          toStakePlants.map((id) => ethers.BigNumber.from(id)),
+          toStakePlants.map((id) => ethers.BigNumber.from(id))
         );
         await tx.wait();
       }
@@ -564,7 +572,7 @@ export default function Home() {
       if (toStakeLands.length > 0 && landStakingEnabled) {
         await ensureCollectionApproval(LAND_ADDRESS, ctx);
         const tx2 = await staking.stakeLands(
-          toStakeLands.map((id) => ethers.BigNumber.from(id)),
+          toStakeLands.map((id) => ethers.BigNumber.from(id))
         );
         await tx2.wait();
       }
@@ -587,14 +595,14 @@ export default function Home() {
     const toUnstakeLands = selectedStakedLands;
 
     if (toUnstakePlants.length === 0 && toUnstakeLands.length === 0) {
-      alert("No NFTs selected to unstake.");
+      setMintStatus("No NFTs selected to unstake.");
       return;
     }
 
     const staking = new ethers.Contract(
       STAKING_ADDRESS,
       STAKING_ABI,
-      ctx.signer,
+      ctx.signer
     );
 
     try {
@@ -602,14 +610,14 @@ export default function Home() {
 
       if (toUnstakePlants.length > 0) {
         const tx = await staking.unstakePlants(
-          toUnstakePlants.map((id) => ethers.BigNumber.from(id)),
+          toUnstakePlants.map((id) => ethers.BigNumber.from(id))
         );
         await tx.wait();
       }
 
       if (toUnstakeLands.length > 0) {
         const tx2 = await staking.unstakeLands(
-          toUnstakeLands.map((id) => ethers.BigNumber.from(id)),
+          toUnstakeLands.map((id) => ethers.BigNumber.from(id))
         );
         await tx2.wait();
       }
@@ -631,7 +639,7 @@ export default function Home() {
     const staking = new ethers.Contract(
       STAKING_ADDRESS,
       STAKING_ABI,
-      ctx.signer,
+      ctx.signer
     );
 
     const pendingAmount =
@@ -640,7 +648,7 @@ export default function Home() {
         : 0;
 
     if (!pendingAmount || pendingAmount <= 0) {
-      alert("No pending rewards to claim yet.");
+      setMintStatus("No pending rewards to claim yet.");
       return;
     }
 
@@ -673,7 +681,7 @@ export default function Home() {
   const toggleId = (
     id: number,
     list: number[],
-    setter: (v: number[]) => void,
+    setter: (v: number[]) => void
   ) => {
     if (list.includes(id)) {
       setter(list.filter((x) => x !== id));
@@ -776,6 +784,19 @@ export default function Home() {
               </button>
             </div>
 
+            {mintStatus && (
+              <p
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  opacity: 0.9,
+                  maxWidth: 420,
+                }}
+              >
+                {mintStatus}
+              </p>
+            )}
+
             <div className={styles.ctaRowSecondary}>
               <button
                 type="button"
@@ -783,7 +804,7 @@ export default function Home() {
                 onClick={() =>
                   window.open(
                     "https://element.market/collections/x420-land-1?search[toggles][0]=ALL",
-                    "_blank",
+                    "_blank"
                   )
                 }
               >
@@ -795,7 +816,7 @@ export default function Home() {
                 onClick={() =>
                   window.open(
                     "https://element.market/collections/x420-plants?search[toggles][0]=ALL",
-                    "_blank",
+                    "_blank"
                   )
                 }
               >
@@ -811,7 +832,9 @@ export default function Home() {
             <li>Connect your wallet on Base to begin.</li>
             <li>Mint Plant Bud NFTs and stake them for yield.</li>
             <li>Mint Land NFTs (all Lands are equal rarity).</li>
-            <li>Each Land allows you to stake <b>+3 extra Plant Buds</b>.</li>
+            <li>
+              Each Land allows you to stake <b>+3 extra Plant Buds</b>.
+            </li>
             <li>
               Each Land grants a <b>+2.5% token boost</b> to all yield earned.
             </li>
@@ -844,6 +867,8 @@ export default function Home() {
               width: "100%",
               height: "82vh",
               maxHeight: "82vh",
+              display: "flex",
+              flexDirection: "column",
             }}
           >
             <header className={styles.modalHeader}>
@@ -897,19 +922,31 @@ export default function Home() {
               </div>
             </div>
 
+            {/* NEW: vertical layout, horizontal scroll rows, buttons at bottom */}
             <div
               className={styles.modalBody}
               style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(0,1.05fr) minmax(0,1.25fr)",
-                gap: 16,
+                display: "flex",
+                flexDirection: "column",
+                gap: 14,
                 marginTop: 8,
-                overflowY: "auto",
                 paddingBottom: 8,
+                overflow: "hidden",
+                flex: 1,
               }}
             >
-              <div className={styles.nftColumn}>
-                <div className={styles.nftHeader}>
+              {/* Available NFTs row */}
+              <div>
+                <div
+                  className={styles.nftHeader}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 4,
+                  }}
+                >
+                  <span>Available NFTs ({totalAvailable})</span>
                   <label className={styles.selectAllRow}>
                     <input
                       type="checkbox"
@@ -933,13 +970,17 @@ export default function Home() {
                         }
                       }}
                     />
-                    <span>Select all {totalAvailable} available</span>
+                    <span style={{ marginLeft: 6 }}>Select all</span>
                   </label>
                 </div>
 
                 <div
-                  className={styles.nftScroll}
-                  style={{ overflowY: "auto", paddingRight: 8 }}
+                  style={{
+                    display: "flex",
+                    overflowX: "auto",
+                    gap: 10,
+                    padding: "4px 2px 6px",
+                  }}
                 >
                   {totalAvailable === 0 ? (
                     <div className={styles.emptyState}>
@@ -950,7 +991,16 @@ export default function Home() {
                       {availableLands.map((id) => {
                         const img = landImages[id] || "/hero.png";
                         return (
-                          <label key={`al-${id}`} className={styles.nftRow}>
+                          <label
+                            key={`al-${id}`}
+                            className={styles.nftRow}
+                            style={{
+                              minWidth: 170,
+                              flexShrink: 0,
+                              flexDirection: "column",
+                              alignItems: "flex-start",
+                            }}
+                          >
                             <input
                               type="checkbox"
                               checked={selectedAvailLands.includes(id)}
@@ -958,9 +1008,10 @@ export default function Home() {
                                 toggleId(
                                   id,
                                   selectedAvailLands,
-                                  setSelectedAvailLands,
+                                  setSelectedAvailLands
                                 )
                               }
+                              style={{ marginBottom: 4 }}
                             />
                             <div className={styles.nftThumbWrap}>
                               <img
@@ -968,8 +1019,8 @@ export default function Home() {
                                 alt={`Land #${id}`}
                                 className={styles.nftThumb}
                                 style={{
-                                  width: 80,
-                                  height: 80,
+                                  width: 120,
+                                  height: 120,
                                   borderRadius: 10,
                                   objectFit: "cover",
                                 }}
@@ -986,7 +1037,16 @@ export default function Home() {
                       {availablePlants.map((id) => {
                         const img = plantImages[id] || "/hero.png";
                         return (
-                          <label key={`ap-${id}`} className={styles.nftRow}>
+                          <label
+                            key={`ap-${id}`}
+                            className={styles.nftRow}
+                            style={{
+                              minWidth: 170,
+                              flexShrink: 0,
+                              flexDirection: "column",
+                              alignItems: "flex-start",
+                            }}
+                          >
                             <input
                               type="checkbox"
                               checked={selectedAvailPlants.includes(id)}
@@ -994,9 +1054,10 @@ export default function Home() {
                                 toggleId(
                                   id,
                                   selectedAvailPlants,
-                                  setSelectedAvailPlants,
+                                  setSelectedAvailPlants
                                 )
                               }
+                              style={{ marginBottom: 4 }}
                             />
                             <div className={styles.nftThumbWrap}>
                               <img
@@ -1004,8 +1065,8 @@ export default function Home() {
                                 alt={`Plant #${id}`}
                                 className={styles.nftThumb}
                                 style={{
-                                  width: 80,
-                                  height: 80,
+                                  width: 120,
+                                  height: 120,
                                   borderRadius: 10,
                                   objectFit: "cover",
                                 }}
@@ -1023,175 +1084,191 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className={styles.manageColumn}>
-                <div className={styles.manageBox}>
-                  <div className={styles.manageHeader}>
-                    <span>
-                      {selectedStakedPlants.length +
-                        selectedStakedLands.length}{" "}
-                      selected
-                    </span>
-                  </div>
-                  <div
-                    className={styles.nftScrollRight}
-                    style={{ overflowY: "auto", paddingRight: 8 }}
-                  >
-                    {stakedPlants.length === 0 && stakedLands.length === 0 ? (
-                      <div className={styles.emptyState}>
-                        <span>No NFTs currently staked.</span>
-                      </div>
-                    ) : (
-                      <>
-                        {stakedLands.length > 0 && (
-                          <>
-                            <div className={styles.sectionTitle}>
-                              Staked Lands {stakedLands.length}
-                            </div>
-                            {stakedLands.map((id) => {
-                              const img = landImages[id] || "/hero.png";
-                              return (
-                                <label
-                                  key={`sl-${id}`}
-                                  className={styles.nftRow}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedStakedLands.includes(id)}
-                                    onChange={() =>
-                                      toggleId(
-                                        id,
-                                        selectedStakedLands,
-                                        setSelectedStakedLands,
-                                      )
-                                    }
-                                  />
-                                  <div className={styles.nftThumbWrap}>
-                                    <img
-                                      src={img}
-                                      alt={`Land #${id}`}
-                                      className={styles.nftThumb}
-                                      style={{
-                                        width: 80,
-                                        height: 80,
-                                        borderRadius: 10,
-                                        objectFit: "cover",
-                                      }}
-                                    />
-                                  </div>
-                                  <div className={styles.nftMeta}>
-                                    <div className={styles.nftName}>
-                                      x420 Land
-                                    </div>
-                                    <div className={styles.nftSub}>#{id}</div>
-                                  </div>
-                                </label>
-                              );
-                            })}
-                          </>
-                        )}
-
-                        {stakedPlants.length > 0 && (
-                          <>
-                            <div className={styles.sectionTitle}>
-                              Staked Plants {stakedPlants.length}
-                            </div>
-                            {stakedPlants.map((id) => {
-                              const img = plantImages[id] || "/hero.png";
-                              return (
-                                <label
-                                  key={`sp-${id}`}
-                                  className={styles.nftRow}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedStakedPlants.includes(id)}
-                                    onChange={() =>
-                                      toggleId(
-                                        id,
-                                        selectedStakedPlants,
-                                        setSelectedStakedPlants,
-                                      )
-                                    }
-                                  />
-                                  <div className={styles.nftThumbWrap}>
-                                    <img
-                                      src={img}
-                                      alt={`Plant #${id}`}
-                                      className={styles.nftThumb}
-                                      style={{
-                                        width: 80,
-                                        height: 80,
-                                        borderRadius: 10,
-                                        objectFit: "cover",
-                                      }}
-                                    />
-                                  </div>
-                                  <div className={styles.nftMeta}>
-                                    <div className={styles.nftName}>
-                                      x420 Plants
-                                    </div>
-                                    <div className={styles.nftSub}>#{id}</div>
-                                  </div>
-                                </label>
-                              );
-                            })}
-                          </>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  <div className={styles.manageFooter}>
-                    <span>
-                      Staked: {stakingStats ? stakingStats.plantsStaked : 0}
-                    </span>
-                    <span>Wallet: {shortAddr(userAddress)}</span>
-                  </div>
+              {/* Staked NFTs row */}
+              <div style={{ flex: 1 }}>
+                <div
+                  className={styles.nftHeader}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 4,
+                  }}
+                >
+                  <span>
+                    Staked NFTs{" "}
+                    {stakedPlants.length + stakedLands.length > 0
+                      ? `(${stakedPlants.length + stakedLands.length})`
+                      : ""}
+                  </span>
+                  <span style={{ fontSize: 12 }}>
+                    Selected:{" "}
+                    {selectedStakedPlants.length + selectedStakedLands.length}
+                  </span>
                 </div>
 
-                <div className={styles.actionRow}>
-                  <button
-                    type="button"
-                    className={styles.btnPrimary}
-                    disabled={stakeDisabled}
-                    onClick={handleStakeSelected}
-                    style={{
-                      padding: "10px 22px",
-                      fontSize: 14,
-                      borderRadius: 999,
-                      minWidth: 88,
-                    }}
-                  >
-                    Stake
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btnPrimary}
-                    disabled={unstakeDisabled}
-                    onClick={handleUnstakeSelected}
-                    style={{
-                      padding: "10px 22px",
-                      fontSize: 14,
-                      borderRadius: 999,
-                      minWidth: 88,
-                    }}
-                  >
-                    Unstake
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btnPrimary}
-                    disabled={claimDisabled}
-                    onClick={handleClaim}
-                    style={{
-                      padding: "10px 22px",
-                      fontSize: 14,
-                      borderRadius: 999,
-                      minWidth: 88,
-                    }}
-                  >
-                    Claim
-                  </button>
+                <div
+                  style={{
+                    display: "flex",
+                    overflowX: "auto",
+                    gap: 10,
+                    padding: "4px 2px 6px",
+                  }}
+                >
+                  {stakedPlants.length === 0 && stakedLands.length === 0 ? (
+                    <div className={styles.emptyState}>
+                      <span>No NFTs currently staked.</span>
+                    </div>
+                  ) : (
+                    <>
+                      {stakedLands.map((id) => {
+                        const img = landImages[id] || "/hero.png";
+                        return (
+                          <label
+                            key={`sl-${id}`}
+                            className={styles.nftRow}
+                            style={{
+                              minWidth: 170,
+                              flexShrink: 0,
+                              flexDirection: "column",
+                              alignItems: "flex-start",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedStakedLands.includes(id)}
+                              onChange={() =>
+                                toggleId(
+                                  id,
+                                  selectedStakedLands,
+                                  setSelectedStakedLands
+                                )
+                              }
+                              style={{ marginBottom: 4 }}
+                            />
+                            <div className={styles.nftThumbWrap}>
+                              <img
+                                src={img}
+                                alt={`Land #${id}`}
+                                className={styles.nftThumb}
+                                style={{
+                                  width: 120,
+                                  height: 120,
+                                  borderRadius: 10,
+                                  objectFit: "cover",
+                                }}
+                              />
+                            </div>
+                            <div className={styles.nftMeta}>
+                              <div className={styles.nftName}>x420 Land</div>
+                              <div className={styles.nftSub}>#{id}</div>
+                            </div>
+                          </label>
+                        );
+                      })}
+
+                      {stakedPlants.map((id) => {
+                        const img = plantImages[id] || "/hero.png";
+                        return (
+                          <label
+                            key={`sp-${id}`}
+                            className={styles.nftRow}
+                            style={{
+                              minWidth: 170,
+                              flexShrink: 0,
+                              flexDirection: "column",
+                              alignItems: "flex-start",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedStakedPlants.includes(id)}
+                              onChange={() =>
+                                toggleId(
+                                  id,
+                                  selectedStakedPlants,
+                                  setSelectedStakedPlants
+                                )
+                              }
+                              style={{ marginBottom: 4 }}
+                            />
+                            <div className={styles.nftThumbWrap}>
+                              <img
+                                src={img}
+                                alt={`Plant #${id}`}
+                                className={styles.nftThumb}
+                                style={{
+                                  width: 120,
+                                  height: 120,
+                                  borderRadius: 10,
+                                  objectFit: "cover",
+                                }}
+                              />
+                            </div>
+                            <div className={styles.nftMeta}>
+                              <div className={styles.nftName}>x420 Plants</div>
+                              <div className={styles.nftSub}>#{id}</div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </>
+                  )}
                 </div>
+              </div>
+
+              {/* Buttons pinned at bottom of modal */}
+              <div
+                className={styles.actionRow}
+                style={{
+                  marginTop: "auto",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 10,
+                }}
+              >
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  disabled={stakeDisabled}
+                  onClick={handleStakeSelected}
+                  style={{
+                    padding: "10px 22px",
+                    fontSize: 14,
+                    borderRadius: 999,
+                    minWidth: 88,
+                  }}
+                >
+                  Stake
+                </button>
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  disabled={unstakeDisabled}
+                  onClick={handleUnstakeSelected}
+                  style={{
+                    padding: "10px 22px",
+                    fontSize: 14,
+                    borderRadius: 999,
+                    minWidth: 88,
+                  }}
+                >
+                  Unstake
+                </button>
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  disabled={claimDisabled}
+                  onClick={handleClaim}
+                  style={{
+                    padding: "10px 22px",
+                    fontSize: 14,
+                    borderRadius: 999,
+                    minWidth: 88,
+                  }}
+                >
+                  Claim
+                </button>
               </div>
             </div>
           </div>
