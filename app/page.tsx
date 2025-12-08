@@ -28,8 +28,15 @@ const USDC_ABI = [
   "function decimals() view returns (uint8)",
 ];
 
-const LAND_ABI = ["function mint(uint256 quantity)"];
-const PLANT_ABI = ["function mint(uint256 quantity)"];
+const LAND_ABI = [
+  "function mint(uint256 quantity)",
+  "function mint(address to, uint256 quantity)"
+];
+
+const PLANT_ABI = [
+  "function mint(uint256 quantity)",
+  "function mint(address to, uint256 quantity)"
+];
 
 const ERC721_VIEW_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
@@ -225,18 +232,44 @@ export default function Home() {
     await tx.wait();
   }
 
+  async function callMintWithBestSignature(
+    nftAddress: string,
+    abi: string[],
+    quantity: number,
+    ctx: { signer: ethers.Signer; userAddress: string }
+  ) {
+    const nft = new ethers.Contract(nftAddress, abi, ctx.signer);
+    const iface = nft.interface as ethers.utils.Interface;
+
+    let tx;
+
+    // If the contract has mint(address,uint256), prefer that
+    if (iface.functions["mint(address,uint256)"]) {
+      tx = await nft["mint(address,uint256)"](ctx.userAddress, quantity);
+    } else if (iface.functions["mint(uint256)"]) {
+      // Fallback to simple mint(uint256)
+      tx = await nft["mint(uint256)"](quantity);
+    } else {
+      throw new Error("mint function not found on NFT contract");
+    }
+
+    console.log("Mint tx sent:", tx.hash);
+    await tx.wait();
+    console.log("Mint tx confirmed");
+  }
+
   async function handleMintLand() {
     try {
       const ctx = await ensureWallet();
       if (!ctx) return;
 
+      // Make sure LAND contract can pull USDC
       await ensureUsdcAllowance(LAND_ADDRESS, LAND_PRICE_USDC);
 
-      const land = new ethers.Contract(LAND_ADDRESS, LAND_ABI, ctx.signer);
-      const tx = await land.mint(1);
-      await tx.wait();
-    } catch (err) {
+      await callMintWithBestSignature(LAND_ADDRESS, LAND_ABI, 1, ctx);
+    } catch (err: any) {
       console.error("Mint Land error:", err);
+      alert(err?.reason || err?.data?.message || err?.message || "Mint Land failed");
     }
   }
 
@@ -245,13 +278,13 @@ export default function Home() {
       const ctx = await ensureWallet();
       if (!ctx) return;
 
+      // Make sure PLANT contract can pull USDC
       await ensureUsdcAllowance(PLANT_ADDRESS, PLANT_PRICE_USDC);
 
-      const plant = new ethers.Contract(PLANT_ADDRESS, PLANT_ABI, ctx.signer);
-      const tx = await plant.mint(1);
-      await tx.wait();
-    } catch (err) {
+      await callMintWithBestSignature(PLANT_ADDRESS, PLANT_ABI, 1, ctx);
+    } catch (err: any) {
       console.error("Mint Plant error:", err);
+      alert(err?.reason || err?.data?.message || err?.message || "Mint Plant failed");
     }
   }
 
