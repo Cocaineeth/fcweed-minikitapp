@@ -12,6 +12,12 @@
     "subtitle": "Stake Land & Plant NFTs",
     "description": "Stake Land & Plant NFTs on Base to earn FCWEED",
     "primaryCategory": "games",
+    "buttonTitle": "Open",
+    "requiredChains": ["eip155:8453"],
+    "requiredCapabailities": [
+      "actions.signIn",
+      "wallet.getEthereumProvider"
+    ],
     "heroImageUrl": "https://fcweed-minikitapp.vercel.app/hero.png",
     "screenshotUrls": [
       "https://fcweed-minikitapp.vercel.app/hero.png"
