@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "id": "fcweed-minikitapp",
+  "name": "FCWEED Grow Lab",
+  "icon": "/icon.png",
+  "description": "Stake Plants & Lands directly in Farcaster.",
+  "website": "https://fcweed-minikitapp.vercel.app",
+  "default_frame": "https://fcweed-minikitapp.vercel.app"
+}
