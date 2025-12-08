@@ -84,7 +84,6 @@ export default function Home() {
   const [stakedLands, setStakedLands] = useState<number[]>([]);
   const [loadingStaking, setLoadingStaking] = useState(false);
 
-  // NEW: only this controls button disabled state
   const [actionLoading, setActionLoading] = useState(false);
 
   const [landStakingEnabled, setLandStakingEnabled] = useState(false);
@@ -113,14 +112,12 @@ export default function Home() {
   useEffect(() => {
     const detect = async () => {
       try {
-        // Cast to any so TypeScript doesn't complain during build
         const anySdk = sdk as any;
 
         if (anySdk.host?.getInfo) {
           await anySdk.host.getInfo();
           setUsingMiniApp(true);
         } else {
-          // If host API doesn't exist, assume normal browser
           setUsingMiniApp(false);
         }
       } catch {
@@ -453,7 +450,7 @@ export default function Home() {
     if (!ctx) return;
 
     const toStakePlants = selectedAvailPlants;
-    const toStakeLands = selectedAvailLands;
+    the toStakeLands = selectedAvailLands;
 
     if (toStakePlants.length === 0 && toStakeLands.length === 0) {
       alert("No NFTs selected to stake.");
@@ -591,7 +588,6 @@ export default function Home() {
     }
   };
 
-  // Buttons only depend on wallet + active tx now
   const stakeDisabled = !connected || actionLoading;
   const unstakeDisabled = !connected || actionLoading;
   const claimDisabled = !connected || actionLoading;
@@ -819,7 +815,11 @@ export default function Home() {
             >
               <div
                 className={styles.nftColumn}
-                style={{ minHeight: 0, display: "flex", flexDirection: "column" }}
+                style={{
+                  minHeight: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                }}
               >
                 <div className={styles.nftHeader}>
                   <label className={styles.selectAllRow}>
@@ -1142,3 +1142,6 @@ export default function Home() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
