@@ -450,7 +450,7 @@ export default function Home() {
     if (!ctx) return;
 
     const toStakePlants = selectedAvailPlants;
-    the toStakeLands = selectedAvailLands;
+    const toStakeLands = selectedAvailLands;
 
     if (toStakePlants.length === 0 && toStakeLands.length === 0) {
       alert("No NFTs selected to stake.");
