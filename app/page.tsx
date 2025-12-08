@@ -113,12 +113,21 @@ export default function Home() {
   useEffect(() => {
     const detect = async () => {
       try {
-        await sdk.host.getInfo();
-        setUsingMiniApp(true);
+        // Cast to any so TypeScript doesn't complain during build
+        const anySdk = sdk as any;
+
+        if (anySdk.host?.getInfo) {
+          await anySdk.host.getInfo();
+          setUsingMiniApp(true);
+        } else {
+          // If host API doesn't exist, assume normal browser
+          setUsingMiniApp(false);
+        }
       } catch {
         setUsingMiniApp(false);
       }
     };
+
     detect();
   }, []);
 
