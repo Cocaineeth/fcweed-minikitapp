@@ -191,12 +191,13 @@ export default function Home() {
     }
   }
 
+  // === IMPORTANT CHANGE: return boolean so caller knows if it's OK to mint ===
   async function ensureUsdcAllowance(
     spender: string,
     required: ethers.BigNumber
-  ) {
+  ): Promise<boolean> {
     const ctx = await ensureWallet();
-    if (!ctx) return;
+    if (!ctx) return false;
 
     const { signer: s, provider: p, userAddress: addr } = ctx;
 
@@ -205,12 +206,12 @@ export default function Home() {
       alert(
         "USDC token not found on this network. Please make sure you are on Base mainnet."
       );
-      return;
+      return false;
     }
 
     const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
 
-    // Optional: check balance to avoid useless approvals
+    // check balance so we can tell them early if they don't have enough
     try {
       const bal = await usdc.balanceOf(addr);
       if (bal.lt(required)) {
@@ -220,7 +221,7 @@ export default function Home() {
             USDC_DECIMALS
           )} USDC on Base to mint.`
         );
-        return;
+        return false;
       }
     } catch (e) {
       console.warn("USDC balanceOf failed (continuing):", e);
@@ -234,12 +235,12 @@ export default function Home() {
       alert(
         "Error reading USDC allowance. Double-check that you’re on Base and the USDC address is correct."
       );
-      return;
+      return false;
     }
 
     if (current.gte(required)) {
       console.log("USDC allowance already sufficient:", current.toString());
-      return;
+      return true;
     }
 
     console.log(
@@ -251,6 +252,7 @@ export default function Home() {
     const tx = await usdc.approve(spender, required);
     await tx.wait();
     console.log("USDC approve confirmed");
+    return true;
   }
 
   async function callMintWithBestSignature(
@@ -264,7 +266,6 @@ export default function Home() {
 
     let tx;
 
-    // If the contract has mint(address,uint256), prefer that
     if (iface.functions["mint(address,uint256)"]) {
       console.log("Calling mint(address,uint256) on", nftAddress);
       tx = await nft["mint(address,uint256)"](ctx.userAddress, quantity);
@@ -280,21 +281,24 @@ export default function Home() {
     console.log("Mint tx confirmed");
   }
 
+  // === IMPORTANT CHANGE: no window.confirm, just info alert + flow continues ===
   async function handleMintLand() {
     try {
       const ctx = await ensureWallet();
       if (!ctx) return;
 
-      const ok = window.confirm(
-        "Mint 1 Land NFT for 199.99 USDC + gas?\n\nFirst we will approve USDC (if needed), then send the mint transaction."
+      alert(
+        "Minting 1 Land NFT for 199.99 USDC + gas.\n\nFirst we’ll request USDC approval (if needed), then send the mint transaction."
       );
-      if (!ok) return;
 
-      // Make sure LAND contract can pull USDC
-      await ensureUsdcAllowance(LAND_ADDRESS, LAND_PRICE_USDC);
+      const okAllowance = await ensureUsdcAllowance(
+        LAND_ADDRESS,
+        LAND_PRICE_USDC
+      );
+      if (!okAllowance) return;
 
       await callMintWithBestSignature(LAND_ADDRESS, LAND_ABI, 1, ctx);
-      alert("Land mint successful ✅");
+      alert("Land mint transaction sent ✅ Check your wallet for confirmation.");
     } catch (err: any) {
       console.error("Mint Land error:", err);
       alert(
@@ -312,16 +316,20 @@ export default function Home() {
       const ctx = await ensureWallet();
       if (!ctx) return;
 
-      const ok = window.confirm(
-        "Mint 1 Plant NFT for 49.99 USDC + gas?\n\nFirst we will approve USDC (if needed), then send the mint transaction."
+      alert(
+        "Minting 1 Plant NFT for 49.99 USDC + gas.\n\nFirst we’ll request USDC approval (if needed), then send the mint transaction."
       );
-      if (!ok) return;
 
-      // Make sure PLANT contract can pull USDC
-      await ensureUsdcAllowance(PLANT_ADDRESS, PLANT_PRICE_USDC);
+      const okAllowance = await ensureUsdcAllowance(
+        PLANT_ADDRESS,
+        PLANT_PRICE_USDC
+      );
+      if (!okAllowance) return;
 
       await callMintWithBestSignature(PLANT_ADDRESS, PLANT_ABI, 1, ctx);
-      alert("Plant mint successful ✅");
+      alert(
+        "Plant mint transaction sent ✅ Check your wallet for confirmation."
+      );
     } catch (err: any) {
       console.error("Mint Plant error:", err);
       alert(
