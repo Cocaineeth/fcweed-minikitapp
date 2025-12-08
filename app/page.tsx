@@ -28,15 +28,8 @@ const USDC_ABI = [
   "function decimals() view returns (uint8)",
 ];
 
-const LAND_ABI = [
-  "function mint(uint256 quantity)",
-  "function mint(address to, uint256 quantity)",
-];
-
-const PLANT_ABI = [
-  "function mint(uint256 quantity)",
-  "function mint(address to, uint256 quantity)",
-];
+const LAND_ABI = ["function mint()"];
+const PLANT_ABI = ["function mint()"];
 
 const ERC721_VIEW_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
@@ -103,7 +96,6 @@ export default function Home() {
   const [plantImages, setPlantImages] = useState<Record<number, string>>({});
   const [landImages, setLandImages] = useState<Record<number, string>>({});
 
-  // New: status line so you see what’s happening in-browser AND in mini-app
   const [mintStatus, setMintStatus] = useState<string>("");
 
   useEffect(() => {
@@ -113,9 +105,7 @@ export default function Home() {
     (async () => {
       try {
         await sdk.actions.ready();
-      } catch {
-        // ignore – just means not in mini app
-      }
+      } catch {}
     })();
   }, [isMiniAppReady, setMiniAppReady]);
 
@@ -149,7 +139,6 @@ export default function Home() {
       let p: ethers.providers.Web3Provider;
 
       if (usingMiniApp) {
-        // Warpcast mini app provider
         const ethProvider = await sdk.wallet.getEthereumProvider();
         p = new ethers.providers.Web3Provider(ethProvider as any, "any");
       } else {
@@ -179,9 +168,7 @@ export default function Home() {
               method: "wallet_switchEthereumChain",
               params: [{ chainId: "0x2105" }],
             });
-          } catch {
-            // ignore, user can switch manually
-          }
+          } catch {}
         }
       }
 
@@ -205,7 +192,6 @@ export default function Home() {
     }
   }
 
-  // returns true if allowance is OK
   async function ensureUsdcAllowance(
     spender: string,
     required: ethers.BigNumber
@@ -253,7 +239,6 @@ export default function Home() {
     }
 
     if (current.gte(required)) {
-      console.log("USDC allowance already sufficient:", current.toString());
       return true;
     }
 
@@ -262,32 +247,6 @@ export default function Home() {
     await tx.wait();
     setMintStatus("USDC approve confirmed. Sending mint transaction…");
     return true;
-  }
-
-  async function callMintWithBestSignature(
-    nftAddress: string,
-    abi: string[],
-    quantity: number,
-    ctx: { signer: ethers.Signer; userAddress: string }
-  ) {
-    const nft = new ethers.Contract(nftAddress, abi, ctx.signer);
-    const iface = nft.interface as ethers.utils.Interface;
-
-    let tx;
-    if (iface.functions["mint(address,uint256)"]) {
-      console.log("Calling mint(address,uint256) on", nftAddress);
-      tx = await nft["mint(address,uint256)"](ctx.userAddress, quantity);
-    } else if (iface.functions["mint(uint256)"]) {
-      console.log("Calling mint(uint256) on", nftAddress);
-      tx = await nft["mint(uint256)"](quantity);
-    } else {
-      throw new Error("mint function not found on NFT contract");
-    }
-
-    console.log("Mint tx sent:", tx.hash);
-    setMintStatus("Mint transaction sent. Waiting for confirmation…");
-    await tx.wait();
-    console.log("Mint tx confirmed");
   }
 
   async function handleMintLand() {
@@ -302,7 +261,10 @@ export default function Home() {
       );
       if (!okAllowance) return;
 
-      await callMintWithBestSignature(LAND_ADDRESS, LAND_ABI, 1, ctx);
+      const land = new ethers.Contract(LAND_ADDRESS, LAND_ABI, ctx.signer);
+      const tx = await land.mint();
+      setMintStatus("Land mint transaction sent. Waiting for confirmation…");
+      await tx.wait();
       setMintStatus(
         "Land mint submitted ✅ Check your wallet / explorer for confirmation."
       );
@@ -330,7 +292,10 @@ export default function Home() {
       );
       if (!okAllowance) return;
 
-      await callMintWithBestSignature(PLANT_ADDRESS, PLANT_ABI, 1, ctx);
+      const plant = new ethers.Contract(PLANT_ADDRESS, PLANT_ABI, ctx.signer);
+      const tx = await plant.mint();
+      setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
+      await tx.wait();
       setMintStatus(
         "Plant mint submitted ✅ Check your wallet / explorer for confirmation."
       );
@@ -865,10 +830,11 @@ export default function Home() {
             style={{
               maxWidth: "900px",
               width: "100%",
-              height: "82vh",
-              maxHeight: "82vh",
+              height: "90vh",
+              maxHeight: "90vh",
               display: "flex",
               flexDirection: "column",
+              overflowY: "auto",
             }}
           >
             <header className={styles.modalHeader}>
@@ -922,7 +888,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* NEW: vertical layout, horizontal scroll rows, buttons at bottom */}
             <div
               className={styles.modalBody}
               style={{
@@ -931,11 +896,9 @@ export default function Home() {
                 gap: 14,
                 marginTop: 8,
                 paddingBottom: 8,
-                overflow: "hidden",
                 flex: 1,
               }}
             >
-              {/* Available NFTs row */}
               <div>
                 <div
                   className={styles.nftHeader}
@@ -1013,7 +976,16 @@ export default function Home() {
                               }
                               style={{ marginBottom: 4 }}
                             />
-                            <div className={styles.nftThumbWrap}>
+                            <div
+                              className={styles.nftThumbWrap}
+                              style={{
+                                padding: 4,
+                                borderRadius: 14,
+                                border:
+                                  "1px solid rgba(255,255,255,0.18)",
+                                background: "#050814",
+                              }}
+                            >
                               <img
                                 src={img}
                                 alt={`Land #${id}`}
@@ -1026,9 +998,22 @@ export default function Home() {
                                 }}
                               />
                             </div>
-                            <div className={styles.nftMeta}>
-                              <div className={styles.nftName}>x420 Land</div>
-                              <div className={styles.nftSub}>#{id}</div>
+                            <div
+                              className={styles.nftMeta}
+                              style={{ marginTop: 6 }}
+                            >
+                              <div
+                                className={styles.nftName}
+                                style={{ fontSize: 13, fontWeight: 600 }}
+                              >
+                                x420 Land
+                              </div>
+                              <div
+                                className={styles.nftSub}
+                                style={{ fontSize: 11, opacity: 0.75 }}
+                              >
+                                #{id}
+                              </div>
                             </div>
                           </label>
                         );
@@ -1059,7 +1044,16 @@ export default function Home() {
                               }
                               style={{ marginBottom: 4 }}
                             />
-                            <div className={styles.nftThumbWrap}>
+                            <div
+                              className={styles.nftThumbWrap}
+                              style={{
+                                padding: 4,
+                                borderRadius: 14,
+                                border:
+                                  "1px solid rgba(255,255,255,0.18)",
+                                background: "#050814",
+                              }}
+                            >
                               <img
                                 src={img}
                                 alt={`Plant #${id}`}
@@ -1072,9 +1066,22 @@ export default function Home() {
                                 }}
                               />
                             </div>
-                            <div className={styles.nftMeta}>
-                              <div className={styles.nftName}>x420 Plants</div>
-                              <div className={styles.nftSub}>#{id}</div>
+                            <div
+                              className={styles.nftMeta}
+                              style={{ marginTop: 6 }}
+                            >
+                              <div
+                                className={styles.nftName}
+                                style={{ fontSize: 13, fontWeight: 600 }}
+                              >
+                                x420 Plants
+                              </div>
+                              <div
+                                className={styles.nftSub}
+                                style={{ fontSize: 11, opacity: 0.75 }}
+                              >
+                                #{id}
+                              </div>
                             </div>
                           </label>
                         );
@@ -1084,7 +1091,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Staked NFTs row */}
               <div style={{ flex: 1 }}>
                 <div
                   className={styles.nftHeader}
@@ -1146,7 +1152,16 @@ export default function Home() {
                               }
                               style={{ marginBottom: 4 }}
                             />
-                            <div className={styles.nftThumbWrap}>
+                            <div
+                              className={styles.nftThumbWrap}
+                              style={{
+                                padding: 4,
+                                borderRadius: 14,
+                                border:
+                                  "1px solid rgba(255,255,255,0.18)",
+                                background: "#050814",
+                              }}
+                            >
                               <img
                                 src={img}
                                 alt={`Land #${id}`}
@@ -1159,9 +1174,22 @@ export default function Home() {
                                 }}
                               />
                             </div>
-                            <div className={styles.nftMeta}>
-                              <div className={styles.nftName}>x420 Land</div>
-                              <div className={styles.nftSub}>#{id}</div>
+                            <div
+                              className={styles.nftMeta}
+                              style={{ marginTop: 6 }}
+                            >
+                              <div
+                                className={styles.nftName}
+                                style={{ fontSize: 13, fontWeight: 600 }}
+                              >
+                                x420 Land
+                              </div>
+                              <div
+                                className={styles.nftSub}
+                                style={{ fontSize: 11, opacity: 0.75 }}
+                              >
+                                #{id}
+                              </div>
                             </div>
                           </label>
                         );
@@ -1192,7 +1220,16 @@ export default function Home() {
                               }
                               style={{ marginBottom: 4 }}
                             />
-                            <div className={styles.nftThumbWrap}>
+                            <div
+                              className={styles.nftThumbWrap}
+                              style={{
+                                padding: 4,
+                                borderRadius: 14,
+                                border:
+                                  "1px solid rgba(255,255,255,0.18)",
+                                background: "#050814",
+                              }}
+                            >
                               <img
                                 src={img}
                                 alt={`Plant #${id}`}
@@ -1205,9 +1242,22 @@ export default function Home() {
                                 }}
                               />
                             </div>
-                            <div className={styles.nftMeta}>
-                              <div className={styles.nftName}>x420 Plants</div>
-                              <div className={styles.nftSub}>#{id}</div>
+                            <div
+                              className={styles.nftMeta}
+                              style={{ marginTop: 6 }}
+                            >
+                              <div
+                                className={styles.nftName}
+                                style={{ fontSize: 13, fontWeight: 600 }}
+                              >
+                                x420 Plants
+                              </div>
+                              <div
+                                className={styles.nftSub}
+                                style={{ fontSize: 11, opacity: 0.75 }}
+                              >
+                                #{id}
+                              </div>
                             </div>
                           </label>
                         );
@@ -1217,7 +1267,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Buttons pinned at bottom of modal */}
               <div
                 className={styles.actionRow}
                 style={{
