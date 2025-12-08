@@ -21,22 +21,21 @@ const USDC_DECIMALS = 6;
 const PLANT_PRICE_USDC = ethers.utils.parseUnits("49.99", USDC_DECIMALS);
 const LAND_PRICE_USDC = ethers.utils.parseUnits("199.99", USDC_DECIMALS);
 
-// ===== ABIs =====
 const USDC_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
   "function allowance(address owner, address spender) view returns (uint256)",
   "function balanceOf(address owner) view returns (uint256)",
-  "function decimals() view returns (uint8)",
+  "function decimals() view returns (uint8)"
 ];
 
 const LAND_ABI = [
-  // make sure this matches your contract's public mint function
   "function mint(uint256 quantity)",
+  "function mint(address to, uint256 quantity)"
 ];
 
 const PLANT_ABI = [
-  // make sure this matches your contract's public mint function
   "function mint(uint256 quantity)",
+  "function mint(address to, uint256 quantity)"
 ];
 
 const ERC721_VIEW_ABI = [
@@ -45,7 +44,7 @@ const ERC721_VIEW_ABI = [
   "function totalSupply() view returns (uint256)",
   "function tokenURI(uint256 tokenId) view returns (string)",
   "function isApprovedForAll(address owner, address operator) view returns (bool)",
-  "function setApprovalForAll(address operator, bool approved)",
+  "function setApprovalForAll(address operator, bool approved)"
 ];
 
 const STAKING_ABI = [
@@ -61,7 +60,7 @@ const STAKING_ABI = [
   "function landBoostBps() view returns (uint256)",
   "function tokensPerPlantPerDay() view returns (uint256)",
   "function landStakingEnabled() view returns (bool)",
-  "function claimEnabled() view returns (bool)",
+  "function claimEnabled() view returns (bool)"
 ];
 
 type StakingStats = {
@@ -97,9 +96,7 @@ export default function Home() {
 
   const [selectedAvailPlants, setSelectedAvailPlants] = useState<number[]>([]);
   const [selectedAvailLands, setSelectedAvailLands] = useState<number[]>([]);
-  const [selectedStakedPlants, setSelectedStakedPlants] = useState<number[]>(
-    [],
-  );
+  const [selectedStakedPlants, setSelectedStakedPlants] = useState<number[]>([]);
   const [selectedStakedLands, setSelectedStakedLands] = useState<number[]>([]);
 
   const [plantImages, setPlantImages] = useState<Record<number, string>>({});
@@ -112,9 +109,7 @@ export default function Home() {
     (async () => {
       try {
         await sdk.actions.ready();
-      } catch {
-        // ignore
-      }
+      } catch {}
     })();
   }, [isMiniAppReady, setMiniAppReady]);
 
@@ -122,6 +117,7 @@ export default function Home() {
     const detect = async () => {
       try {
         const anySdk = sdk as any;
+
         if (anySdk.host?.getInfo) {
           await anySdk.host.getInfo();
           setUsingMiniApp(true);
@@ -132,6 +128,7 @@ export default function Home() {
         setUsingMiniApp(false);
       }
     };
+
     detect();
   }, []);
 
@@ -154,13 +151,13 @@ export default function Home() {
         const anyWindow = window as any;
         if (!anyWindow.ethereum) {
           alert(
-            "No wallet found. Open this in the Base app / Warpcast, or install MetaMask.",
+            "No wallet found. Open this in the Base app / Warpcast, or install MetaMask."
           );
           setConnecting(false);
           return null;
         }
         await anyWindow.ethereum.request({
-          method: "eth_requestAccounts",
+          method: "eth_requestAccounts"
         });
         p = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
       }
@@ -175,11 +172,9 @@ export default function Home() {
           try {
             await anyWindow.ethereum.request({
               method: "wallet_switchEthereumChain",
-              params: [{ chainId: "0x2105" }],
+              params: [{ chainId: "0x2105" }]
             });
-          } catch {
-            // user may reject; we’ll still try
-          }
+          } catch {}
         }
       }
 
@@ -198,7 +193,7 @@ export default function Home() {
 
   async function ensureUsdcAllowance(
     spender: string,
-    required: ethers.BigNumber,
+    required: ethers.BigNumber
   ) {
     const ctx = await ensureWallet();
     if (!ctx) return;
@@ -208,27 +203,27 @@ export default function Home() {
     const code = await p!.getCode(USDC_ADDRESS);
     if (code === "0x") {
       alert(
-        "USDC token not found on this network. Please make sure you are on Base mainnet.",
+        "USDC token not found on this network. Please make sure you are on Base mainnet."
       );
       return;
     }
 
     const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
 
-    // Optional: check balance first for nicer error
+    // Optional: check balance to avoid useless approvals
     try {
       const bal = await usdc.balanceOf(addr);
       if (bal.lt(required)) {
         alert(
           `You need at least ${ethers.utils.formatUnits(
             required,
-            USDC_DECIMALS,
-          )} USDC on Base to mint.`,
+            USDC_DECIMALS
+          )} USDC on Base to mint.`
         );
         return;
       }
     } catch (e) {
-      console.warn("USDC balanceOf failed, continuing anyway:", e);
+      console.warn("USDC balanceOf failed (continuing):", e);
     }
 
     let current: ethers.BigNumber;
@@ -237,22 +232,53 @@ export default function Home() {
     } catch (e) {
       console.error("USDC allowance() call reverted:", e);
       alert(
-        "Error reading USDC allowance. Double-check that you’re on Base and the USDC address is correct.",
+        "Error reading USDC allowance. Double-check that you’re on Base and the USDC address is correct."
       );
       return;
     }
 
     if (current.gte(required)) {
+      console.log("USDC allowance already sufficient:", current.toString());
       return;
     }
 
+    console.log(
+      "Sending USDC approve for",
+      ethers.utils.formatUnits(required, USDC_DECIMALS),
+      "USDC to",
+      spender
+    );
     const tx = await usdc.approve(spender, required);
-    console.log("USDC approve tx:", tx.hash);
     await tx.wait();
     console.log("USDC approve confirmed");
   }
 
-  // ===== MINT HANDLERS =====
+  async function callMintWithBestSignature(
+    nftAddress: string,
+    abi: string[],
+    quantity: number,
+    ctx: { signer: ethers.Signer; userAddress: string }
+  ) {
+    const nft = new ethers.Contract(nftAddress, abi, ctx.signer);
+    const iface = nft.interface as ethers.utils.Interface;
+
+    let tx;
+
+    // If the contract has mint(address,uint256), prefer that
+    if (iface.functions["mint(address,uint256)"]) {
+      console.log("Calling mint(address,uint256) on", nftAddress);
+      tx = await nft["mint(address,uint256)"](ctx.userAddress, quantity);
+    } else if (iface.functions["mint(uint256)"]) {
+      console.log("Calling mint(uint256) on", nftAddress);
+      tx = await nft["mint(uint256)"](quantity);
+    } else {
+      throw new Error("mint function not found on NFT contract");
+    }
+
+    console.log("Mint tx sent:", tx.hash);
+    await tx.wait();
+    console.log("Mint tx confirmed");
+  }
 
   async function handleMintLand() {
     try {
@@ -260,27 +286,24 @@ export default function Home() {
       if (!ctx) return;
 
       const ok = window.confirm(
-        "Mint 1 Land NFT for 199.99 USDC + gas?\n\nMake sure you have at least 199.99 USDC on Base.",
+        "Mint 1 Land NFT for 199.99 USDC + gas?\n\nFirst we will approve USDC (if needed), then send the mint transaction."
       );
       if (!ok) return;
 
+      // Make sure LAND contract can pull USDC
       await ensureUsdcAllowance(LAND_ADDRESS, LAND_PRICE_USDC);
 
-      const land = new ethers.Contract(LAND_ADDRESS, LAND_ABI, ctx.signer);
-      const tx = await land.mint(1);
-      console.log("Land mint tx:", tx.hash);
-      await tx.wait();
-      console.log("Land mint confirmed");
+      await callMintWithBestSignature(LAND_ADDRESS, LAND_ABI, 1, ctx);
       alert("Land mint successful ✅");
     } catch (err: any) {
       console.error("Mint Land error:", err);
-      const msg =
+      alert(
         err?.reason ||
-        err?.error?.message ||
-        err?.data?.message ||
-        err?.message ||
-        "Mint Land failed";
-      alert(msg);
+          err?.error?.message ||
+          err?.data?.message ||
+          err?.message ||
+          "Mint Land failed"
+      );
     }
   }
 
@@ -290,31 +313,26 @@ export default function Home() {
       if (!ctx) return;
 
       const ok = window.confirm(
-        "Mint 1 Plant NFT for 49.99 USDC + gas?\n\nMake sure you have at least 49.99 USDC on Base.",
+        "Mint 1 Plant NFT for 49.99 USDC + gas?\n\nFirst we will approve USDC (if needed), then send the mint transaction."
       );
       if (!ok) return;
 
+      // Make sure PLANT contract can pull USDC
       await ensureUsdcAllowance(PLANT_ADDRESS, PLANT_PRICE_USDC);
 
-      const plant = new ethers.Contract(PLANT_ADDRESS, PLANT_ABI, ctx.signer);
-      const tx = await plant.mint(1);
-      console.log("Plant mint tx:", tx.hash);
-      await tx.wait();
-      console.log("Plant mint confirmed");
+      await callMintWithBestSignature(PLANT_ADDRESS, PLANT_ABI, 1, ctx);
       alert("Plant mint successful ✅");
     } catch (err: any) {
       console.error("Mint Plant error:", err);
-      const msg =
+      alert(
         err?.reason ||
-        err?.error?.message ||
-        err?.data?.message ||
-        err?.message ||
-        "Mint Plant failed";
-      alert(msg);
+          err?.error?.message ||
+          err?.data?.message ||
+          err?.message ||
+          "Mint Plant failed"
+      );
     }
   }
-
-  // ===== STAKING + UI (unchanged except for using the same helpers) =====
 
   function toHttpFromMaybeIpfs(uri: string): string {
     if (!uri) return "";
@@ -341,9 +359,7 @@ export default function Home() {
         const totalBn: ethers.BigNumber = await nft.totalSupply();
         const total = totalBn.toNumber();
         maxId = Math.min(total + 5, 2000);
-      } catch {
-        // ignore
-      }
+      } catch {}
 
       const ids: number[] = [];
       const ownerLower = owner.toLowerCase();
@@ -354,9 +370,7 @@ export default function Home() {
           if (who.toLowerCase() === ownerLower) {
             ids.push(tokenId);
           }
-        } catch {
-          // token may not exist yet
-        }
+        } catch {}
       }
 
       return ids;
@@ -465,12 +479,8 @@ export default function Home() {
         claimEnabled,
       });
 
-      const allPlantIds = Array.from(
-        new Set([...plantOwned, ...stakedPlantNums]),
-      );
-      const allLandIds = Array.from(
-        new Set([...landOwned, ...stakedLandNums]),
-      );
+      const allPlantIds = Array.from(new Set([...plantOwned, ...stakedPlantNums]));
+      const allLandIds = Array.from(new Set([...landOwned, ...stakedLandNums]));
 
       const [plantImgs, landImgs] = await Promise.all([
         fetchNftImages(PLANT_ADDRESS, allPlantIds, p),
@@ -493,7 +503,6 @@ export default function Home() {
       refreshStaking();
     }, 20000);
     return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stakingOpen]);
 
   async function ensureCollectionApproval(
@@ -504,11 +513,7 @@ export default function Home() {
       userAddress: string;
     },
   ) {
-    const nft = new ethers.Contract(
-      collectionAddress,
-      ERC721_VIEW_ABI,
-      ctx.signer,
-    );
+    const nft = new ethers.Contract(collectionAddress, ERC721_VIEW_ABI, ctx.signer);
     const approved: boolean = await nft.isApprovedForAll(
       ctx.userAddress,
       STAKING_ADDRESS,
