@@ -67,9 +67,9 @@ type StakingStats = {
 };
 
 const PLAYLIST = [
-  { title: "FC Radio 1", src: "/audio/track1.mp3" },
-  { title: "FC Radio 2", src: "/audio/track2.mp3" },
-  { title: "FC Radio 3", src: "/audio/track3.mp3" },
+  { title: "Kendrick Lamar - Untitled 05 (LoVibe Remix)", src: "/audio/track1.mp3" },
+  { title: "Travis Scott - SDP Interlude", src: "/audio/track2.mp3" },
+  { title: "Yeat - if we being real", src: "/audio/track3.mp3" },
 ];
 
 export default function Home() {
@@ -735,17 +735,8 @@ export default function Home() {
               fontSize: 11,
             }}
           >
-            <span style={{ opacity: 0.8 }}>FC Radio</span>
-            <span
-              style={{
-                maxWidth: 90,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {currentTrackMeta.title}
-            </span>
+            <span style={{ opacity: 0.9, fontWeight: 600 }}>Farcaster Radio</span>
+
             <button
               type="button"
               className={styles.iconButton}
