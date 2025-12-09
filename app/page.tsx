@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 import { Wallet } from "@coinbase/onchainkit/wallet";
 import { useMiniKit } from "@coinbase/onchainkit/minikit";
@@ -66,6 +66,12 @@ type StakingStats = {
   claimEnabled: boolean;
 };
 
+const PLAYLIST = [
+  { title: "FC Radio 1", src: "/audio/track1.mp3" },
+  { title: "FC Radio 2", src: "/audio/track2.mp3" },
+  { title: "FC Radio 3", src: "/audio/track3.mp3" },
+];
+
 export default function Home() {
   const { setMiniAppReady, isMiniAppReady } = useMiniKit();
 
@@ -98,6 +104,10 @@ export default function Home() {
 
   const [mintStatus, setMintStatus] = useState<string>("");
 
+  const [currentTrack, setCurrentTrack] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   useEffect(() => {
     if (!isMiniAppReady) {
       setMiniAppReady();
@@ -125,6 +135,14 @@ export default function Home() {
     };
     detect();
   }, []);
+
+  useEffect(() => {
+    if (audioRef.current && isPlaying) {
+      audioRef.current
+        .play()
+        .catch(() => {});
+    }
+  }, [currentTrack, isPlaying]);
 
   const shortAddr = (addr?: string | null) =>
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
@@ -659,6 +677,32 @@ export default function Home() {
   const unstakeDisabled = !connected || actionLoading;
   const claimDisabled = !connected || actionLoading;
 
+  const currentTrackMeta = PLAYLIST[currentTrack];
+
+  const handlePlayPause = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current
+        .play()
+        .then(() => setIsPlaying(true))
+        .catch(() => {});
+    }
+  };
+
+  const handleNextTrack = () => {
+    const next = (currentTrack + 1) % PLAYLIST.length;
+    setCurrentTrack(next);
+  };
+
+  const handlePrevTrack = () => {
+    const prev =
+      (currentTrack - 1 + PLAYLIST.length) % PLAYLIST.length;
+    setCurrentTrack(prev);
+  };
+
   return (
     <div className={styles.page}>
       <header className={styles.headerWrapper}>
@@ -670,25 +714,74 @@ export default function Home() {
         <div className={styles.headerRight}>
           <button
             className={styles.iconButton}
-            aria-label="Close"
-            type="button"
-          >
-            ✕
-          </button>
-          <button
-            className={styles.iconButton}
-            aria-label="GitHub"
+            aria-label="Twitter"
             type="button"
             onClick={() =>
               window.open("https://x.com/x420Ponzi", "_blank")
             }
           >
-            ⧉
+            𝕏
           </button>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "4px 10px",
+              borderRadius: 999,
+              border: "1px solid rgba(255,255,255,0.18)",
+              background: "rgba(5,8,20,0.8)",
+              fontSize: 11,
+            }}
+          >
+            <span style={{ opacity: 0.8 }}>FC Radio</span>
+            <span
+              style={{
+                maxWidth: 90,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {currentTrackMeta.title}
+            </span>
+            <button
+              type="button"
+              className={styles.iconButton}
+              style={{ width: 26, height: 26 }}
+              onClick={handlePrevTrack}
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              className={styles.iconButton}
+              style={{ width: 26, height: 26 }}
+              onClick={handlePlayPause}
+            >
+              {isPlaying ? "❚❚" : "▶"}
+            </button>
+            <button
+              type="button"
+              className={styles.iconButton}
+              style={{ width: 26, height: 26 }}
+              onClick={handleNextTrack}
+            >
+              ›
+            </button>
+          </div>
 
           <div className={styles.walletWrapper}>
             <Wallet />
           </div>
+
+          <audio
+            ref={audioRef}
+            src={currentTrackMeta.src}
+            onEnded={handleNextTrack}
+            style={{ display: "none" }}
+          />
         </div>
       </header>
 
@@ -839,13 +932,23 @@ export default function Home() {
           >
             <header className={styles.modalHeader}>
               <h2 className={styles.modalTitle}>Grow Lab Statistics</h2>
-              <button
-                type="button"
-                className={styles.modalClose}
-                onClick={() => setStakingOpen(false)}
-              >
-                ✕
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  className={styles.modalClose}
+                  onClick={refreshStaking}
+                  disabled={loadingStaking}
+                >
+                  ⟳
+                </button>
+                <button
+                  type="button"
+                  className={styles.modalClose}
+                  onClick={() => setStakingOpen(false)}
+                >
+                  ✕
+                </button>
+              </div>
             </header>
 
             <div className={styles.modalStatsGrid}>
