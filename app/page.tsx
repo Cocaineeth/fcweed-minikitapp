@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
+import { Wallet } from "@coinbase/onchainkit/wallet";
 import { useMiniKit } from "@coinbase/onchainkit/minikit";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { ethers } from "ethers";
@@ -81,10 +82,7 @@ export default function Home() {
     useState<ethers.providers.Web3Provider | null>(null);
   const [signer, setSigner] = useState<ethers.Signer | null>(null);
   const [userAddress, setUserAddress] = useState<string | null>(null);
-
-  // true when this is running inside a Farcaster/Base mini app with wallet support
-  const [hasMiniAppWallet, setHasMiniAppWallet] = useState(false);
-
+  const [usingMiniApp, setUsingMiniApp] = useState(false);
   const [connecting, setConnecting] = useState(false);
 
   const [stakingOpen, setStakingOpen] = useState(false);
@@ -111,12 +109,11 @@ export default function Home() {
 
   // ==== Farcaster Radio state ====
   const [currentTrack, setCurrentTrack] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(true); // try to autoplay by default
+  const [isPlaying, setIsPlaying] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const currentTrackMeta = PLAYLIST[currentTrack];
 
-  // Best-effort autoplay + keep playing when track changes
   useEffect(() => {
     if (!audioRef.current) return;
 
@@ -124,7 +121,6 @@ export default function Home() {
       audioRef.current
         .play()
         .catch((err) => {
-          // Autoplay blocked – require a manual click
           console.warn("Autoplay blocked by browser", err);
           setIsPlaying(false);
         });
@@ -145,7 +141,6 @@ export default function Home() {
     setCurrentTrack((prev) => (prev - 1 + PLAYLIST.length) % PLAYLIST.length);
   };
 
-  // Mini app ready wiring
   useEffect(() => {
     if (!isMiniAppReady) {
       setMiniAppReady();
@@ -157,26 +152,26 @@ export default function Home() {
     })();
   }, [isMiniAppReady, setMiniAppReady]);
 
-  // Detect if host supports wallet.getEthereumProvider (Farcaster app / Base app)
   useEffect(() => {
-    (async () => {
+    const detect = async () => {
       try {
-        const capabilities = await sdk.getCapabilities();
-        setHasMiniAppWallet(
-          Array.isArray(capabilities) &&
-            capabilities.includes("wallet.getEthereumProvider")
-        );
-      } catch (e) {
-        console.warn("Failed to get capabilities", e);
-        setHasMiniAppWallet(false);
+        const anySdk = sdk as any;
+        if (anySdk.host?.getInfo) {
+          await anySdk.host.getInfo();
+          setUsingMiniApp(true);
+        } else {
+          setUsingMiniApp(false);
+        }
+      } catch {
+        setUsingMiniApp(false);
       }
-    })();
+    };
+    detect();
   }, []);
 
   const shortAddr = (addr?: string | null) =>
-    addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect";
+    addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
 
-  // --------- WALLET HANDLING ----------
   async function ensureWallet() {
     if (signer && provider && userAddress) {
       return { signer, provider, userAddress };
@@ -185,43 +180,42 @@ export default function Home() {
     try {
       setConnecting(true);
       let p: ethers.providers.Web3Provider;
-      const anyWindow =
-        typeof window !== "undefined" ? (window as any) : undefined;
 
-      if (hasMiniAppWallet) {
-        // ✅ Use Farcaster/Base in-app wallet provider
+      if (usingMiniApp) {
         const ethProvider = await sdk.wallet.getEthereumProvider();
         p = new ethers.providers.Web3Provider(ethProvider as any, "any");
       } else {
-        // ✅ Fallback to browser wallet (MetaMask, CBW, etc.)
-        if (!anyWindow?.ethereum) {
+        const anyWindow = window as any;
+        if (!anyWindow.ethereum) {
           setMintStatus(
-            "No wallet found. Open this in the Farcaster/Base app or install a browser wallet."
+            "No wallet found. Open this in the Farcaster app / Base app, or install MetaMask."
           );
           setConnecting(false);
           return null;
         }
-
         await anyWindow.ethereum.request({
           method: "eth_requestAccounts",
         });
         p = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
-
-        const net = await p.getNetwork();
-        if (net.chainId !== CHAIN_ID && anyWindow.ethereum?.request) {
-          try {
-            await anyWindow.ethereum.request({
-              method: "wallet_switchEthereumChain",
-              params: [{ chainId: "0x2105" }], // Base mainnet
-            });
-          } catch (e) {
-            console.warn("Network switch failed:", e);
-          }
-        }
       }
 
       const s = p.getSigner();
       const addr = await s.getAddress();
+      const net = await p.getNetwork();
+
+      if (net.chainId !== CHAIN_ID) {
+        const anyWindow = window as any;
+        if (anyWindow.ethereum?.request) {
+          try {
+            await anyWindow.ethereum.request({
+              method: "wallet_switchEthereumChain",
+              params: [{ chainId: "0x2105" }],
+            });
+          } catch {
+            // Farcaster in-app wallet may not support this; ignore.
+          }
+        }
+      }
 
       setProvider(p);
       setSigner(s);
@@ -231,9 +225,9 @@ export default function Home() {
       return { signer: s, provider: p, userAddress: addr };
     } catch (err) {
       console.error("Wallet connect failed:", err);
-      if (hasMiniAppWallet) {
+      if (usingMiniApp) {
         setMintStatus(
-          "Could not connect the Farcaster wallet. Make sure the mini app has wallet permissions."
+          "Could not connect Farcaster wallet. Make sure the mini app has wallet permissions."
         );
       } else {
         setMintStatus("Wallet connect failed. Check your wallet and try again.");
@@ -243,6 +237,7 @@ export default function Home() {
     }
   }
 
+  // ===== UPDATED: more defensive on Farcaster, keeps “you need at least … USDC” message =====
   async function ensureUsdcAllowance(
     spender: string,
     required: ethers.BigNumber
@@ -252,24 +247,11 @@ export default function Home() {
 
     const { signer: s, provider: p, userAddress: addr } = ctx;
 
-    setMintStatus("Checking USDC contract on Base…");
-
-    // getCode can be flaky on some in-app providers – don't hard fail
-    try {
-      const code = await p!.getCode(USDC_ADDRESS);
-      if (code === "0x") {
-        setMintStatus(
-          "USDC token not found on this network. Please make sure you are on Base mainnet."
-        );
-        return false;
-      }
-    } catch (e) {
-      console.warn("getCode(USDC) failed, continuing anyway:", e);
-    }
-
     const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
 
+    // 1) Balance check – this is where we show the “You need at least … USDC” message.
     try {
+      setMintStatus("Checking your USDC balance on Base…");
       const bal = await usdc.balanceOf(addr);
       if (bal.lt(required)) {
         setMintStatus(
@@ -281,25 +263,44 @@ export default function Home() {
         return false;
       }
     } catch (e) {
-      console.warn("USDC balanceOf failed (continuing):", e);
+      console.warn("USDC balanceOf failed (continuing anyway):", e);
+      // If Farcaster provider blocks this read, we still let the user try.
     }
 
-    // 👇 This is the main fix: don't error out if allowance() fails in Farcaster app
-    let current: ethers.BigNumber = ethers.constants.Zero;
+    // 2) Allowance check – tolerate providers that don’t support the method.
+    let current: ethers.BigNumber | null = null;
     try {
+      setMintStatus("Checking your USDC allowance…");
       current = await usdc.allowance(addr, spender);
-    } catch (e) {
-      console.warn(
-        "USDC allowance() failed, assuming 0 and proceeding to approve:",
-        e
-      );
-      current = ethers.constants.Zero;
+    } catch (e: any) {
+      console.warn("USDC allowance() failed:", e);
+      const msg =
+        e?.message?.toString().toLowerCase() ??
+        e?.error?.message?.toString().toLowerCase() ??
+        "";
+
+      // If the provider literally says it doesn't support the method, just fall back
+      // to doing an approve without blocking the user.
+      if (msg.includes("does not support the requested method")) {
+        console.warn(
+          "Provider does not support allowance(); falling back to blind approve."
+        );
+        current = null;
+      } else {
+        setMintStatus(
+          "Error reading USDC allowance. Double-check that you're on Base and the USDC address is correct."
+        );
+        return false;
+      }
     }
 
-    if (current.gte(required)) {
+    if (current && current.gte(required)) {
+      // Already approved enough.
       return true;
     }
 
+    // 3) Approve path. This works both when allowance is low and when
+    //    the provider couldn't tell us the allowance at all.
     setMintStatus("Requesting USDC approve transaction in your wallet…");
     const tx = await usdc.approve(spender, required);
     await tx.wait();
@@ -552,11 +553,7 @@ export default function Home() {
       userAddress: string;
     }
   ) {
-    const nft = new ethers.Contract(
-      collectionAddress,
-      ERC721_VIEW_ABI,
-      ctx.signer
-    );
+    const nft = new ethers.Contract(collectionAddress, ERC721_VIEW_ABI, ctx.signer);
     const approved: boolean = await nft.isApprovedForAll(
       ctx.userAddress,
       STAKING_ADDRESS
@@ -724,7 +721,6 @@ export default function Home() {
   return (
     <div
       className={styles.page}
-      // Fallback: if autoplay was blocked, first tap starts music
       onPointerDown={() => {
         if (!isPlaying && audioRef.current) {
           audioRef.current
@@ -752,7 +748,6 @@ export default function Home() {
             𝕏
           </button>
 
-          {/* Compact Farcaster Radio pill */}
           <div className={styles.radioPill}>
             <span className={styles.radioLabel}>Farcaster Radio</span>
 
@@ -788,17 +783,8 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Wallet button – uses mini app wallet when available */}
           <div className={styles.walletWrapper}>
-            <button
-              type="button"
-              className={styles.btnPrimary}
-              onClick={ensureWallet}
-              disabled={connecting}
-              style={{ paddingInline: 12, fontSize: 12 }}
-            >
-              {shortAddr(userAddress)}
-            </button>
+            <Wallet />
           </div>
 
           <audio
@@ -910,7 +896,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* GIF section between hero and info card */}
         <section
           style={{
             margin: "18px 0",
