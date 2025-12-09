@@ -279,83 +279,95 @@ export default function Home() {
     }
   }
 
-  async function ensureUsdcAllowance(
-    spender: string,
-    required: ethers.BigNumber
-  ): Promise<boolean> {
-    const ctx = await ensureWallet();
-    if (!ctx) return false;
+    async function ensureUsdcAllowance(
+      spender: string,
+      required: ethers.BigNumber
+    ): Promise<boolean> {
+      const ctx = await ensureWallet();
+      if (!ctx) return false;
 
-    const { signer: s, provider: p, userAddress: addr } = ctx;
+      const { signer: s, provider: p, userAddress: addr } = ctx;
 
-    setMintStatus("Checking USDC contract on Base…");
-    const code = await p!.getCode(USDC_ADDRESS);
-    if (code === "0x") {
-      setMintStatus(
-        "USDC token not found on this network. Please make sure you are on Base mainnet."
-      );
-      return false;
-    }
-
-    const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
-
-    try {
-      const bal = await usdc.balanceOf(addr);
-      if (bal.lt(required)) {
+      setMintStatus("Checking USDC contract on Base…");
+      const code = await p!.getCode(USDC_ADDRESS);
+      if (code === "0x") {
         setMintStatus(
-          `You need at least ${ethers.utils.formatUnits(
-            required,
-            USDC_DECIMALS
-          )} USDC on Base to mint.`
+          "USDC token not found on this network. Please make sure you are on Base mainnet."
         );
         return false;
       }
-    } catch (e) {
-      console.warn("USDC balanceOf failed (continuing):", e);
-    }
 
-    let current: ethers.BigNumber;
-    try {
-      current = await usdc.allowance(addr, spender);
-    } catch (e) {
-      console.error("USDC allowance() call reverted:", e);
-      setMintStatus(
-        "Error reading USDC allowance. Double-check that you’re on Base and the USDC address is correct."
-      );
-      return false;
-    }
+      const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
 
-    if (current.gte(required)) {
-      return true;
-    }
-
-    setMintStatus("Requesting USDC approve transaction in your wallet…");
-
-    try {
-      if (usingMiniApp && miniAppEthProvider) {
-        const data = usdcInterface.encodeFunctionData("approve", [
-          spender,
-          required,
-        ]);
-        await sendWalletCalls(addr, USDC_ADDRESS, data);
-      } else {
-        const tx = await usdc.approve(spender, required);
-        await tx.wait();
+      // --- Balance check (keep the “you need at least … USDC” message) ---
+      try {
+        const bal = await usdc.balanceOf(addr);
+        if (bal.lt(required)) {
+          setMintStatus(
+            `You need at least ${ethers.utils.formatUnits(
+              required,
+              USDC_DECIMALS
+            )} USDC on Base to mint.`
+          );
+          return false;
+        }
+      } catch (e) {
+        // If this fails, just log and continue – the tx itself will fail later
+        console.warn("USDC balanceOf failed (continuing):", e);
       }
-      setMintStatus("USDC approve confirmed. Sending mint transaction…");
-      return true;
-    } catch (err) {
-      console.error("USDC approve failed:", err);
-      const msg =
-        (err as any)?.reason ||
-        (err as any)?.error?.message ||
-        (err as any)?.data?.message ||
-        (err as any)?.message ||
-        "USDC approve failed";
-      setMintStatus(msg);
-      return false;
+
+      // --- Allowance check (relaxed for Farcaster mini-app) ---
+      let current: ethers.BigNumber = ethers.constants.Zero;
+
+      try {
+        current = await usdc.allowance(addr, spender);
+      } catch (e) {
+        console.error("USDC allowance() call reverted:", e);
+
+        if (!usingMiniApp) {
+          // Browser / extension wallet: show the error and stop
+          setMintStatus(
+            "Error reading USDC allowance. Double-check that you’re on Base and the USDC address is correct."
+          );
+          return false;
+        }
+
+        // Farcaster mini app: some providers don’t fully support eth_call yet.
+        // Treat it as 0 so we just send a fresh approve via wallet_sendCalls.
+        current = ethers.constants.Zero;
+      }
+
+      if (current.gte(required)) {
+        return true;
+      }
+
+      setMintStatus("Requesting USDC approve transaction in your wallet…");
+
+      try {
+        if (usingMiniApp && miniAppEthProvider) {
+          const data = usdcInterface.encodeFunctionData("approve", [
+            spender,
+            required,
+          ]);
+          await sendWalletCalls(addr, USDC_ADDRESS, data);
+        } else {
+          const tx = await usdc.approve(spender, required);
+          await tx.wait();
+        }
+        setMintStatus("USDC approve confirmed. Sending mint transaction…");
+        return true;
+      } catch (err) {
+        console.error("USDC approve failed:", err);
+        const msg =
+          (err as any)?.reason ||
+          (err as any)?.error?.message ||
+          (err as any)?.data?.message ||
+          (err as any)?.message ||
+          "USDC approve failed";
+        setMintStatus(msg);
+        return false;
+      }
     }
-  }
 
   async function handleMintLand() {
     try {
