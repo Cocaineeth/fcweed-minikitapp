@@ -115,12 +115,11 @@ export default function Home() {
 
   // ==== Farcaster Radio state ====
   const [currentTrack, setCurrentTrack] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(true); // try to autoplay by default
+  const [isPlaying, setIsPlaying] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const currentTrackMeta = PLAYLIST[currentTrack];
 
-  // Best-effort autoplay + keep playing when track changes
   useEffect(() => {
     if (!audioRef.current) return;
 
@@ -128,7 +127,6 @@ export default function Home() {
       audioRef.current
         .play()
         .catch((err) => {
-          // Autoplay blocked – require a manual click
           console.warn("Autoplay blocked by browser", err);
           setIsPlaying(false);
         });
@@ -137,19 +135,13 @@ export default function Home() {
     }
   }, [isPlaying, currentTrack]);
 
-  const handlePlayPause = () => {
-    setIsPlaying((prev) => !prev);
-  };
-
-  const handleNextTrack = () => {
+  const handlePlayPause = () => setIsPlaying((prev) => !prev);
+  const handleNextTrack = () =>
     setCurrentTrack((prev) => (prev + 1) % PLAYLIST.length);
-  };
-
-  const handlePrevTrack = () => {
+  const handlePrevTrack = () =>
     setCurrentTrack((prev) => (prev - 1 + PLAYLIST.length) % PLAYLIST.length);
-  };
 
-  // Mini app ready
+  // Mark mini app ready for the host
   useEffect(() => {
     if (!isMiniAppReady) {
       setMiniAppReady();
@@ -163,28 +155,10 @@ export default function Home() {
     })();
   }, [isMiniAppReady, setMiniAppReady]);
 
-  // Detect if we are inside mini app
-  useEffect(() => {
-    const detect = async () => {
-      try {
-        const anySdk = sdk as any;
-        if (anySdk.host?.getInfo) {
-          await anySdk.host.getInfo();
-          setUsingMiniApp(true);
-        } else {
-          setUsingMiniApp(false);
-        }
-      } catch {
-        setUsingMiniApp(false);
-      }
-    };
-    detect();
-  }, []);
-
   const shortAddr = (addr?: string | null) =>
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
 
-  // Helper for wallet_sendCalls on Farcaster mobile
+  // ---- wallet_sendCalls helper for Farcaster provider ----
   async function sendWalletCalls(to: string, data: string) {
     if (!usingMiniApp || !miniAppEthProvider) {
       throw new Error("wallet_sendCalls not available");
@@ -217,6 +191,7 @@ export default function Home() {
     });
   }
 
+  // ==== main wallet bootstrap – now tries Farcaster provider FIRST ====
   async function ensureWallet() {
     if (signer && provider && userAddress) {
       return { signer, provider, userAddress };
@@ -224,37 +199,49 @@ export default function Home() {
 
     try {
       setConnecting(true);
-      let p: ethers.providers.Web3Provider;
 
-      if (usingMiniApp) {
-        // Use Farcaster wallet provider
-        const ethProvider = await sdk.wallet.getEthereumProvider();
-        setMiniAppEthProvider(ethProvider as any);
-        p = new ethers.providers.Web3Provider(ethProvider as any, "any");
+      let p: ethers.providers.Web3Provider;
+      let s: ethers.Signer;
+      let addr: string;
+      let isMini = false;
+      let ethProv: any | null = null;
+
+      // 1) Try Farcaster mini app wallet
+      try {
+        ethProv = await sdk.wallet.getEthereumProvider();
+        if (ethProv) {
+          isMini = true;
+        }
+      } catch {
+        isMini = false;
+      }
+
+      if (isMini && ethProv) {
+        setUsingMiniApp(true);
+        setMiniAppEthProvider(ethProv);
+        p = new ethers.providers.Web3Provider(ethProv as any, "any");
       } else {
-        // Regular browser path (MetaMask, CBW, etc)
+        // 2) Fallback to normal browser wallet
+        setUsingMiniApp(false);
         const anyWindow = window as any;
         if (!anyWindow.ethereum) {
           setMintStatus(
-            "No wallet found. Open this in Farcaster / Base app, or install a browser wallet."
+            "No wallet found. Open this in the Farcaster app or install a browser wallet."
           );
           setConnecting(false);
           return null;
         }
-        await anyWindow.ethereum.request({
-          method: "eth_requestAccounts",
-        });
+        await anyWindow.ethereum.request({ method: "eth_requestAccounts" });
         p = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
       }
 
-      const s = p.getSigner();
-      const addr = await s.getAddress();
+      s = p.getSigner();
+      addr = await s.getAddress();
 
-      // Just sanity-check chain; don't try to switch chains inside mini app
       const net = await p.getNetwork();
       if (net.chainId !== CHAIN_ID) {
-        if (usingMiniApp) {
-          setMintStatus("Please switch your wallet to Base to mint.");
+        if (isMini) {
+          setMintStatus("Please switch your Farcaster wallet to Base to mint.");
         } else {
           const anyWindow = window as any;
           if (anyWindow.ethereum?.request) {
@@ -807,7 +794,6 @@ export default function Home() {
   return (
     <div
       className={styles.page}
-      // Fallback: if autoplay was blocked, first tap starts music
       onPointerDown={() => {
         if (!isPlaying && audioRef.current) {
           audioRef.current
@@ -818,11 +804,13 @@ export default function Home() {
       }}
     >
       <header className={styles.headerWrapper}>
+        {/* Brand + wallet stacked so header buttons don't get clipped */}
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            gap: 8,
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: 6,
             flexShrink: 0,
           }}
         >
@@ -831,17 +819,15 @@ export default function Home() {
             <span className={styles.brandText}>FCWEED</span>
           </div>
 
-          {/* Clean wallet button */}
           <button
             type="button"
             disabled={connecting}
             onClick={() => {
-              // best-effort connect when tapped
               void ensureWallet();
             }}
             className={styles.walletButton}
             style={{
-              padding: "4px 10px",
+              padding: "4px 12px",
               borderRadius: 999,
               border: "1px solid rgba(255,255,255,0.25)",
               background: connected
