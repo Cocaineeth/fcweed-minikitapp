@@ -81,7 +81,10 @@ export default function Home() {
     useState<ethers.providers.Web3Provider | null>(null);
   const [signer, setSigner] = useState<ethers.Signer | null>(null);
   const [userAddress, setUserAddress] = useState<string | null>(null);
-  const [usingMiniApp, setUsingMiniApp] = useState(false);
+
+  // true when this is running inside a Farcaster/Base mini app with wallet support
+  const [hasMiniAppWallet, setHasMiniAppWallet] = useState(false);
+
   const [connecting, setConnecting] = useState(false);
 
   const [stakingOpen, setStakingOpen] = useState(false);
@@ -154,26 +157,24 @@ export default function Home() {
     })();
   }, [isMiniAppReady, setMiniAppReady]);
 
-  // Detect if we’re running as a Farcaster mini app
+  // Detect if host supports wallet.getEthereumProvider (Farcaster app / Base app)
   useEffect(() => {
-    const detect = async () => {
+    (async () => {
       try {
-        const anySdk = sdk as any;
-        if (anySdk.host?.getInfo) {
-          await anySdk.host.getInfo();
-          setUsingMiniApp(true);
-        } else {
-          setUsingMiniApp(false);
-        }
-      } catch {
-        setUsingMiniApp(false);
+        const capabilities = await sdk.getCapabilities();
+        setHasMiniAppWallet(
+          Array.isArray(capabilities) &&
+            capabilities.includes("wallet.getEthereumProvider")
+        );
+      } catch (e) {
+        console.warn("Failed to get capabilities", e);
+        setHasMiniAppWallet(false);
       }
-    };
-    detect();
+    })();
   }, []);
 
   const shortAddr = (addr?: string | null) =>
-    addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
+    addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect";
 
   // --------- WALLET HANDLING ----------
   async function ensureWallet() {
@@ -187,37 +188,35 @@ export default function Home() {
       const anyWindow =
         typeof window !== "undefined" ? (window as any) : undefined;
 
-      if (usingMiniApp) {
-        // ✅ Use Farcaster in-app wallet provider
+      if (hasMiniAppWallet) {
+        // ✅ Use Farcaster/Base in-app wallet provider
         const ethProvider = await sdk.wallet.getEthereumProvider();
         p = new ethers.providers.Web3Provider(ethProvider as any, "any");
       } else {
         // ✅ Fallback to browser wallet (MetaMask, CBW, etc.)
         if (!anyWindow?.ethereum) {
           setMintStatus(
-            "No wallet found. Open this in the Farcaster app or install a browser wallet."
+            "No wallet found. Open this in the Farcaster/Base app or install a browser wallet."
           );
           setConnecting(false);
           return null;
         }
+
         await anyWindow.ethereum.request({
           method: "eth_requestAccounts",
         });
         p = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
-      }
 
-      const net = await p.getNetwork();
-
-      // Only attempt chain switch in normal browser mode,
-      // not inside the Farcaster mini app.
-      if (!usingMiniApp && anyWindow?.ethereum && net.chainId !== CHAIN_ID) {
-        try {
-          await anyWindow.ethereum.request({
-            method: "wallet_switchEthereumChain",
-            params: [{ chainId: "0x2105" }], // Base mainnet
-          });
-        } catch (e) {
-          console.warn("Network switch failed:", e);
+        const net = await p.getNetwork();
+        if (net.chainId !== CHAIN_ID && anyWindow.ethereum?.request) {
+          try {
+            await anyWindow.ethereum.request({
+              method: "wallet_switchEthereumChain",
+              params: [{ chainId: "0x2105" }], // Base mainnet
+            });
+          } catch (e) {
+            console.warn("Network switch failed:", e);
+          }
         }
       }
 
@@ -232,7 +231,7 @@ export default function Home() {
       return { signer: s, provider: p, userAddress: addr };
     } catch (err) {
       console.error("Wallet connect failed:", err);
-      if (usingMiniApp) {
+      if (hasMiniAppWallet) {
         setMintStatus(
           "Could not connect the Farcaster wallet. Make sure the mini app has wallet permissions."
         );
@@ -782,13 +781,14 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Simple wallet pill using Farcaster wallet or web wallet */}
+          {/* Wallet button – uses mini app wallet when available */}
           <div className={styles.walletWrapper}>
             <button
               type="button"
               className={styles.btnPrimary}
               onClick={ensureWallet}
               disabled={connecting}
+              style={{ paddingInline: 12, fontSize: 12 }}
             >
               {shortAddr(userAddress)}
             </button>
@@ -912,7 +912,7 @@ export default function Home() {
           }}
         >
           <Image
-            src="/fcweed-radio.gif" // put your GIF at public/fcweed-radio.gif
+            src="/fcweed-radio.gif"
             alt="FCWEED Radio Vibes"
             width={320}
             height={120}
