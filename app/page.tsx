@@ -159,7 +159,10 @@ export default function Home() {
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
 
   // ---- wallet_sendCalls helper for Farcaster provider ----
-  async function sendWalletBatch(calls: { to: string; data: string }[]) {
+  async function sendWalletBatch(
+    from: string,
+    calls: { to: string; data: string }[]
+  ) {
     if (!usingMiniApp || !miniAppEthProvider) {
       throw new Error("wallet_sendCalls not available");
     }
@@ -179,6 +182,8 @@ export default function Home() {
       params: [
         {
           chainId: chainIdHex,
+          from,
+          atomicRequired: true,
           calls: calls.map((c) => ({
             to: c.to,
             data: c.data,
@@ -378,7 +383,7 @@ export default function Home() {
         setMintStatus(
           "Opening Farcaster wallet to approve USDC and mint Land…"
         );
-        await sendWalletBatch([
+        await sendWalletBatch(ctx.userAddress, [
           { to: USDC_ADDRESS, data: approveData },
           { to: LAND_ADDRESS, data: mintData },
         ]);
@@ -430,7 +435,7 @@ export default function Home() {
         setMintStatus(
           "Opening Farcaster wallet to approve USDC and mint Plant…"
         );
-        await sendWalletBatch([
+        await sendWalletBatch(ctx.userAddress, [
           { to: USDC_ADDRESS, data: approveData },
           { to: PLANT_ADDRESS, data: mintData },
         ]);
