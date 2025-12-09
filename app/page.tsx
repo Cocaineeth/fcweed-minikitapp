@@ -137,12 +137,21 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (audioRef.current && isPlaying) {
-      audioRef.current
-        .play()
-        .catch(() => {});
-    }
-  }, [currentTrack, isPlaying]);
+    // Try to autoplay once on first load
+    const tryAutoplay = async () => {
+      if (!audioRef.current) return;
+      try {
+        await audioRef.current.play();
+        setIsPlaying(true);
+      } catch (e) {
+        // Autoplay was probably blocked by the browser; user will need to tap play
+        console.warn("Autoplay blocked by browser", e);
+        setIsPlaying(false);
+      }
+    };
+
+    tryAutoplay();
+  }, []);
 
   const shortAddr = (addr?: string | null) =>
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
@@ -736,6 +745,13 @@ export default function Home() {
             }}
           >
             <span style={{ opacity: 0.9, fontWeight: 600 }}>Farcaster Radio</span>
+
+            {/* scrolling title */}
+            <div className={styles.radioTitleWrap}>
+              <div className={styles.radioTitleInner}>
+                {currentTrackMeta.title}
+              </div>
+            </div>
 
             <button
               type="button"

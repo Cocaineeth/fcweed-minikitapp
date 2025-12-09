@@ -402,4 +402,25 @@
   .modalBody {
     grid-template-columns: minmax(0, 1fr);
   }
+
+.radioTitleWrap {
+  position: relative;
+  max-width: 150px;        /* you can tweak this */
+  overflow: hidden;
+}
+
+.radioTitleInner {
+  display: inline-block;
+  white-space: nowrap;
+  animation: fc-marquee 12s linear infinite;
+}
+
+/* simple left-to-right scroll loop */
+@keyframes fc-marquee {
+  0% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
 }
