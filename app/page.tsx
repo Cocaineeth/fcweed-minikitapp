@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
-import { Wallet } from "@coinbase/onchainkit/wallet";
 import { useMiniKit } from "@coinbase/onchainkit/minikit";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { ethers } from "ethers";
@@ -105,44 +104,45 @@ export default function Home() {
   const [plantImages, setPlantImages] = useState<Record<number, string>>({});
   const [landImages, setLandImages] = useState<Record<number, string>>({});
 
-    const [mintStatus, setMintStatus] = useState<string>("");
+  const [mintStatus, setMintStatus] = useState<string>("");
 
-    // ==== Farcaster Radio state ====
-    const [currentTrack, setCurrentTrack] = useState(0);
-    const [isPlaying, setIsPlaying] = useState(true); // try to autoplay by default
-    const audioRef = useRef<HTMLAudioElement | null>(null);
+  // ==== Farcaster Radio state ====
+  const [currentTrack, setCurrentTrack] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(true); // try to autoplay by default
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-    const currentTrackMeta = PLAYLIST[currentTrack];
+  const currentTrackMeta = PLAYLIST[currentTrack];
 
-    // Best-effort autoplay + keep playing when track changes
-    useEffect(() => {
-      if (!audioRef.current) return;
+  // Best-effort autoplay + keep playing when track changes
+  useEffect(() => {
+    if (!audioRef.current) return;
 
-      if (isPlaying) {
-        audioRef.current
-          .play()
-          .catch((err) => {
-            // Autoplay blocked – require a manual click
-            console.warn("Autoplay blocked by browser", err);
-            setIsPlaying(false);
-          });
-      } else {
-        audioRef.current.pause();
-      }
-    }, [isPlaying, currentTrack]);
+    if (isPlaying) {
+      audioRef.current
+        .play()
+        .catch((err) => {
+          // Autoplay blocked – require a manual click
+          console.warn("Autoplay blocked by browser", err);
+          setIsPlaying(false);
+        });
+    } else {
+      audioRef.current.pause();
+    }
+  }, [isPlaying, currentTrack]);
 
-    const handlePlayPause = () => {
-      setIsPlaying((prev) => !prev);
-    };
+  const handlePlayPause = () => {
+    setIsPlaying((prev) => !prev);
+  };
 
-    const handleNextTrack = () => {
-      setCurrentTrack((prev) => (prev + 1) % PLAYLIST.length);
-    };
+  const handleNextTrack = () => {
+    setCurrentTrack((prev) => (prev + 1) % PLAYLIST.length);
+  };
 
-    const handlePrevTrack = () => {
-      setCurrentTrack((prev) => (prev - 1 + PLAYLIST.length) % PLAYLIST.length);
-    };
+  const handlePrevTrack = () => {
+    setCurrentTrack((prev) => (prev - 1 + PLAYLIST.length) % PLAYLIST.length);
+  };
 
+  // Mini app ready wiring
   useEffect(() => {
     if (!isMiniAppReady) {
       setMiniAppReady();
@@ -154,6 +154,7 @@ export default function Home() {
     })();
   }, [isMiniAppReady, setMiniAppReady]);
 
+  // Detect if we’re running as a Farcaster mini app
   useEffect(() => {
     const detect = async () => {
       try {
@@ -174,6 +175,7 @@ export default function Home() {
   const shortAddr = (addr?: string | null) =>
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
 
+  // --------- WALLET HANDLING ----------
   async function ensureWallet() {
     if (signer && provider && userAddress) {
       return { signer, provider, userAddress };
@@ -182,15 +184,18 @@ export default function Home() {
     try {
       setConnecting(true);
       let p: ethers.providers.Web3Provider;
+      const anyWindow =
+        typeof window !== "undefined" ? (window as any) : undefined;
 
       if (usingMiniApp) {
+        // ✅ Use Farcaster in-app wallet provider
         const ethProvider = await sdk.wallet.getEthereumProvider();
         p = new ethers.providers.Web3Provider(ethProvider as any, "any");
       } else {
-        const anyWindow = window as any;
-        if (!anyWindow.ethereum) {
+        // ✅ Fallback to browser wallet (MetaMask, CBW, etc.)
+        if (!anyWindow?.ethereum) {
           setMintStatus(
-            "No wallet found. Open this in the Base app / Warpcast, or install MetaMask."
+            "No wallet found. Open this in the Farcaster app or install a browser wallet."
           );
           setConnecting(false);
           return null;
@@ -201,21 +206,23 @@ export default function Home() {
         p = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
       }
 
-      const s = p.getSigner();
-      const addr = await s.getAddress();
       const net = await p.getNetwork();
 
-      if (net.chainId !== CHAIN_ID) {
-        const anyWindow = window as any;
-        if (anyWindow.ethereum?.request) {
-          try {
-            await anyWindow.ethereum.request({
-              method: "wallet_switchEthereumChain",
-              params: [{ chainId: "0x2105" }],
-            });
-          } catch {}
+      // Only attempt chain switch in normal browser mode,
+      // not inside the Farcaster mini app.
+      if (!usingMiniApp && anyWindow?.ethereum && net.chainId !== CHAIN_ID) {
+        try {
+          await anyWindow.ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: "0x2105" }], // Base mainnet
+          });
+        } catch (e) {
+          console.warn("Network switch failed:", e);
         }
       }
+
+      const s = p.getSigner();
+      const addr = await s.getAddress();
 
       setProvider(p);
       setSigner(s);
@@ -227,7 +234,7 @@ export default function Home() {
       console.error("Wallet connect failed:", err);
       if (usingMiniApp) {
         setMintStatus(
-          "Could not connect Warpcast wallet. Make sure the mini app has wallet permissions."
+          "Could not connect the Farcaster wallet. Make sure the mini app has wallet permissions."
         );
       } else {
         setMintStatus("Wallet connect failed. Check your wallet and try again.");
@@ -539,7 +546,11 @@ export default function Home() {
       userAddress: string;
     }
   ) {
-    const nft = new ethers.Contract(collectionAddress, ERC721_VIEW_ABI, ctx.signer);
+    const nft = new ethers.Contract(
+      collectionAddress,
+      ERC721_VIEW_ABI,
+      ctx.signer
+    );
     const approved: boolean = await nft.isApprovedForAll(
       ctx.userAddress,
       STAKING_ADDRESS
@@ -557,7 +568,7 @@ export default function Home() {
     const toStakePlants = selectedAvailPlants;
     const toStakeLands = selectedAvailLands;
 
-       if (toStakePlants.length === 0 && toStakeLands.length === 0) {
+    if (toStakePlants.length === 0 && toStakeLands.length === 0) {
       setMintStatus("No NFTs selected to stake.");
       return;
     }
@@ -737,42 +748,50 @@ export default function Home() {
 
           {/* Compact Farcaster Radio pill */}
           <div className={styles.radioPill}>
-           <span className={styles.radioLabel}>Farcaster Radio</span>
+            <span className={styles.radioLabel}>Farcaster Radio</span>
 
-           <div className={styles.radioTitleWrap}>
-             <span className={styles.radioTitleInner}>
-               {currentTrackMeta.title}
-             </span>
-           </div>
+            <div className={styles.radioTitleWrap}>
+              <span className={styles.radioTitleInner}>
+                {currentTrackMeta.title}
+              </span>
+            </div>
 
-           <button
-             type="button"
-             className={styles.iconButtonSmall}
-             onClick={handlePrevTrack}
-             aria-label="Previous track"
-           >
-             ‹
-           </button>
-           <button
-             type="button"
-             className={styles.iconButtonSmall}
-             onClick={handlePlayPause}
-             aria-label={isPlaying ? "Pause" : "Play"}
-           >
-             {isPlaying ? "❚❚" : "▶"}
-           </button>
-           <button
-             type="button"
-             className={styles.iconButtonSmall}
-             onClick={handleNextTrack}
-             aria-label="Next track"
-           >
-             ›
-             </button>
-           </div>
+            <button
+              type="button"
+              className={styles.iconButtonSmall}
+              onClick={handlePrevTrack}
+              aria-label="Previous track"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              className={styles.iconButtonSmall}
+              onClick={handlePlayPause}
+              aria-label={isPlaying ? "Pause" : "Play"}
+            >
+              {isPlaying ? "❚❚" : "▶"}
+            </button>
+            <button
+              type="button"
+              className={styles.iconButtonSmall}
+              onClick={handleNextTrack}
+              aria-label="Next track"
+            >
+              ›
+            </button>
+          </div>
 
+          {/* Simple wallet pill using Farcaster wallet or web wallet */}
           <div className={styles.walletWrapper}>
-            <Wallet />
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={ensureWallet}
+              disabled={connecting}
+            >
+              {shortAddr(userAddress)}
+            </button>
           </div>
 
           <audio
