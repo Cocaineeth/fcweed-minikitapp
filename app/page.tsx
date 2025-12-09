@@ -253,12 +253,18 @@ export default function Home() {
     const { signer: s, provider: p, userAddress: addr } = ctx;
 
     setMintStatus("Checking USDC contract on Base…");
-    const code = await p!.getCode(USDC_ADDRESS);
-    if (code === "0x") {
-      setMintStatus(
-        "USDC token not found on this network. Please make sure you are on Base mainnet."
-      );
-      return false;
+
+    // getCode can be flaky on some in-app providers – don't hard fail
+    try {
+      const code = await p!.getCode(USDC_ADDRESS);
+      if (code === "0x") {
+        setMintStatus(
+          "USDC token not found on this network. Please make sure you are on Base mainnet."
+        );
+        return false;
+      }
+    } catch (e) {
+      console.warn("getCode(USDC) failed, continuing anyway:", e);
     }
 
     const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
@@ -278,15 +284,16 @@ export default function Home() {
       console.warn("USDC balanceOf failed (continuing):", e);
     }
 
-    let current: ethers.BigNumber;
+    // 👇 This is the main fix: don't error out if allowance() fails in Farcaster app
+    let current: ethers.BigNumber = ethers.constants.Zero;
     try {
       current = await usdc.allowance(addr, spender);
     } catch (e) {
-      console.error("USDC allowance() call reverted:", e);
-      setMintStatus(
-        "Error reading USDC allowance. Double-check that you’re on Base and the USDC address is correct."
+      console.warn(
+        "USDC allowance() failed, assuming 0 and proceeding to approve:",
+        e
       );
-      return false;
+      current = ethers.constants.Zero;
     }
 
     if (current.gte(required)) {
