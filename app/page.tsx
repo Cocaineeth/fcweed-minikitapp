@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
-import { Wallet } from "@coinbase/onchainkit/wallet";
 import { useMiniKit } from "@coinbase/onchainkit/minikit";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { ethers } from "ethers";
@@ -56,6 +55,10 @@ const STAKING_ABI = [
   "function claimEnabled() view returns (bool)",
 ];
 
+const usdcInterface = new ethers.utils.Interface(USDC_ABI);
+const landInterface = new ethers.utils.Interface(LAND_ABI);
+const plantInterface = new ethers.utils.Interface(PLANT_ABI);
+
 type StakingStats = {
   plantsStaked: number;
   landsStaked: number;
@@ -84,6 +87,9 @@ export default function Home() {
   const [userAddress, setUserAddress] = useState<string | null>(null);
   const [usingMiniApp, setUsingMiniApp] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [miniAppEthProvider, setMiniAppEthProvider] = useState<any | null>(
+    null
+  );
 
   const [stakingOpen, setStakingOpen] = useState(false);
   const [stakingStats, setStakingStats] = useState<StakingStats | null>(null);
@@ -109,11 +115,12 @@ export default function Home() {
 
   // ==== Farcaster Radio state ====
   const [currentTrack, setCurrentTrack] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(true); // try to autoplay by default
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const currentTrackMeta = PLAYLIST[currentTrack];
 
+  // Best-effort autoplay + keep playing when track changes
   useEffect(() => {
     if (!audioRef.current) return;
 
@@ -121,10 +128,11 @@ export default function Home() {
       audioRef.current
         .play()
         .catch((err) => {
+          // Autoplay blocked – require a manual click
           console.warn("Autoplay blocked by browser", err);
           setIsPlaying(false);
         });
-    } else {
+    } else if (!audioRef.current.paused) {
       audioRef.current.pause();
     }
   }, [isPlaying, currentTrack]);
@@ -141,7 +149,7 @@ export default function Home() {
     setCurrentTrack((prev) => (prev - 1 + PLAYLIST.length) % PLAYLIST.length);
   };
 
-  // Base mini-app ready hooks
+  // Mini app ready
   useEffect(() => {
     if (!isMiniAppReady) {
       setMiniAppReady();
@@ -149,16 +157,23 @@ export default function Home() {
     (async () => {
       try {
         await sdk.actions.ready();
-      } catch {}
+      } catch {
+        // ignore
+      }
     })();
   }, [isMiniAppReady, setMiniAppReady]);
 
-  // Best-effort environment detection on mount (used for UI only)
+  // Detect if we are inside mini app
   useEffect(() => {
     const detect = async () => {
       try {
-        const mini = await sdk.isInMiniApp();
-        setUsingMiniApp(mini);
+        const anySdk = sdk as any;
+        if (anySdk.host?.getInfo) {
+          await anySdk.host.getInfo();
+          setUsingMiniApp(true);
+        } else {
+          setUsingMiniApp(false);
+        }
       } catch {
         setUsingMiniApp(false);
       }
@@ -169,7 +184,39 @@ export default function Home() {
   const shortAddr = (addr?: string | null) =>
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
 
-  // ===== CORE: always prefer Farcaster wallet when inside a mini app =====
+  // Helper for wallet_sendCalls on Farcaster mobile
+  async function sendWalletCalls(to: string, data: string) {
+    if (!usingMiniApp || !miniAppEthProvider) {
+      throw new Error("wallet_sendCalls not available");
+    }
+
+    const req =
+      miniAppEthProvider.request?.bind(miniAppEthProvider) ??
+      miniAppEthProvider.send?.bind(miniAppEthProvider);
+
+    if (!req) {
+      throw new Error("Mini app provider missing request/send");
+    }
+
+    const chainIdHex = ethers.utils.hexValue(CHAIN_ID); // 0x2105
+
+    return await req({
+      method: "wallet_sendCalls",
+      params: [
+        {
+          chainId: chainIdHex,
+          calls: [
+            {
+              to,
+              data,
+              value: "0x0",
+            },
+          ],
+        },
+      ],
+    });
+  }
+
   async function ensureWallet() {
     if (signer && provider && userAddress) {
       return { signer, provider, userAddress };
@@ -177,30 +224,19 @@ export default function Home() {
 
     try {
       setConnecting(true);
-
-      // Re-check mini app status at call time (mobile Farcaster especially)
-      let mini = usingMiniApp;
-      if (!mini) {
-        try {
-          mini = await sdk.isInMiniApp();
-          if (mini) setUsingMiniApp(true);
-        } catch {
-          mini = false;
-        }
-      }
-
       let p: ethers.providers.Web3Provider;
 
-      if (mini) {
-        // Farcaster in-app wallet provider
+      if (usingMiniApp) {
+        // Use Farcaster wallet provider
         const ethProvider = await sdk.wallet.getEthereumProvider();
+        setMiniAppEthProvider(ethProvider as any);
         p = new ethers.providers.Web3Provider(ethProvider as any, "any");
       } else {
-        // Normal browser wallets (MetaMask, CB Wallet extension, etc.)
+        // Regular browser path (MetaMask, CBW, etc)
         const anyWindow = window as any;
         if (!anyWindow.ethereum) {
           setMintStatus(
-            "No wallet found. Open this in the Farcaster app / Base app, or install a browser wallet like MetaMask."
+            "No wallet found. Open this in Farcaster / Base app, or install a browser wallet."
           );
           setConnecting(false);
           return null;
@@ -213,19 +249,23 @@ export default function Home() {
 
       const s = p.getSigner();
       const addr = await s.getAddress();
-      const net = await p.getNetwork();
 
-      // Try to switch to Base only for browser wallets
-      if (!mini && net.chainId !== CHAIN_ID) {
-        const anyWindow = window as any;
-        if (anyWindow.ethereum?.request) {
-          try {
-            await anyWindow.ethereum.request({
-              method: "wallet_switchEthereumChain",
-              params: [{ chainId: "0x2105" }],
-            });
-          } catch {
-            // ignore – user can switch manually
+      // Just sanity-check chain; don't try to switch chains inside mini app
+      const net = await p.getNetwork();
+      if (net.chainId !== CHAIN_ID) {
+        if (usingMiniApp) {
+          setMintStatus("Please switch your wallet to Base to mint.");
+        } else {
+          const anyWindow = window as any;
+          if (anyWindow.ethereum?.request) {
+            try {
+              await anyWindow.ethereum.request({
+                method: "wallet_switchEthereumChain",
+                params: [{ chainId: "0x2105" }],
+              });
+            } catch {
+              // ignore
+            }
           }
         }
       }
@@ -238,13 +278,18 @@ export default function Home() {
       return { signer: s, provider: p, userAddress: addr };
     } catch (err) {
       console.error("Wallet connect failed:", err);
-      setMintStatus("Wallet connect failed. Check your wallet and try again.");
+      if (usingMiniApp) {
+        setMintStatus(
+          "Could not connect Farcaster wallet. Make sure the mini app has wallet permissions."
+        );
+      } else {
+        setMintStatus("Wallet connect failed. Check your wallet and try again.");
+      }
       setConnecting(false);
       return null;
     }
   }
 
-  // ===== USDC allowance / balance (keeps “you need at least …” messages) =====
   async function ensureUsdcAllowance(
     spender: string,
     required: ethers.BigNumber
@@ -252,13 +297,20 @@ export default function Home() {
     const ctx = await ensureWallet();
     if (!ctx) return false;
 
-    const { signer: s, userAddress: addr } = ctx;
+    const { signer: s, provider: p, userAddress: addr } = ctx;
+
+    setMintStatus("Checking USDC contract on Base…");
+    const code = await p!.getCode(USDC_ADDRESS);
+    if (code === "0x") {
+      setMintStatus(
+        "USDC token not found on this network. Please make sure you are on Base mainnet."
+      );
+      return false;
+    }
 
     const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
 
-    // 1) Balance check – “You need at least … USDC”
     try {
-      setMintStatus("Checking your USDC balance on Base…");
       const bal = await usdc.balanceOf(addr);
       if (bal.lt(required)) {
         setMintStatus(
@@ -270,42 +322,50 @@ export default function Home() {
         return false;
       }
     } catch (e) {
-      console.warn("USDC balanceOf failed (continuing anyway):", e);
+      console.warn("USDC balanceOf failed (continuing):", e);
     }
 
-    // 2) Allowance check – tolerate providers that don’t support it
-    let current: ethers.BigNumber | null = null;
+    let current: ethers.BigNumber;
     try {
-      setMintStatus("Checking your USDC allowance…");
       current = await usdc.allowance(addr, spender);
-    } catch (e: any) {
-      console.warn("USDC allowance() failed:", e);
-      const msg =
-        e?.message?.toString().toLowerCase() ??
-        e?.error?.message?.toString().toLowerCase() ??
-        "";
-      if (msg.includes("does not support the requested method")) {
-        console.warn(
-          "Provider does not support allowance(); falling back to blind approve."
-        );
-        current = null;
-      } else {
-        setMintStatus(
-          "Error reading USDC allowance. Double-check that you're on Base and the USDC address is correct."
-        );
-        return false;
-      }
+    } catch (e) {
+      console.error("USDC allowance() call reverted:", e);
+      setMintStatus(
+        "Error reading USDC allowance. Double-check that you’re on Base and the USDC address is correct."
+      );
+      return false;
     }
 
-    if (current && current.gte(required)) {
+    if (current.gte(required)) {
       return true;
     }
 
     setMintStatus("Requesting USDC approve transaction in your wallet…");
-    const tx = await usdc.approve(spender, required);
-    await tx.wait();
-    setMintStatus("USDC approve confirmed. Sending mint transaction…");
-    return true;
+
+    try {
+      if (usingMiniApp && miniAppEthProvider) {
+        const data = usdcInterface.encodeFunctionData("approve", [
+          spender,
+          required,
+        ]);
+        await sendWalletCalls(USDC_ADDRESS, data);
+      } else {
+        const tx = await usdc.approve(spender, required);
+        await tx.wait();
+      }
+      setMintStatus("USDC approve confirmed. Sending mint transaction…");
+      return true;
+    } catch (err) {
+      console.error("USDC approve failed:", err);
+      const msg =
+        (err as any)?.reason ||
+        (err as any)?.error?.message ||
+        (err as any)?.data?.message ||
+        (err as any)?.message ||
+        "USDC approve failed";
+      setMintStatus(msg);
+      return false;
+    }
   }
 
   async function handleMintLand() {
@@ -320,13 +380,22 @@ export default function Home() {
       );
       if (!okAllowance) return;
 
-      const land = new ethers.Contract(LAND_ADDRESS, LAND_ABI, ctx.signer);
-      const tx = await land.mint();
-      setMintStatus("Land mint transaction sent. Waiting for confirmation…");
-      await tx.wait();
-      setMintStatus(
-        "Land mint submitted ✅ Check your wallet / explorer for confirmation."
-      );
+      if (usingMiniApp && miniAppEthProvider) {
+        const data = landInterface.encodeFunctionData("mint", []);
+        setMintStatus("Opening Farcaster wallet to mint Land…");
+        await sendWalletCalls(LAND_ADDRESS, data);
+        setMintStatus(
+          "Land mint submitted ✅ Check your Farcaster wallet / explorer for confirmation."
+        );
+      } else {
+        const land = new ethers.Contract(LAND_ADDRESS, LAND_ABI, ctx.signer);
+        const tx = await land.mint();
+        setMintStatus("Land mint transaction sent. Waiting for confirmation…");
+        await tx.wait();
+        setMintStatus(
+          "Land mint submitted ✅ Check your wallet / explorer for confirmation."
+        );
+      }
     } catch (err: any) {
       console.error("Mint Land error:", err);
       const msg =
@@ -351,13 +420,22 @@ export default function Home() {
       );
       if (!okAllowance) return;
 
-      const plant = new ethers.Contract(PLANT_ADDRESS, PLANT_ABI, ctx.signer);
-      const tx = await plant.mint();
-      setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
-      await tx.wait();
-      setMintStatus(
-        "Plant mint submitted ✅ Check your wallet / explorer for confirmation."
-      );
+      if (usingMiniApp && miniAppEthProvider) {
+        const data = plantInterface.encodeFunctionData("mint", []);
+        setMintStatus("Opening Farcaster wallet to mint Plant…");
+        await sendWalletCalls(PLANT_ADDRESS, data);
+        setMintStatus(
+          "Plant mint submitted ✅ Check your Farcaster wallet / explorer for confirmation."
+        );
+      } else {
+        const plant = new ethers.Contract(PLANT_ADDRESS, PLANT_ABI, ctx.signer);
+        const tx = await plant.mint();
+        setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
+        await tx.wait();
+        setMintStatus(
+          "Plant mint submitted ✅ Check your wallet / explorer for confirmation."
+        );
+      }
     } catch (err: any) {
       console.error("Mint Plant error:", err);
       const msg =
@@ -395,7 +473,9 @@ export default function Home() {
         const totalBn: ethers.BigNumber = await nft.totalSupply();
         const total = totalBn.toNumber();
         maxId = Math.min(total + 5, 2000);
-      } catch {}
+      } catch {
+        // ignore
+      }
 
       const ids: number[] = [];
       const ownerLower = owner.toLowerCase();
@@ -406,7 +486,9 @@ export default function Home() {
           if (who.toLowerCase() === ownerLower) {
             ids.push(tokenId);
           }
-        } catch {}
+        } catch {
+          // non-existent tokenId
+        }
       }
 
       return ids;
@@ -553,7 +635,11 @@ export default function Home() {
       userAddress: string;
     }
   ) {
-    const nft = new ethers.Contract(collectionAddress, ERC721_VIEW_ABI, ctx.signer);
+    const nft = new ethers.Contract(
+      collectionAddress,
+      ERC721_VIEW_ABI,
+      ctx.signer
+    );
     const approved: boolean = await nft.isApprovedForAll(
       ctx.userAddress,
       STAKING_ADDRESS
@@ -721,6 +807,7 @@ export default function Home() {
   return (
     <div
       className={styles.page}
+      // Fallback: if autoplay was blocked, first tap starts music
       onPointerDown={() => {
         if (!isPlaying && audioRef.current) {
           audioRef.current
@@ -731,31 +818,46 @@ export default function Home() {
       }}
     >
       <header className={styles.headerWrapper}>
-        {/* Left: FCWEED + connect pill stacked vertically */}
-        <div className={styles.brandBlock}>
-          <div className={styles.brandTopRow}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexShrink: 0,
+          }}
+        >
+          <div className={styles.brand}>
             <span className={styles.liveDot} />
             <span className={styles.brandText}>FCWEED</span>
           </div>
-          <div className={styles.walletRow}>
-            {usingMiniApp ? (
-              <button
-                type="button"
-                onClick={() => ensureWallet()}
-                className={styles.miniWalletButton}
-                disabled={connecting}
-              >
-                {shortAddr(userAddress)}
-              </button>
-            ) : (
-              <div className={styles.walletWrapper}>
-                <Wallet />
-              </div>
-            )}
-          </div>
+
+          {/* Clean wallet button */}
+          <button
+            type="button"
+            disabled={connecting}
+            onClick={() => {
+              // best-effort connect when tapped
+              void ensureWallet();
+            }}
+            className={styles.walletButton}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 999,
+              border: "1px solid rgba(255,255,255,0.25)",
+              background: connected
+                ? "rgba(0, 200, 130, 0.18)"
+                : "rgba(39, 95, 255, 0.55)",
+              fontSize: 12,
+              fontWeight: 500,
+              color: "#fff",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {shortAddr(userAddress)}
+          </button>
         </div>
 
-        {/* Right: X button + radio pill */}
         <div className={styles.headerRight}>
           <button
             className={styles.iconButton}
@@ -768,6 +870,7 @@ export default function Home() {
             𝕏
           </button>
 
+          {/* Compact Farcaster Radio pill */}
           <div className={styles.radioPill}>
             <span className={styles.radioLabel}>Farcaster Radio</span>
 
@@ -1260,7 +1363,8 @@ export default function Home() {
                   </span>
                   <span style={{ fontSize: 12 }}>
                     Selected:{" "}
-                    {selectedStakedPlants.length + selectedStakedLands.length}
+                    {selectedStakedPlants.length +
+                      selectedStakedLands.length}
                   </span>
                 </div>
 
