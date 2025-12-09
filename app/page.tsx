@@ -8,6 +8,7 @@ import { ethers } from "ethers";
 import styles from "./page.module.css";
 
 const CHAIN_ID = 8453;
+const PUBLIC_BASE_RPC = "https://mainnet.base.org";
 
 const PLANT_ADDRESS = "0xD84890240C2CBB66a825915cD20aEe89C6b66dD5";
 const LAND_ADDRESS = "0x798A8F4b4799CfaBe859C85889c78e42a57d71c1";
@@ -55,7 +56,6 @@ const STAKING_ABI = [
   "function claimEnabled() view returns (bool)",
 ];
 
-const usdcInterface = new ethers.utils.Interface(USDC_ABI);
 const landInterface = new ethers.utils.Interface(LAND_ABI);
 const plantInterface = new ethers.utils.Interface(PLANT_ABI);
 
@@ -81,6 +81,7 @@ const PLAYLIST = [
 export default function Home() {
   const { setMiniAppReady, isMiniAppReady } = useMiniKit();
 
+  // Wallet / signer
   const [provider, setProvider] =
     useState<ethers.providers.Web3Provider | null>(null);
   const [signer, setSigner] = useState<ethers.Signer | null>(null);
@@ -91,6 +92,12 @@ export default function Home() {
     null
   );
 
+  // Dedicated read-only RPC (works even if Farcaster provider is limited)
+  const [readProvider] = useState(
+    () => new ethers.providers.JsonRpcProvider(PUBLIC_BASE_RPC)
+  );
+
+  // Staking state
   const [stakingOpen, setStakingOpen] = useState(false);
   const [stakingStats, setStakingStats] = useState<StakingStats | null>(null);
   const [availablePlants, setAvailablePlants] = useState<number[]>([]);
@@ -141,7 +148,7 @@ export default function Home() {
   const handlePrevTrack = () =>
     setCurrentTrack((prev) => (prev - 1 + PLAYLIST.length) % PLAYLIST.length);
 
-  // Mark mini app ready for the host
+  // Mini app ready handshake
   useEffect(() => {
     if (!isMiniAppReady) {
       setMiniAppReady();
@@ -157,42 +164,6 @@ export default function Home() {
 
   const shortAddr = (addr?: string | null) =>
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
-
-  // ---- wallet_sendCalls helper for Farcaster provider ----
-  async function sendWalletBatch(
-    from: string,
-    calls: { to: string; data: string }[]
-  ) {
-    if (!usingMiniApp || !miniAppEthProvider) {
-      throw new Error("wallet_sendCalls not available");
-    }
-
-    const req =
-      miniAppEthProvider.request?.bind(miniAppEthProvider) ??
-      miniAppEthProvider.send?.bind(miniAppEthProvider);
-
-    if (!req) {
-      throw new Error("Mini app provider missing request/send");
-    }
-
-    const chainIdHex = ethers.utils.hexValue(CHAIN_ID); // 0x2105
-
-    return await req({
-      method: "wallet_sendCalls",
-      params: [
-        {
-          chainId: chainIdHex,
-          from,
-          atomicRequired: true,
-          calls: calls.map((c) => ({
-            to: c.to,
-            data: c.data,
-            value: "0x0",
-          })),
-        },
-      ],
-    });
-  }
 
   // ==== main wallet bootstrap – tries Farcaster provider FIRST ====
   async function ensureWallet() {
@@ -280,9 +251,7 @@ export default function Home() {
     }
   }
 
-  // === Balance + allowance helper ===
-  // Browser wallets: real allowance flow with approve + wait
-  // Farcaster mini app: only balance check (approve happens batched with mint)
+  // === Balance + allowance helper (reads via public RPC, writes via signer) ===
   async function ensureUsdcAllowance(
     spender: string,
     required: ethers.BigNumber
@@ -290,10 +259,10 @@ export default function Home() {
     const ctx = await ensureWallet();
     if (!ctx) return false;
 
-    const { signer: s, provider: p, userAddress: addr } = ctx;
+    const { signer: s, userAddress: addr } = ctx;
 
     setMintStatus("Checking USDC contract on Base…");
-    const code = await p!.getCode(USDC_ADDRESS);
+    const code = await readProvider.getCode(USDC_ADDRESS);
     if (code === "0x") {
       setMintStatus(
         "USDC token not found on this network. Please make sure you are on Base mainnet."
@@ -301,11 +270,12 @@ export default function Home() {
       return false;
     }
 
-    const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
+    const usdcRead = new ethers.Contract(USDC_ADDRESS, USDC_ABI, readProvider);
+    const usdcWrite = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
 
-    // --- Balance check (keep the “you need at least … USDC” message) ---
+    // Balance check
     try {
-      const bal = await usdc.balanceOf(addr);
+      const bal = await usdcRead.balanceOf(addr);
       if (bal.lt(required)) {
         setMintStatus(
           `You need at least ${ethers.utils.formatUnits(
@@ -319,21 +289,13 @@ export default function Home() {
       console.warn("USDC balanceOf failed (continuing):", e);
     }
 
-    // Farcaster path: skip allowance logic completely; we'll do approve+mint in one batch.
-    if (usingMiniApp && miniAppEthProvider) {
-      return true;
-    }
-
-    // Browser / extension wallet: normal allowance flow
-    let current: ethers.BigNumber;
+    // Allowance check
+    let current = ethers.constants.Zero;
     try {
-      current = await usdc.allowance(addr, spender);
-    } catch (e) {
-      console.error("USDC allowance() call reverted:", e);
-      setMintStatus(
-        "Error reading USDC allowance. Double-check that you’re on Base and the USDC address is correct."
-      );
-      return false;
+      current = await usdcRead.allowance(addr, spender);
+    } catch (e: any) {
+      console.warn("USDC allowance() read failed, treating as 0:", e);
+      current = ethers.constants.Zero;
     }
 
     if (current.gte(required)) {
@@ -343,7 +305,8 @@ export default function Home() {
     setMintStatus("Requesting USDC approve transaction in your wallet…");
 
     try {
-      const tx = await usdc.approve(spender, required);
+      // You can bump this to a larger allowance if you want multiple mints
+      const tx = await usdcWrite.approve(spender, required);
       await tx.wait();
       setMintStatus("USDC approve confirmed. Sending mint transaction…");
       return true;
@@ -372,34 +335,14 @@ export default function Home() {
       );
       if (!okAllowance) return;
 
-      if (usingMiniApp && miniAppEthProvider) {
-        // Farcaster: approve + mint in a single wallet_sendCalls batch
-        const approveData = usdcInterface.encodeFunctionData("approve", [
-          LAND_ADDRESS,
-          LAND_PRICE_USDC,
-        ]);
-        const mintData = landInterface.encodeFunctionData("mint", []);
-
-        setMintStatus(
-          "Opening Farcaster wallet to approve USDC and mint Land…"
-        );
-        await sendWalletBatch(ctx.userAddress, [
-          { to: USDC_ADDRESS, data: approveData },
-          { to: LAND_ADDRESS, data: mintData },
-        ]);
-        setMintStatus(
-          "Land mint submitted ✅ Check your Farcaster wallet / explorer for confirmation."
-        );
-      } else {
-        // Browser / extension wallet: allowance already handled, just mint
-        const land = new ethers.Contract(LAND_ADDRESS, LAND_ABI, ctx.signer);
-        const tx = await land.mint();
-        setMintStatus("Land mint transaction sent. Waiting for confirmation…");
-        await tx.wait();
-        setMintStatus(
-          "Land mint submitted ✅ Check your wallet / explorer for confirmation."
-        );
-      }
+      // Single normal tx – works for browser + Farcaster
+      const land = new ethers.Contract(LAND_ADDRESS, LAND_ABI, ctx.signer);
+      const tx = await land.mint();
+      setMintStatus("Land mint transaction sent. Waiting for confirmation…");
+      await tx.wait();
+      setMintStatus(
+        "Land mint submitted ✅ Check your wallet / explorer for confirmation."
+      );
     } catch (err: any) {
       console.error("Mint Land error:", err);
       const msg =
@@ -424,33 +367,13 @@ export default function Home() {
       );
       if (!okAllowance) return;
 
-      if (usingMiniApp && miniAppEthProvider) {
-        // Farcaster: approve + mint in a single wallet_sendCalls batch
-        const approveData = usdcInterface.encodeFunctionData("approve", [
-          PLANT_ADDRESS,
-          PLANT_PRICE_USDC,
-        ]);
-        const mintData = plantInterface.encodeFunctionData("mint", []);
-
-        setMintStatus(
-          "Opening Farcaster wallet to approve USDC and mint Plant…"
-        );
-        await sendWalletBatch(ctx.userAddress, [
-          { to: USDC_ADDRESS, data: approveData },
-          { to: PLANT_ADDRESS, data: mintData },
-        ]);
-        setMintStatus(
-          "Plant mint submitted ✅ Check your Farcaster wallet / explorer for confirmation."
-        );
-      } else {
-        const plant = new ethers.Contract(PLANT_ADDRESS, PLANT_ABI, ctx.signer);
-        const tx = await plant.mint();
-        setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
-        await tx.wait();
-        setMintStatus(
-          "Plant mint submitted ✅ Check your wallet / explorer for confirmation."
-        );
-      }
+      const plant = new ethers.Contract(PLANT_ADDRESS, PLANT_ABI, ctx.signer);
+      const tx = await plant.mint();
+      setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
+      await tx.wait();
+      setMintStatus(
+        "Plant mint submitted ✅ Check your wallet / explorer for confirmation."
+      );
     } catch (err: any) {
       console.error("Mint Plant error:", err);
       const msg =
@@ -474,15 +397,13 @@ export default function Home() {
 
   async function loadOwnedTokens(
     nftAddress: string,
-    owner: string,
-    prov: ethers.providers.Provider
+    owner: string
   ): Promise<number[]> {
     try {
-      const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, prov);
+      const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, readProvider);
       const balBn: ethers.BigNumber = await nft.balanceOf(owner);
       const bal = balBn.toNumber();
       if (bal === 0) return [];
-
       let maxId = 2000;
       try {
         const totalBn: ethers.BigNumber = await nft.totalSupply();
@@ -515,14 +436,13 @@ export default function Home() {
 
   async function fetchNftImages(
     nftAddress: string,
-    ids: number[],
-    prov: ethers.providers.Provider
+    ids: number[]
   ): Promise<Record<number, string>> {
     const out: Record<number, string> = {};
     if (ids.length === 0) return out;
 
     try {
-      const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, prov);
+      const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, readProvider);
       for (const id of ids) {
         try {
           const uri: string = await nft.tokenURI(id);
@@ -549,12 +469,12 @@ export default function Home() {
     const ctx = await ensureWallet();
     if (!ctx) return;
 
-    const { provider: p, userAddress: addr } = ctx;
+    const { userAddress: addr } = ctx;
 
     const staking = new ethers.Contract(
       STAKING_ADDRESS,
       STAKING_ABI,
-      p as ethers.providers.Provider
+      readProvider
     );
 
     setLoadingStaking(true);
@@ -584,8 +504,8 @@ export default function Home() {
       const landBoostPct = (landsStaked * Number(landBps)) / 100;
       const pendingFormatted = ethers.utils.formatUnits(pendingRaw, 18);
 
-      const plantOwned = await loadOwnedTokens(PLANT_ADDRESS, addr, p);
-      const landOwned = await loadOwnedTokens(LAND_ADDRESS, addr, p);
+      const plantOwned = await loadOwnedTokens(PLANT_ADDRESS, addr);
+      const landOwned = await loadOwnedTokens(LAND_ADDRESS, addr);
 
       const stakedPlantNums = stakedPlantIds.map((x: any) => Number(x));
       const stakedLandNums = stakedLandIds.map((x: any) => Number(x));
@@ -620,8 +540,8 @@ export default function Home() {
       );
 
       const [plantImgs, landImgs] = await Promise.all([
-        fetchNftImages(PLANT_ADDRESS, allPlantIds, p),
-        fetchNftImages(LAND_ADDRESS, allLandIds, p),
+        fetchNftImages(PLANT_ADDRESS, allPlantIds),
+        fetchNftImages(LAND_ADDRESS, allLandIds),
       ]);
 
       setPlantImages(plantImgs);
@@ -646,7 +566,6 @@ export default function Home() {
     collectionAddress: string,
     ctx: {
       signer: ethers.Signer;
-      provider: ethers.providers.Provider;
       userAddress: string;
     }
   ) {

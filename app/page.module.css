@@ -385,7 +385,6 @@
   color: #9ca3af;
 }
 
-/* === Farcaster Radio marquee === */
 .radioPill {
   display: flex;
   align-items: center;
@@ -422,7 +421,6 @@
   border-color: #2b55ff;
 }
 
-/* Farcaster Radio scrolling text area */
 .radioTitleWrap {
   position: relative;
   max-width: 120px; /* keeps the pill small */
@@ -454,17 +452,14 @@
   }
 }
 
-/* ---- your existing responsive stuff below ---- */
 
 @media (max-width: 900px) {
   .heroCard {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* ...whatever you already had here... */
 }
 
-/* if you have more media queries, keep them as-is */
 
 
 @media (max-width: 900px) {
