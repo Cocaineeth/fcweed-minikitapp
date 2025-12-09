@@ -297,7 +297,7 @@ export default function Home() {
 
     const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
 
-    // Balance check (shows the “You need at least … USDC” message)
+    // Balance check (keeps your “You need at least … USDC” message)
     try {
       const bal = await usdc.balanceOf(addr);
       if (bal.lt(required)) {
@@ -318,8 +318,7 @@ export default function Home() {
       current = await usdc.allowance(addr, spender);
     } catch (e) {
       console.error("USDC allowance() call reverted:", e);
-      // On Farcaster mobile, some providers don't support this call yet.
-      // Treat it as zero so we just request a fresh approval instead of erroring out.
+      // === CHANGE HERE: don't hard fail on Farcaster, treat as 0 and continue ===
       setMintStatus(
         "Could not read existing USDC allowance. We’ll ask you to approve USDC in your wallet now."
       );
@@ -705,4 +704,868 @@ export default function Home() {
       ctx.signer
     );
 
+    try {
+      setActionLoading(true);
 
+      if (toUnstakePlants.length > 0) {
+        const tx = await staking.unstakePlants(
+          toUnstakePlants.map((id) => ethers.BigNumber.from(id))
+        );
+        await tx.wait();
+      }
+
+      if (toUnstakeLands.length > 0) {
+        const tx2 = await staking.unstakeLands(
+          toUnstakeLands.map((id) => ethers.BigNumber.from(id))
+        );
+        await tx2.wait();
+      }
+
+      setSelectedStakedPlants([]);
+      setSelectedStakedLands([]);
+      await refreshStaking();
+    } catch (err) {
+      console.error("Unstake selected error:", err);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleClaim() {
+    const ctx = await ensureWallet();
+    if (!ctx) return;
+
+    const staking = new ethers.Contract(
+      STAKING_ADDRESS,
+      STAKING_ABI,
+      ctx.signer
+    );
+
+    const pendingAmount =
+      stakingStats && stakingStats.pendingFormatted
+        ? parseFloat(stakingStats.pendingFormatted)
+        : 0;
+
+    if (!pendingAmount || pendingAmount <= 0) {
+      setMintStatus("No pending rewards to claim yet.");
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      const tx = await staking.claim();
+      await tx.wait();
+      await refreshStaking();
+    } catch (err) {
+      console.error("Claim error:", err);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  const connected = !!userAddress;
+  const pendingFloat = stakingStats
+    ? parseFloat(stakingStats.pendingFormatted || "0")
+    : 0;
+
+  const pendingDisplay =
+    pendingFloat > 0
+      ? pendingFloat >= 1_000_000
+        ? `${(pendingFloat / 1_000_000).toFixed(2)}M`
+        : pendingFloat.toFixed(2)
+      : "0.00";
+
+  const totalAvailable = availablePlants.length + availableLands.length;
+
+  const toggleId = (
+    id: number,
+    list: number[],
+    setter: (v: number[]) => void
+  ) => {
+    if (list.includes(id)) {
+      setter(list.filter((x) => x !== id));
+    } else {
+      setter([...list, id]);
+    }
+  };
+
+  const stakeDisabled = !connected || actionLoading;
+  const unstakeDisabled = !connected || actionLoading;
+  const claimDisabled = !connected || actionLoading;
+
+  return (
+    <div
+      className={styles.page}
+      onPointerDown={() => {
+        if (!isPlaying && audioRef.current) {
+          audioRef.current
+            .play()
+            .then(() => setIsPlaying(true))
+            .catch(() => {});
+        }
+      }}
+    >
+      <header className={styles.headerWrapper}>
+        {/* Brand + wallet stacked so header buttons don't get clipped */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: 6,
+            flexShrink: 0,
+          }}
+        >
+          <div className={styles.brand}>
+            <span className={styles.liveDot} />
+            <span className={styles.brandText}>FCWEED</span>
+          </div>
+
+          <button
+            type="button"
+            disabled={connecting}
+            onClick={() => {
+              void ensureWallet();
+            }}
+            className={styles.walletButton}
+            style={{
+              padding: "4px 12px",
+              borderRadius: 999,
+              border: "1px solid rgba(255,255,255,0.25)",
+              background: connected
+                ? "rgba(0, 200, 130, 0.18)"
+                : "rgba(39, 95, 255, 0.55)",
+              fontSize: 12,
+              fontWeight: 500,
+              color: "#fff",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {shortAddr(userAddress)}
+          </button>
+        </div>
+
+        <div className={styles.headerRight}>
+          <button
+            className={styles.iconButton}
+            aria-label="Twitter"
+            type="button"
+            onClick={() =>
+              window.open("https://x.com/x420Ponzi", "_blank")
+            }
+          >
+            𝕏
+          </button>
+
+          {/* Compact Farcaster Radio pill */}
+          <div className={styles.radioPill}>
+            <span className={styles.radioLabel}>Farcaster Radio</span>
+
+            <div className={styles.radioTitleWrap}>
+              <span className={styles.radioTitleInner}>
+                {currentTrackMeta.title}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              className={styles.iconButtonSmall}
+              onClick={handlePrevTrack}
+              aria-label="Previous track"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              className={styles.iconButtonSmall}
+              onClick={handlePlayPause}
+              aria-label={isPlaying ? "Pause" : "Play"}
+            >
+              {isPlaying ? "❚❚" : "▶"}
+            </button>
+            <button
+              type="button"
+              className={styles.iconButtonSmall}
+              onClick={handleNextTrack}
+              aria-label="Next track"
+            >
+              ›
+            </button>
+          </div>
+
+          <audio
+            ref={audioRef}
+            src={currentTrackMeta.src}
+            onEnded={handleNextTrack}
+            autoPlay
+            style={{ display: "none" }}
+          />
+        </div>
+      </header>
+
+      <main className={styles.main}>
+        <section className={styles.heroCard}>
+          <div className={styles.heroMedia}>
+            <Image
+              priority
+              src="/hero.png"
+              alt="x420 Ponzi Plants"
+              width={320}
+              height={320}
+              className={styles.heroImage}
+            />
+            <div className={styles.heroTags}>
+              <span className={styles.tag}>ERC-721</span>
+              <span className={styles.tag}>Base</span>
+              <span className={styles.tag}>x402</span>
+            </div>
+          </div>
+
+          <div className={styles.heroMain}>
+            <h1 className={styles.title}>FCWEED Farming on Base</h1>
+            <p className={styles.subtitle}>
+              Stake-to-earn Farming — Powered by FCWEED on Base
+              <br />
+              Collect Land &amp; Plant NFTs, stake them to grow yields, and
+              boost rewards with expansion.
+              <br />
+              Every Land NFT unlocks more Plant slots and increases your{" "}
+              <span className={styles.highlight}>Land Boost</span> for higher
+              payouts.
+            </p>
+
+            <div className={styles.ctaRow}>
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={handleMintLand}
+                disabled={connecting}
+              >
+                Mint Land
+              </button>
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={handleMintPlant}
+                disabled={connecting}
+              >
+                Mint Plant
+              </button>
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={() => setStakingOpen(true)}
+              >
+                Staking
+              </button>
+            </div>
+
+            {mintStatus && (
+              <p
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  opacity: 0.9,
+                  maxWidth: 420,
+                }}
+              >
+                {mintStatus}
+              </p>
+            )}
+
+            <div className={styles.ctaRowSecondary}>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() =>
+                  window.open(
+                    "https://element.market/collections/x420-land-1?search[toggles][0]=ALL",
+                    "_blank"
+                  )
+                }
+              >
+                Trade Land
+              </button>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() =>
+                  window.open(
+                    "https://element.market/collections/x420-plants?search[toggles][0]=ALL",
+                    "_blank"
+                  )
+                }
+              >
+                Trade Plant
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* GIF section between hero and info card */}
+        <section
+          style={{
+            margin: "18px 0",
+            display: "flex",
+            justifyContent: "center",
+          }}
+        >
+          <Image
+            src="/fcweed-radio.gif"
+            alt="FCWEED Radio Vibes"
+            width={320}
+            height={120}
+            style={{
+              borderRadius: 16,
+              objectFit: "cover",
+            }}
+          />
+        </section>
+
+        <section className={styles.infoCard}>
+          <h2 className={styles.heading}>How it Works</h2>
+          <ul className={styles.bulletList}>
+            <li>Connect your wallet on Base to begin.</li>
+            <li>Mint Plant Bud NFTs and stake them for yield.</li>
+            <li>Mint Land NFTs (all Lands are equal rarity).</li>
+            <li>
+              Each Land allows you to stake <b>+3 extra Plant Buds</b>.
+            </li>
+            <li>
+              Each Land grants a <b>+2.5% token boost</b> to all yield earned.
+            </li>
+            <li>
+              The more Land you stack — the stronger your multiplier will be.
+            </li>
+          </ul>
+
+          <h2 className={styles.heading}>Coming Soon</h2>
+          <ul className={styles.bulletList}>
+            <li>Plant NFT artwork reveal.</li>
+            <li>Reward token + staking UI polish.</li>
+            <li>
+              Stake, compound, and climb up the Crime Ladder (KOTH leaderboard).
+            </li>
+          </ul>
+        </section>
+      </main>
+
+      <footer className={styles.footer}>
+        <span>© 2025 FCWEED</span>
+      </footer>
+
+      {stakingOpen && (
+        <div className={styles.modalBackdrop}>
+          <div
+            className={styles.modal}
+            style={{
+              maxWidth: "900px",
+              width: "100%",
+              height: "90vh",
+              maxHeight: "90vh",
+              display: "flex",
+              flexDirection: "column",
+              overflowY: "auto",
+            }}
+          >
+            <header className={styles.modalHeader}>
+              <h2 className={styles.modalTitle}>Grow Lab Statistics</h2>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  className={styles.modalClose}
+                  onClick={refreshStaking}
+                  disabled={loadingStaking}
+                >
+                  ⟳
+                </button>
+                <button
+                  type="button"
+                  className={styles.modalClose}
+                  onClick={() => setStakingOpen(false)}
+                >
+                  ✕
+                </button>
+              </div>
+            </header>
+
+            <div className={styles.modalStatsGrid}>
+              <div className={styles.statCard}>
+                <span className={styles.statLabel}>Plants Staked</span>
+                <span className={styles.statValue}>
+                  {stakingStats ? stakingStats.plantsStaked : 0}
+                </span>
+              </div>
+              <div className={styles.statCard}>
+                <span className={styles.statLabel}>Lands Staked</span>
+                <span className={styles.statValue}>
+                  {stakingStats ? stakingStats.landsStaked : 0}
+                </span>
+              </div>
+              <div className={styles.statCard}>
+                <span className={styles.statLabel}>Capacity</span>
+                <span className={styles.statValue}>
+                  {stakingStats
+                    ? `${stakingStats.capacityUsed}/${stakingStats.totalSlots}`
+                    : "0/1"}
+                </span>
+              </div>
+              <div className={styles.statCard}>
+                <span className={styles.statLabel}>Land Boost</span>
+                <span className={styles.statValue}>
+                  {stakingStats
+                    ? `+${stakingStats.landBoostPct.toFixed(1)}%`
+                    : "+0.0%"}
+                </span>
+              </div>
+              <div className={styles.statCard}>
+                <span className={styles.statLabel}>Pending</span>
+                <span
+                  className={styles.statValue}
+                  style={{ fontSize: 13, wordBreak: "break-all" }}
+                >
+                  {pendingDisplay}
+                </span>
+              </div>
+            </div>
+
+            <div
+              className={styles.modalBody}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 14,
+                marginTop: 8,
+                paddingBottom: 8,
+                flex: 1,
+              }}
+            >
+              <div>
+                <div
+                  className={styles.nftHeader}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 4,
+                  }}
+                >
+                  <span>Available NFTs ({totalAvailable})</span>
+                  <label className={styles.selectAllRow}>
+                    <input
+                      type="checkbox"
+                      checked={
+                        totalAvailable > 0 &&
+                        selectedAvailPlants.length +
+                          selectedAvailLands.length ===
+                          totalAvailable
+                      }
+                      onChange={() => {
+                        if (
+                          selectedAvailPlants.length +
+                            selectedAvailLands.length ===
+                          totalAvailable
+                        ) {
+                          setSelectedAvailPlants([]);
+                          setSelectedAvailLands([]);
+                        } else {
+                          setSelectedAvailPlants(availablePlants);
+                          setSelectedAvailLands(availableLands);
+                        }
+                      }}
+                    />
+                    <span style={{ marginLeft: 6 }}>Select all</span>
+                  </label>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    overflowX: "auto",
+                    gap: 10,
+                    padding: "4px 2px 6px",
+                  }}
+                >
+                  {totalAvailable === 0 ? (
+                    <div className={styles.emptyState}>
+                      <span>No unstaked NFTs for your wallet.</span>
+                    </div>
+                  ) : (
+                    <>
+                      {availableLands.map((id) => {
+                        const img = landImages[id] || "/hero.png";
+                        return (
+                          <label
+                            key={`al-${id}`}
+                            className={styles.nftRow}
+                            style={{
+                              minWidth: 170,
+                              flexShrink: 0,
+                              flexDirection: "column",
+                              alignItems: "flex-start",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedAvailLands.includes(id)}
+                              onChange={() =>
+                                toggleId(
+                                  id,
+                                  selectedAvailLands,
+                                  setSelectedAvailLands
+                                )
+                              }
+                              style={{ marginBottom: 4 }}
+                            />
+                            <div
+                              className={styles.nftThumbWrap}
+                              style={{
+                                padding: 4,
+                                borderRadius: 14,
+                                border:
+                                  "1px solid rgba(255,255,255,0.18)",
+                                background: "#050814",
+                              }}
+                            >
+                              <img
+                                src={img}
+                                alt={`Land #${id}`}
+                                className={styles.nftThumb}
+                                style={{
+                                  width: 120,
+                                  height: 120,
+                                  borderRadius: 10,
+                                  objectFit: "cover",
+                                }}
+                              />
+                            </div>
+                            <div
+                              className={styles.nftMeta}
+                              style={{ marginTop: 6 }}
+                            >
+                              <div
+                                className={styles.nftName}
+                                style={{ fontSize: 13, fontWeight: 600 }}
+                              >
+                                x420 Land
+                              </div>
+                              <div
+                                className={styles.nftSub}
+                                style={{ fontSize: 11, opacity: 0.75 }}
+                              >
+                                #{id}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+
+                      {availablePlants.map((id) => {
+                        const img = plantImages[id] || "/hero.png";
+                        return (
+                          <label
+                            key={`ap-${id}`}
+                            className={styles.nftRow}
+                            style={{
+                              minWidth: 170,
+                              flexShrink: 0,
+                              flexDirection: "column",
+                              alignItems: "flex-start",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedAvailPlants.includes(id)}
+                              onChange={() =>
+                                toggleId(
+                                  id,
+                                  selectedAvailPlants,
+                                  setSelectedAvailPlants
+                                )
+                              }
+                              style={{ marginBottom: 4 }}
+                            />
+                            <div
+                              className={styles.nftThumbWrap}
+                              style={{
+                                padding: 4,
+                                borderRadius: 14,
+                                border:
+                                  "1px solid rgba(255,255,255,0.18)",
+                                background: "#050814",
+                              }}
+                            >
+                              <img
+                                src={img}
+                                alt={`Plant #${id}`}
+                                className={styles.nftThumb}
+                                style={{
+                                  width: 120,
+                                  height: 120,
+                                  borderRadius: 10,
+                                  objectFit: "cover",
+                                }}
+                              />
+                            </div>
+                            <div
+                              className={styles.nftMeta}
+                              style={{ marginTop: 6 }}
+                            >
+                              <div
+                                className={styles.nftName}
+                                style={{ fontSize: 13, fontWeight: 600 }}
+                              >
+                                x420 Plants
+                              </div>
+                              <div
+                                className={styles.nftSub}
+                                style={{ fontSize: 11, opacity: 0.75 }}
+                              >
+                                #{id}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ flex: 1 }}>
+                <div
+                  className={styles.nftHeader}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 4,
+                  }}
+                >
+                  <span>
+                    Staked NFTs{" "}
+                    {stakedPlants.length + stakedLands.length > 0
+                      ? `(${stakedPlants.length + stakedLands.length})`
+                      : ""}
+                  </span>
+                  <span style={{ fontSize: 12 }}>
+                    Selected:{" "}
+                    {selectedStakedPlants.length +
+                      selectedStakedLands.length}
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    overflowX: "auto",
+                    gap: 10,
+                    padding: "4px 2px 6px",
+                  }}
+                >
+                  {stakedPlants.length === 0 && stakedLands.length === 0 ? (
+                    <div className={styles.emptyState}>
+                      <span>No NFTs currently staked.</span>
+                    </div>
+                  ) : (
+                    <>
+                      {stakedLands.map((id) => {
+                        const img = landImages[id] || "/hero.png";
+                        return (
+                          <label
+                            key={`sl-${id}`}
+                            className={styles.nftRow}
+                            style={{
+                              minWidth: 170,
+                              flexShrink: 0,
+                              flexDirection: "column",
+                              alignItems: "flex-start",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedStakedLands.includes(id)}
+                              onChange={() =>
+                                toggleId(
+                                  id,
+                                  selectedStakedLands,
+                                  setSelectedStakedLands
+                                )
+                              }
+                              style={{ marginBottom: 4 }}
+                            />
+                            <div
+                              className={styles.nftThumbWrap}
+                              style={{
+                                padding: 4,
+                                borderRadius: 14,
+                                border:
+                                  "1px solid rgba(255,255,255,0.18)",
+                                background: "#050814",
+                              }}
+                            >
+                              <img
+                                src={img}
+                                alt={`Land #${id}`}
+                                className={styles.nftThumb}
+                                style={{
+                                  width: 120,
+                                  height: 120,
+                                  borderRadius: 10,
+                                  objectFit: "cover",
+                                }}
+                              />
+                            </div>
+                            <div
+                              className={styles.nftMeta}
+                              style={{ marginTop: 6 }}
+                            >
+                              <div
+                                className={styles.nftName}
+                                style={{ fontSize: 13, fontWeight: 600 }}
+                              >
+                                x420 Land
+                              </div>
+                              <div
+                                className={styles.nftSub}
+                                style={{ fontSize: 11, opacity: 0.75 }}
+                              >
+                                #{id}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+
+                      {stakedPlants.map((id) => {
+                        const img = plantImages[id] || "/hero.png";
+                        return (
+                          <label
+                            key={`sp-${id}`}
+                            className={styles.nftRow}
+                            style={{
+                              minWidth: 170,
+                              flexShrink: 0,
+                              flexDirection: "column",
+                              alignItems: "flex-start",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedStakedPlants.includes(id)}
+                              onChange={() =>
+                                toggleId(
+                                  id,
+                                  selectedStakedPlants,
+                                  setSelectedStakedPlants
+                                )
+                              }
+                              style={{ marginBottom: 4 }}
+                            />
+                            <div
+                              className={styles.nftThumbWrap}
+                              style={{
+                                padding: 4,
+                                borderRadius: 14,
+                                border:
+                                  "1px solid rgba(255,255,255,0.18)",
+                                background: "#050814",
+                              }}
+                            >
+                              <img
+                                src={img}
+                                alt={`Plant #${id}`}
+                                className={styles.nftThumb}
+                                style={{
+                                  width: 120,
+                                  height: 120,
+                                  borderRadius: 10,
+                                  objectFit: "cover",
+                                }}
+                              />
+                            </div>
+                            <div
+                              className={styles.nftMeta}
+                              style={{ marginTop: 6 }}
+                            >
+                              <div
+                                className={styles.nftName}
+                                style={{ fontSize: 13, fontWeight: 600 }}
+                              >
+                                x420 Plants
+                              </div>
+                              <div
+                                className={styles.nftSub}
+                                style={{ fontSize: 11, opacity: 0.75 }}
+                              >
+                                #{id}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div
+                className={styles.actionRow}
+                style={{
+                  marginTop: "auto",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 10,
+                }}
+              >
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  disabled={stakeDisabled}
+                  onClick={handleStakeSelected}
+                  style={{
+                    padding: "10px 22px",
+                    fontSize: 14,
+                    borderRadius: 999,
+                    minWidth: 88,
+                  }}
+                >
+                  Stake
+                </button>
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  disabled={unstakeDisabled}
+                  onClick={handleUnstakeSelected}
+                  style={{
+                    padding: "10px 22px",
+                    fontSize: 14,
+                    borderRadius: 999,
+                    minWidth: 88,
+                  }}
+                >
+                  Unstake
+                </button>
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  disabled={claimDisabled}
+                  onClick={handleClaim}
+                  style={{
+                    padding: "10px 22px",
+                    fontSize: 14,
+                    borderRadius: 999,
+                    minWidth: 88,
+                  }}
+                >
+                  Claim
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
