@@ -105,12 +105,43 @@ export default function Home() {
   const [plantImages, setPlantImages] = useState<Record<number, string>>({});
   const [landImages, setLandImages] = useState<Record<number, string>>({});
 
-  const [mintStatus, setMintStatus] = useState<string>("");
+    const [mintStatus, setMintStatus] = useState<string>("");
 
-  const [currentTrack, setCurrentTrack] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [triedAutoplay, setTriedAutoplay] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+    // ==== Farcaster Radio state ====
+    const [currentTrack, setCurrentTrack] = useState(0);
+    const [isPlaying, setIsPlaying] = useState(true); // try to autoplay by default
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    const currentTrackMeta = PLAYLIST[currentTrack];
+
+    // Best-effort autoplay + keep playing when track changes
+    useEffect(() => {
+      if (!audioRef.current) return;
+
+      if (isPlaying) {
+        audioRef.current
+          .play()
+          .catch((err) => {
+            // Autoplay blocked – require a manual click
+            console.warn("Autoplay blocked by browser", err);
+            setIsPlaying(false);
+          });
+      } else {
+        audioRef.current.pause();
+      }
+    }, [isPlaying, currentTrack]);
+
+    const handlePlayPause = () => {
+      setIsPlaying((prev) => !prev);
+    };
+
+    const handleNextTrack = () => {
+      setCurrentTrack((prev) => (prev + 1) % PLAYLIST.length);
+    };
+
+    const handlePrevTrack = () => {
+      setCurrentTrack((prev) => (prev - 1 + PLAYLIST.length) % PLAYLIST.length);
+    };
 
   useEffect(() => {
     if (!isMiniAppReady) {
@@ -139,29 +170,6 @@ export default function Home() {
     };
     detect();
   }, []);
-
-  // Try autoplay once on mount
-  useEffect(() => {
-    const tryAutoplay = async () => {
-      if (triedAutoplay || !audioRef.current) return;
-      setTriedAutoplay(true);
-      try {
-        await audioRef.current.play();
-        setIsPlaying(true);
-      } catch (err) {
-        // Most browsers will block this until first interaction
-        console.warn("Autoplay was blocked by the browser", err);
-      }
-    };
-    tryAutoplay();
-  }, [triedAutoplay]);
-
-  // Keep playing when track changes while isPlaying is true
-  useEffect(() => {
-    if (audioRef.current && isPlaying) {
-      audioRef.current.play().catch(() => {});
-    }
-  }, [currentTrack, isPlaying]);
 
   const shortAddr = (addr?: string | null) =>
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
@@ -696,31 +704,6 @@ export default function Home() {
   const unstakeDisabled = !connected || actionLoading;
   const claimDisabled = !connected || actionLoading;
 
-  const currentTrackMeta = PLAYLIST[currentTrack];
-
-  const handlePlayPause = () => {
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      audioRef.current
-        .play()
-        .then(() => setIsPlaying(true))
-        .catch(() => {});
-    }
-  };
-
-  const handleNextTrack = () => {
-    const next = (currentTrack + 1) % PLAYLIST.length;
-    setCurrentTrack(next);
-  };
-
-  const handlePrevTrack = () => {
-    const prev = (currentTrack - 1 + PLAYLIST.length) % PLAYLIST.length;
-    setCurrentTrack(prev);
-  };
-
   return (
     <div
       className={styles.page}
@@ -753,55 +736,40 @@ export default function Home() {
           </button>
 
           {/* Compact Farcaster Radio pill */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "2px 8px",
-              borderRadius: 999,
-              border: "1px solid rgba(255,255,255,0.18)",
-              background: "rgba(5,8,20,0.9)",
-              fontSize: 10,
-              maxWidth: 220,
-            }}
-          >
-            <span style={{ opacity: 0.9, fontWeight: 500 }}>Farcaster Radio</span>
-            <marquee
-              style={{
-                flex: 1,
-                maxWidth: 120,
-                whiteSpace: "nowrap",
-              }}
-              scrollAmount={3}
-            >
-              {currentTrackMeta.title}
-            </marquee>
-            <button
-              type="button"
-              className={styles.iconButton}
-              style={{ width: 22, height: 22, fontSize: 11 }}
-              onClick={handlePrevTrack}
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              className={styles.iconButton}
-              style={{ width: 22, height: 22, fontSize: 11 }}
-              onClick={handlePlayPause}
-            >
-              {isPlaying ? "❚❚" : "▶"}
-            </button>
-            <button
-              type="button"
-              className={styles.iconButton}
-              style={{ width: 22, height: 22, fontSize: 11 }}
-              onClick={handleNextTrack}
-            >
-              ›
-            </button>
-          </div>
+          <div className={styles.radioPill}>
+           <span className={styles.radioLabel}>Farcaster Radio</span>
+
+           <div className={styles.radioTitleWrap}>
+             <span className={styles.radioTitleInner}>
+               {currentTrackMeta.title}
+             </span>
+           </div>
+
+           <button
+             type="button"
+             className={styles.iconButtonSmall}
+             onClick={handlePrevTrack}
+             aria-label="Previous track"
+           >
+             ‹
+           </button>
+           <button
+             type="button"
+             className={styles.iconButtonSmall}
+             onClick={handlePlayPause}
+             aria-label={isPlaying ? "Pause" : "Play"}
+           >
+             {isPlaying ? "❚❚" : "▶"}
+           </button>
+           <button
+             type="button"
+             className={styles.iconButtonSmall}
+             onClick={handleNextTrack}
+             aria-label="Next track"
+           >
+             ›
+             </button>
+           </div>
 
           <div className={styles.walletWrapper}>
             <Wallet />
