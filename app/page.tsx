@@ -15,6 +15,9 @@ const LAND_ADDRESS = "0x798A8F4b4799CfaBe859C85889c78e42a57d71c1";
 const STAKING_ADDRESS = "0x9dA6B01BFcbf5ab256B7B1d46F316e946da85507";
 const TOKEN_SYMBOL = "FCWEED";
 
+const PLANT_FALLBACK_IMG = "/hero.png";
+const LAND_FALLBACK_IMG = "/land.png";
+
 const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const USDC_DECIMALS = 6;
 
@@ -58,6 +61,9 @@ const STAKING_ABI = [
 
 const landInterface = new ethers.utils.Interface(LAND_ABI);
 const plantInterface = new ethers.utils.Interface(PLANT_ABI);
+const usdcInterface = new ethers.utils.Interface(USDC_ABI);
+const erc721Interface = new ethers.utils.Interface(ERC721_VIEW_ABI);
+const stakingInterface = new ethers.utils.Interface(STAKING_ABI);
 
 type StakingStats = {
   plantsStaked: number;
@@ -67,6 +73,12 @@ type StakingStats = {
   landBoostPct: number;
   pendingFormatted: string;
   claimEnabled: boolean;
+};
+
+type WalletCtx = {
+  signer: ethers.Signer | null;
+  provider: ethers.providers.Provider | null;
+  userAddress: string;
 };
 
 const PLAYLIST = [
@@ -81,7 +93,6 @@ const PLAYLIST = [
 export default function Home() {
   const { setMiniAppReady, isMiniAppReady } = useMiniKit();
 
-  // Wallet / signer
   const [provider, setProvider] =
     useState<ethers.providers.Web3Provider | null>(null);
   const [signer, setSigner] = useState<ethers.Signer | null>(null);
@@ -92,12 +103,10 @@ export default function Home() {
     null
   );
 
-  // Dedicated read-only RPC (works even if Farcaster provider is limited)
   const [readProvider] = useState(
     () => new ethers.providers.JsonRpcProvider(PUBLIC_BASE_RPC)
   );
 
-  // Staking state
   const [stakingOpen, setStakingOpen] = useState(false);
   const [stakingStats, setStakingStats] = useState<StakingStats | null>(null);
   const [availablePlants, setAvailablePlants] = useState<number[]>([]);
@@ -120,7 +129,6 @@ export default function Home() {
 
   const [mintStatus, setMintStatus] = useState<string>("");
 
-  // ==== Farcaster Radio state ====
   const [currentTrack, setCurrentTrack] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -133,8 +141,7 @@ export default function Home() {
     if (isPlaying) {
       audioRef.current
         .play()
-        .catch((err) => {
-          console.warn("Autoplay blocked by browser", err);
+        .catch(() => {
           setIsPlaying(false);
         });
     } else if (!audioRef.current.paused) {
@@ -148,7 +155,6 @@ export default function Home() {
   const handlePrevTrack = () =>
     setCurrentTrack((prev) => (prev - 1 + PLAYLIST.length) % PLAYLIST.length);
 
-  // Mini app ready handshake
   useEffect(() => {
     if (!isMiniAppReady) {
       setMiniAppReady();
@@ -156,31 +162,28 @@ export default function Home() {
     (async () => {
       try {
         await sdk.actions.ready();
-      } catch {
-        // ignore
-      }
+      } catch {}
     })();
   }, [isMiniAppReady, setMiniAppReady]);
 
   const shortAddr = (addr?: string | null) =>
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
 
-  // ==== main wallet bootstrap – tries Farcaster provider FIRST ====
-  async function ensureWallet() {
-    if (signer && provider && userAddress) {
-      return { signer, provider, userAddress };
+  async function ensureWallet(): Promise<WalletCtx | null> {
+    if (userAddress && (signer || usingMiniApp)) {
+      return {
+        signer,
+        provider: provider || readProvider,
+        userAddress,
+      };
     }
 
     try {
       setConnecting(true);
 
-      let p: ethers.providers.Web3Provider;
-      let s: ethers.Signer;
-      let addr: string;
       let isMini = false;
       let ethProv: any | null = null;
 
-      // 1) Try Farcaster mini app wallet
       try {
         ethProv = await sdk.wallet.getEthereumProvider();
         if (ethProv) {
@@ -191,46 +194,49 @@ export default function Home() {
       }
 
       if (isMini && ethProv) {
+        const addr = await sdk.wallet.getAddress();
+
         setUsingMiniApp(true);
         setMiniAppEthProvider(ethProv);
-        p = new ethers.providers.Web3Provider(ethProv as any, "any");
-      } else {
-        // 2) Fallback to normal browser wallet
-        setUsingMiniApp(false);
-        const anyWindow = window as any;
-        if (!anyWindow.ethereum) {
-          setMintStatus(
-            "No wallet found. Open this in the Farcaster app or install a browser wallet."
-          );
-          setConnecting(false);
-          return null;
-        }
-        await anyWindow.ethereum.request({ method: "eth_requestAccounts" });
-        p = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
+        setProvider(null);
+        setSigner(null);
+        setUserAddress(addr);
+        setConnecting(false);
+
+        return {
+          signer: null,
+          provider: readProvider,
+          userAddress: addr,
+        };
       }
 
-      s = p.getSigner();
-      addr = await s.getAddress();
+      const anyWindow = window as any;
+      if (!anyWindow.ethereum) {
+        setMintStatus(
+          "No wallet found. Open this in the Farcaster app or install a browser wallet."
+        );
+        setConnecting(false);
+        return null;
+      }
+
+      await anyWindow.ethereum.request({ method: "eth_requestAccounts" });
+      const p = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
+      const s = p.getSigner();
+      const addr = await s.getAddress();
 
       const net = await p.getNetwork();
       if (net.chainId !== CHAIN_ID) {
-        if (isMini) {
-          setMintStatus("Please switch your Farcaster wallet to Base to mint.");
-        } else {
-          const anyWindow = window as any;
-          if (anyWindow.ethereum?.request) {
-            try {
-              await anyWindow.ethereum.request({
-                method: "wallet_switchEthereumChain",
-                params: [{ chainId: "0x2105" }],
-              });
-            } catch {
-              // ignore
-            }
-          }
+        if (anyWindow.ethereum?.request) {
+          try {
+            await anyWindow.ethereum.request({
+              method: "wallet_switchEthereumChain",
+              params: [{ chainId: "0x2105" }],
+            });
+          } catch {}
         }
       }
 
+      setUsingMiniApp(false);
       setProvider(p);
       setSigner(s);
       setUserAddress(addr);
@@ -251,7 +257,6 @@ export default function Home() {
     }
   }
 
-  // === Balance + allowance helper (reads via public RPC, writes via signer) ===
   async function ensureUsdcAllowance(
     spender: string,
     required: ethers.BigNumber
@@ -271,9 +276,7 @@ export default function Home() {
     }
 
     const usdcRead = new ethers.Contract(USDC_ADDRESS, USDC_ABI, readProvider);
-    const usdcWrite = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
 
-    // Balance check
     try {
       const bal = await usdcRead.balanceOf(addr);
       if (bal.lt(required)) {
@@ -289,7 +292,6 @@ export default function Home() {
       console.warn("USDC balanceOf failed (continuing):", e);
     }
 
-    // Allowance check
     let current = ethers.constants.Zero;
     try {
       current = await usdcRead.allowance(addr, spender);
@@ -305,9 +307,32 @@ export default function Home() {
     setMintStatus("Requesting USDC approve transaction in your wallet…");
 
     try {
-      // You can bump this to a larger allowance if you want multiple mints
-      const tx = await usdcWrite.approve(spender, required);
-      await tx.wait();
+      if (usingMiniApp && miniAppEthProvider) {
+        const data = usdcInterface.encodeFunctionData("approve", [
+          spender,
+          required,
+        ]);
+
+        await miniAppEthProvider.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: addr,
+              to: USDC_ADDRESS,
+              data,
+            },
+          ],
+        });
+      } else {
+        const usdcWrite = new ethers.Contract(
+          USDC_ADDRESS,
+          USDC_ABI,
+          s as ethers.Signer
+        );
+        const tx = await usdcWrite.approve(spender, required);
+        await tx.wait();
+      }
+
       setMintStatus("USDC approve confirmed. Sending mint transaction…");
       return true;
     } catch (err) {
@@ -335,11 +360,29 @@ export default function Home() {
       );
       if (!okAllowance) return;
 
-      // Single normal tx – works for browser + Farcaster
-      const land = new ethers.Contract(LAND_ADDRESS, LAND_ABI, ctx.signer);
-      const tx = await land.mint();
-      setMintStatus("Land mint transaction sent. Waiting for confirmation…");
-      await tx.wait();
+      if (usingMiniApp && miniAppEthProvider) {
+        const data = landInterface.encodeFunctionData("mint", []);
+        await miniAppEthProvider.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: ctx.userAddress,
+              to: LAND_ADDRESS,
+              data,
+            },
+          ],
+        });
+      } else {
+        const land = new ethers.Contract(
+          LAND_ADDRESS,
+          LAND_ABI,
+          ctx.signer as ethers.Signer
+        );
+        const tx = await land.mint();
+        setMintStatus("Land mint transaction sent. Waiting for confirmation…");
+        await tx.wait();
+      }
+
       setMintStatus(
         "Land mint submitted ✅ Check your wallet / explorer for confirmation."
       );
@@ -367,10 +410,29 @@ export default function Home() {
       );
       if (!okAllowance) return;
 
-      const plant = new ethers.Contract(PLANT_ADDRESS, PLANT_ABI, ctx.signer);
-      const tx = await plant.mint();
-      setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
-      await tx.wait();
+      if (usingMiniApp && miniAppEthProvider) {
+        const data = plantInterface.encodeFunctionData("mint", []);
+        await miniAppEthProvider.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: ctx.userAddress,
+              to: PLANT_ADDRESS,
+              data,
+            },
+          ],
+        });
+      } else {
+        const plant = new ethers.Contract(
+          PLANT_ADDRESS,
+          PLANT_ABI,
+          ctx.signer as ethers.Signer
+        );
+        const tx = await plant.mint();
+        setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
+        await tx.wait();
+      }
+
       setMintStatus(
         "Plant mint submitted ✅ Check your wallet / explorer for confirmation."
       );
@@ -400,7 +462,11 @@ export default function Home() {
     owner: string
   ): Promise<number[]> {
     try {
-      const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, readProvider);
+      const nft = new ethers.Contract(
+        nftAddress,
+        ERC721_VIEW_ABI,
+        readProvider
+      );
       const balBn: ethers.BigNumber = await nft.balanceOf(owner);
       const bal = balBn.toNumber();
       if (bal === 0) return [];
@@ -409,9 +475,7 @@ export default function Home() {
         const totalBn: ethers.BigNumber = await nft.totalSupply();
         const total = totalBn.toNumber();
         maxId = Math.min(total + 5, 2000);
-      } catch {
-        // ignore
-      }
+      } catch {}
 
       const ids: number[] = [];
       const ownerLower = owner.toLowerCase();
@@ -422,9 +486,7 @@ export default function Home() {
           if (who.toLowerCase() === ownerLower) {
             ids.push(tokenId);
           }
-        } catch {
-          // non-existent tokenId
-        }
+        } catch {}
       }
 
       return ids;
@@ -441,18 +503,38 @@ export default function Home() {
     const out: Record<number, string> = {};
     if (ids.length === 0) return out;
 
+    const isLand = nftAddress.toLowerCase() === LAND_ADDRESS.toLowerCase();
+    const isPlant = nftAddress.toLowerCase() === PLANT_ADDRESS.toLowerCase();
+
     try {
-      const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, readProvider);
+      const nft = new ethers.Contract(
+        nftAddress,
+        ERC721_VIEW_ABI,
+        readProvider
+      );
+
       for (const id of ids) {
         try {
-          const uri: string = await nft.tokenURI(id);
-          const url = toHttpFromMaybeIpfs(uri);
-          const res = await fetch(url);
-          if (!res.ok) continue;
-          const meta = await res.json();
-          let img: string = meta.image || "";
-          img = toHttpFromMaybeIpfs(img);
-          if (img) out[id] = img;
+          let img: string | undefined;
+
+          try {
+            const uri: string = await nft.tokenURI(id);
+            const url = toHttpFromMaybeIpfs(uri);
+            const res = await fetch(url);
+            if (res.ok) {
+              const meta = await res.json();
+              img = meta.image ? toHttpFromMaybeIpfs(meta.image) : undefined;
+            }
+          } catch {}
+
+          if (!img) {
+            if (isLand) img = LAND_FALLBACK_IMG;
+            else if (isPlant) img = PLANT_FALLBACK_IMG;
+          }
+
+          if (img) {
+            out[id] = img;
+          }
         } catch (e) {
           console.error("Failed to fetch metadata", nftAddress, id, e);
         }
@@ -460,6 +542,7 @@ export default function Home() {
     } catch (e) {
       console.error("fetchNftImages top-level error", nftAddress, e);
     }
+
     return out;
   }
 
@@ -565,21 +648,43 @@ export default function Home() {
   async function ensureCollectionApproval(
     collectionAddress: string,
     ctx: {
-      signer: ethers.Signer;
+      signer: ethers.Signer | null;
       userAddress: string;
     }
   ) {
-    const nft = new ethers.Contract(
+    const nftRead = new ethers.Contract(
       collectionAddress,
       ERC721_VIEW_ABI,
-      ctx.signer
+      readProvider
     );
-    const approved: boolean = await nft.isApprovedForAll(
+    const approved: boolean = await nftRead.isApprovedForAll(
       ctx.userAddress,
       STAKING_ADDRESS
     );
-    if (!approved) {
-      const tx = await nft.setApprovalForAll(STAKING_ADDRESS, true);
+    if (approved) return;
+
+    if (usingMiniApp && miniAppEthProvider) {
+      const data = erc721Interface.encodeFunctionData("setApprovalForAll", [
+        STAKING_ADDRESS,
+        true,
+      ]);
+      await miniAppEthProvider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: ctx.userAddress,
+            to: collectionAddress,
+            data,
+          },
+        ],
+      });
+    } else {
+      const nftWrite = new ethers.Contract(
+        collectionAddress,
+        ERC721_VIEW_ABI,
+        ctx.signer as ethers.Signer
+      );
+      const tx = await nftWrite.setApprovalForAll(STAKING_ADDRESS, true);
       await tx.wait();
     }
   }
@@ -596,10 +701,13 @@ export default function Home() {
       return;
     }
 
-    const staking = new ethers.Contract(
+    const idsPlantsBN = toStakePlants.map((id) => ethers.BigNumber.from(id));
+    const idsLandsBN = toStakeLands.map((id) => ethers.BigNumber.from(id));
+
+    const stakingWrite = new ethers.Contract(
       STAKING_ADDRESS,
       STAKING_ABI,
-      ctx.signer
+      ctx.signer as ethers.Signer
     );
 
     try {
@@ -607,18 +715,46 @@ export default function Home() {
 
       if (toStakePlants.length > 0) {
         await ensureCollectionApproval(PLANT_ADDRESS, ctx);
-        const tx = await staking.stakePlants(
-          toStakePlants.map((id) => ethers.BigNumber.from(id))
-        );
-        await tx.wait();
+        if (usingMiniApp && miniAppEthProvider) {
+          const data = stakingInterface.encodeFunctionData("stakePlants", [
+            idsPlantsBN,
+          ]);
+          await miniAppEthProvider.request({
+            method: "eth_sendTransaction",
+            params: [
+              {
+                from: ctx.userAddress,
+                to: STAKING_ADDRESS,
+                data,
+              },
+            ],
+          });
+        } else {
+          const tx = await stakingWrite.stakePlants(idsPlantsBN);
+          await tx.wait();
+        }
       }
 
       if (toStakeLands.length > 0 && landStakingEnabled) {
         await ensureCollectionApproval(LAND_ADDRESS, ctx);
-        const tx2 = await staking.stakeLands(
-          toStakeLands.map((id) => ethers.BigNumber.from(id))
-        );
-        await tx2.wait();
+        if (usingMiniApp && miniAppEthProvider) {
+          const data = stakingInterface.encodeFunctionData("stakeLands", [
+            idsLandsBN,
+          ]);
+          await miniAppEthProvider.request({
+            method: "eth_sendTransaction",
+            params: [
+              {
+                from: ctx.userAddress,
+                to: STAKING_ADDRESS,
+                data,
+              },
+            ],
+          });
+        } else {
+          const tx2 = await stakingWrite.stakeLands(idsLandsBN);
+          await tx2.wait();
+        }
       }
 
       setSelectedAvailPlants([]);
@@ -643,27 +779,58 @@ export default function Home() {
       return;
     }
 
-    const staking = new ethers.Contract(
+    const idsPlantsBN = toUnstakePlants.map((id) => ethers.BigNumber.from(id));
+    const idsLandsBN = toUnstakeLands.map((id) => ethers.BigNumber.from(id));
+
+    const stakingWrite = new ethers.Contract(
       STAKING_ADDRESS,
       STAKING_ABI,
-      ctx.signer
+      ctx.signer as ethers.Signer
     );
 
     try {
       setActionLoading(true);
 
       if (toUnstakePlants.length > 0) {
-        const tx = await staking.unstakePlants(
-          toUnstakePlants.map((id) => ethers.BigNumber.from(id))
-        );
-        await tx.wait();
+        if (usingMiniApp && miniAppEthProvider) {
+          const data = stakingInterface.encodeFunctionData("unstakePlants", [
+            idsPlantsBN,
+          ]);
+          await miniAppEthProvider.request({
+            method: "eth_sendTransaction",
+            params: [
+              {
+                from: ctx.userAddress,
+                to: STAKING_ADDRESS,
+                data,
+              },
+            ],
+          });
+        } else {
+          const tx = await stakingWrite.unstakePlants(idsPlantsBN);
+          await tx.wait();
+        }
       }
 
       if (toUnstakeLands.length > 0) {
-        const tx2 = await staking.unstakeLands(
-          toUnstakeLands.map((id) => ethers.BigNumber.from(id))
-        );
-        await tx2.wait();
+        if (usingMiniApp && miniAppEthProvider) {
+          const data = stakingInterface.encodeFunctionData("unstakeLands", [
+            idsLandsBN,
+          ]);
+          await miniAppEthProvider.request({
+            method: "eth_sendTransaction",
+            params: [
+              {
+                from: ctx.userAddress,
+                to: STAKING_ADDRESS,
+                data,
+              },
+            ],
+          });
+        } else {
+          const tx2 = await stakingWrite.unstakeLands(idsLandsBN);
+          await tx2.wait();
+        }
       }
 
       setSelectedStakedPlants([]);
@@ -680,12 +847,6 @@ export default function Home() {
     const ctx = await ensureWallet();
     if (!ctx) return;
 
-    const staking = new ethers.Contract(
-      STAKING_ADDRESS,
-      STAKING_ABI,
-      ctx.signer
-    );
-
     const pendingAmount =
       stakingStats && stakingStats.pendingFormatted
         ? parseFloat(stakingStats.pendingFormatted)
@@ -698,8 +859,29 @@ export default function Home() {
 
     try {
       setActionLoading(true);
-      const tx = await staking.claim();
-      await tx.wait();
+
+      if (usingMiniApp && miniAppEthProvider) {
+        const data = stakingInterface.encodeFunctionData("claim", []);
+        await miniAppEthProvider.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: ctx.userAddress,
+              to: STAKING_ADDRESS,
+              data,
+            },
+          ],
+        });
+      } else {
+        const stakingWrite = new ethers.Contract(
+          STAKING_ADDRESS,
+          STAKING_ABI,
+          ctx.signer as ethers.Signer
+        );
+        const tx = await stakingWrite.claim();
+        await tx.wait();
+      }
+
       await refreshStaking();
     } catch (err) {
       console.error("Claim error:", err);
@@ -751,7 +933,6 @@ export default function Home() {
       }}
     >
       <header className={styles.headerWrapper}>
-        {/* Brand + wallet stacked so header buttons don't get clipped */}
         <div
           style={{
             display: "flex",
@@ -803,7 +984,6 @@ export default function Home() {
             𝕏
           </button>
 
-          {/* Compact Farcaster Radio pill */}
           <div className={styles.radioPill}>
             <span className={styles.radioLabel}>Farcaster Radio</span>
 
@@ -860,11 +1040,6 @@ export default function Home() {
               height={320}
               className={styles.heroImage}
             />
-            <div className={styles.heroTags}>
-              <span className={styles.tag}>ERC-721</span>
-              <span className={styles.tag}>Base</span>
-              <span className={styles.tag}>x402</span>
-            </div>
           </div>
 
           <div className={styles.heroMain}>
@@ -948,7 +1123,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* GIF section between hero and info card */}
         <section
           style={{
             margin: "18px 0",
@@ -1139,7 +1313,7 @@ export default function Home() {
                   ) : (
                     <>
                       {availableLands.map((id) => {
-                        const img = landImages[id] || "/hero.png";
+                        const img = landImages[id] || LAND_FALLBACK_IMG;
                         return (
                           <label
                             key={`al-${id}`}
@@ -1181,7 +1355,7 @@ export default function Home() {
                                   width: 120,
                                   height: 120,
                                   borderRadius: 10,
-                                  objectFit: "cover",
+                                  objectFit: "contain",
                                 }}
                               />
                             </div>
@@ -1207,7 +1381,7 @@ export default function Home() {
                       })}
 
                       {availablePlants.map((id) => {
-                        const img = plantImages[id] || "/hero.png";
+                        const img = plantImages[id] || PLANT_FALLBACK_IMG;
                         return (
                           <label
                             key={`ap-${id}`}
@@ -1249,7 +1423,7 @@ export default function Home() {
                                   width: 120,
                                   height: 120,
                                   borderRadius: 10,
-                                  objectFit: "cover",
+                                  objectFit: "contain",
                                 }}
                               />
                             </div>
@@ -1316,7 +1490,7 @@ export default function Home() {
                   ) : (
                     <>
                       {stakedLands.map((id) => {
-                        const img = landImages[id] || "/hero.png";
+                        const img = landImages[id] || LAND_FALLBACK_IMG;
                         return (
                           <label
                             key={`sl-${id}`}
@@ -1358,7 +1532,7 @@ export default function Home() {
                                   width: 120,
                                   height: 120,
                                   borderRadius: 10,
-                                  objectFit: "cover",
+                                  objectFit: "contain",
                                 }}
                               />
                             </div>
@@ -1384,7 +1558,7 @@ export default function Home() {
                       })}
 
                       {stakedPlants.map((id) => {
-                        const img = plantImages[id] || "/hero.png";
+                        const img = plantImages[id] || PLANT_FALLBACK_IMG;
                         return (
                           <label
                             key={`sp-${id}`}
@@ -1426,7 +1600,7 @@ export default function Home() {
                                   width: 120,
                                   height: 120,
                                   borderRadius: 10,
-                                  objectFit: "cover",
+                                  objectFit: "contain",
                                 }}
                               />
                             </div>
