@@ -67,7 +67,10 @@ type StakingStats = {
 };
 
 const PLAYLIST = [
-  { title: "Kendrick Lamar - Untitled 05 (LoVibe Remix)", src: "/audio/track1.mp3" },
+  {
+    title: "Kendrick Lamar - Untitled 05 (LoVibe Remix)",
+    src: "/audio/track1.mp3",
+  },
   { title: "Travis Scott - SDP Interlude", src: "/audio/track2.mp3" },
   { title: "Yeat - if we being real", src: "/audio/track3.mp3" },
 ];
@@ -106,6 +109,7 @@ export default function Home() {
 
   const [currentTrack, setCurrentTrack] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [triedAutoplay, setTriedAutoplay] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -136,22 +140,28 @@ export default function Home() {
     detect();
   }, []);
 
+  // Try autoplay once on mount
   useEffect(() => {
-    // Try to autoplay once on first load
     const tryAutoplay = async () => {
-      if (!audioRef.current) return;
+      if (triedAutoplay || !audioRef.current) return;
+      setTriedAutoplay(true);
       try {
         await audioRef.current.play();
         setIsPlaying(true);
-      } catch (e) {
-        // Autoplay was probably blocked by the browser; user will need to tap play
-        console.warn("Autoplay blocked by browser", e);
-        setIsPlaying(false);
+      } catch (err) {
+        // Most browsers will block this until first interaction
+        console.warn("Autoplay was blocked by the browser", err);
       }
     };
-
     tryAutoplay();
-  }, []);
+  }, [triedAutoplay]);
+
+  // Keep playing when track changes while isPlaying is true
+  useEffect(() => {
+    if (audioRef.current && isPlaying) {
+      audioRef.current.play().catch(() => {});
+    }
+  }, [currentTrack, isPlaying]);
 
   const shortAddr = (addr?: string | null) =>
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
@@ -539,7 +549,7 @@ export default function Home() {
     const toStakePlants = selectedAvailPlants;
     const toStakeLands = selectedAvailLands;
 
-    if (toStakePlants.length === 0 && toStakeLands.length === 0) {
+       if (toStakePlants.length === 0 && toStakeLands.length === 0) {
       setMintStatus("No NFTs selected to stake.");
       return;
     }
@@ -707,13 +717,23 @@ export default function Home() {
   };
 
   const handlePrevTrack = () => {
-    const prev =
-      (currentTrack - 1 + PLAYLIST.length) % PLAYLIST.length;
+    const prev = (currentTrack - 1 + PLAYLIST.length) % PLAYLIST.length;
     setCurrentTrack(prev);
   };
 
   return (
-    <div className={styles.page}>
+    <div
+      className={styles.page}
+      // Fallback: if autoplay was blocked, first tap starts music
+      onPointerDown={() => {
+        if (!isPlaying && audioRef.current) {
+          audioRef.current
+            .play()
+            .then(() => setIsPlaying(true))
+            .catch(() => {});
+        }
+      }}
+    >
       <header className={styles.headerWrapper}>
         <div className={styles.brand}>
           <span className={styles.liveDot} />
@@ -732,31 +752,35 @@ export default function Home() {
             𝕏
           </button>
 
+          {/* Compact Farcaster Radio pill */}
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 8,
-              padding: "4px 10px",
+              gap: 6,
+              padding: "2px 8px",
               borderRadius: 999,
               border: "1px solid rgba(255,255,255,0.18)",
-              background: "rgba(5,8,20,0.8)",
-              fontSize: 11,
+              background: "rgba(5,8,20,0.9)",
+              fontSize: 10,
+              maxWidth: 220,
             }}
           >
-            <span style={{ opacity: 0.9, fontWeight: 600 }}>Farcaster Radio</span>
-
-            {/* scrolling title */}
-            <div className={styles.radioTitleWrap}>
-              <div className={styles.radioTitleInner}>
-                {currentTrackMeta.title}
-              </div>
-            </div>
-
+            <span style={{ opacity: 0.9, fontWeight: 500 }}>Farcaster Radio</span>
+            <marquee
+              style={{
+                flex: 1,
+                maxWidth: 120,
+                whiteSpace: "nowrap",
+              }}
+              scrollAmount={3}
+            >
+              {currentTrackMeta.title}
+            </marquee>
             <button
               type="button"
               className={styles.iconButton}
-              style={{ width: 26, height: 26 }}
+              style={{ width: 22, height: 22, fontSize: 11 }}
               onClick={handlePrevTrack}
             >
               ‹
@@ -764,7 +788,7 @@ export default function Home() {
             <button
               type="button"
               className={styles.iconButton}
-              style={{ width: 26, height: 26 }}
+              style={{ width: 22, height: 22, fontSize: 11 }}
               onClick={handlePlayPause}
             >
               {isPlaying ? "❚❚" : "▶"}
@@ -772,7 +796,7 @@ export default function Home() {
             <button
               type="button"
               className={styles.iconButton}
-              style={{ width: 26, height: 26 }}
+              style={{ width: 22, height: 22, fontSize: 11 }}
               onClick={handleNextTrack}
             >
               ›
@@ -787,6 +811,7 @@ export default function Home() {
             ref={audioRef}
             src={currentTrackMeta.src}
             onEnded={handleNextTrack}
+            autoPlay
             style={{ display: "none" }}
           />
         </div>
@@ -889,6 +914,26 @@ export default function Home() {
               </button>
             </div>
           </div>
+        </section>
+
+        {/* GIF section between hero and info card */}
+        <section
+          style={{
+            margin: "18px 0",
+            display: "flex",
+            justifyContent: "center",
+          }}
+        >
+          <Image
+            src="/fcweed-radio.gif" // put your GIF at public/fcweed-radio.gif
+            alt="FCWEED Radio Vibes"
+            width={320}
+            height={120}
+            style={{
+              borderRadius: 16,
+              objectFit: "cover",
+            }}
+          />
         </section>
 
         <section className={styles.infoCard}>
