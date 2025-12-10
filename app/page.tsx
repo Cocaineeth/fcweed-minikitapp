@@ -59,9 +59,6 @@ const STAKING_ABI = [
   "function claimEnabled() view returns (bool)",
 ];
 
-const landInterface = new ethers.utils.Interface(LAND_ABI);
-const plantInterface = new ethers.utils.Interface(PLANT_ABI);
-
 type StakingStats = {
   plantsStaked: number;
   landsStaked: number;
@@ -70,8 +67,16 @@ type StakingStats = {
   landBoostPct: number;
   pendingFormatted: string;
   claimEnabled: boolean;
-  landBps: number;
-  tokensPerPlantPerDay: string;
+};
+
+type CrimeRow = {
+  address: string;
+  plants: number;
+  lands: number;
+  capacityUsed: number;
+  totalSlots: number;
+  landBoostPct: number;
+  dailyRateFormatted: string;
 };
 
 const PLAYLIST = [
@@ -81,6 +86,13 @@ const PLAYLIST = [
   },
   { title: "Travis Scott - SDP Interlude", src: "/audio/track2.mp3" },
   { title: "Yeat - if we being real", src: "/audio/track3.mp3" },
+];
+
+const GIFS = [
+  "/fcweed-radio.gif",
+  "/fcweed-radio-2.gif",
+  "/fcweed-radio-3.gif",
+  "/fcweed-radio-4.gif",
 ];
 
 async function waitForTx(
@@ -150,6 +162,11 @@ export default function Home() {
   const [isPlaying, setIsPlaying] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  const [gifIndex, setGifIndex] = useState(0);
+
+  const [crimeRows, setCrimeRows] = useState<CrimeRow[]>([]);
+  const [crimeLoading, setCrimeLoading] = useState(false);
+
   const currentTrackMeta = PLAYLIST[currentTrack];
 
   useEffect(() => {
@@ -167,6 +184,13 @@ export default function Home() {
     }
   }, [isPlaying, currentTrack]);
 
+  useEffect(() => {
+    const id = setInterval(() => {
+      setGifIndex((prev) => (prev + 1) % GIFS.length);
+    }, 5000);
+    return () => clearInterval(id);
+  }, []);
+
   const handlePlayPause = () => setIsPlaying((prev) => !prev);
   const handleNextTrack = () =>
     setCurrentTrack((prev) => (prev + 1) % PLAYLIST.length);
@@ -181,7 +205,6 @@ export default function Home() {
       try {
         await sdk.actions.ready();
       } catch {
-        //
       }
     })();
   }, [isMiniAppReady, setMiniAppReady]);
@@ -263,7 +286,6 @@ export default function Home() {
                 params: [{ chainId: "0x2105" }],
               });
             } catch {
-              //
             }
           }
         }
@@ -384,7 +406,16 @@ export default function Home() {
         err?.data?.message ||
         err?.message ||
         "Mint Land failed";
-      setMintStatus(`Land mint failed: ${msg}`);
+      if (
+        msg.includes("does not support the requested method") ||
+        msg.includes("unsupported method")
+      ) {
+        setMintStatus(
+          "Land mint submitted ✅ Check your wallet / explorer for confirmation."
+        );
+      } else {
+        setMintStatus(`Land mint failed: ${msg}`);
+      }
     }
   }
 
@@ -415,7 +446,16 @@ export default function Home() {
         err?.data?.message ||
         err?.message ||
         "Mint Plant failed";
-      setMintStatus(`Plant mint failed: ${msg}`);
+      if (
+        msg.includes("does not support the requested method") ||
+        msg.includes("unsupported method")
+      ) {
+        setMintStatus(
+          "Plant mint submitted ✅ Check your wallet / explorer for confirmation."
+        );
+      } else {
+        setMintStatus(`Plant mint failed: ${msg}`);
+      }
     }
   }
 
@@ -443,7 +483,6 @@ export default function Home() {
         const total = totalBn.toNumber();
         maxId = Math.min(total + 5, 2000);
       } catch {
-        //
       }
 
       const ids: number[] = [];
@@ -456,7 +495,6 @@ export default function Home() {
             ids.push(tokenId);
           }
         } catch {
-          //
         }
       }
 
@@ -494,7 +532,6 @@ export default function Home() {
               img = meta.image ? toHttpFromMaybeIpfs(meta.image) : undefined;
             }
           } catch {
-            //
           }
 
           if (!img) {
@@ -538,7 +575,6 @@ export default function Home() {
         stakedPlantIds,
         stakedLandIds,
         landBps,
-        tokensPerPlantPerDayRaw,
         claimEnabled,
         landEnabled,
       ] = await Promise.all([
@@ -547,7 +583,6 @@ export default function Home() {
         staking.plantsOf(addr),
         staking.landsOf(addr),
         staking.landBoostBps(),
-        staking.tokensPerPlantPerDay(),
         staking.claimEnabled(),
         staking.landStakingEnabled(),
       ]);
@@ -556,8 +591,7 @@ export default function Home() {
       const landsStaked = Number(user.lands);
       const totalSlots = 1 + landsStaked * 3;
       const capacityUsed = plantsStaked;
-      const landBpsNum = Number(landBps);
-      const landBoostPct = (landsStaked * landBpsNum) / 100;
+      const landBoostPct = (landsStaked * Number(landBps)) / 100;
       const pendingFormatted = ethers.utils.formatUnits(pendingRaw, 18);
 
       const plantOwned = await loadOwnedTokens(PLANT_ADDRESS, addr);
@@ -586,8 +620,6 @@ export default function Home() {
         landBoostPct,
         pendingFormatted,
         claimEnabled,
-        landBps: landBpsNum,
-        tokensPerPlantPerDay: tokensPerPlantPerDayRaw.toString(),
       });
 
       const allPlantIds = Array.from(
@@ -610,6 +642,126 @@ export default function Home() {
       setLoadingStaking(false);
     }
   }
+
+  async function refreshCrimeLadder() {
+    setCrimeLoading(true);
+    try {
+      const staking = new ethers.Contract(
+        STAKING_ADDRESS,
+        STAKING_ABI,
+        readProvider
+      );
+      const plantNft = new ethers.Contract(
+        PLANT_ADDRESS,
+        ERC721_VIEW_ABI,
+        readProvider
+      );
+      const landNft = new ethers.Contract(
+        LAND_ADDRESS,
+        ERC721_VIEW_ABI,
+        readProvider
+      );
+
+      let plantSupply = 0;
+      let landSupply = 0;
+      try {
+        plantSupply = (await plantNft.totalSupply()).toNumber();
+      } catch {}
+      try {
+        landSupply = (await landNft.totalSupply()).toNumber();
+      } catch {}
+
+      const maxPlantId = Math.min(plantSupply || 0, 400);
+      const maxLandId = Math.min(landSupply || 0, 400);
+
+      const ownersSet = new Set<string>();
+
+      for (let i = 0; i <= maxPlantId; i++) {
+        try {
+          const o: string = await plantNft.ownerOf(i);
+          ownersSet.add(o.toLowerCase());
+        } catch {}
+      }
+
+      for (let i = 0; i <= maxLandId; i++) {
+        try {
+          const o: string = await landNft.ownerOf(i);
+          ownersSet.add(o.toLowerCase());
+        } catch {}
+      }
+
+      const owners = Array.from(ownersSet);
+      if (owners.length === 0) {
+        setCrimeRows([]);
+        setCrimeLoading(false);
+        return;
+      }
+
+      const [tokensPerPlantPerDay, landBps] = await Promise.all([
+        staking.tokensPerPlantPerDay(),
+        staking.landBoostBps(),
+      ]);
+
+      const rowsWithDaily: {
+        row: CrimeRow;
+        dailyBN: ethers.BigNumber;
+      }[] = [];
+
+      for (const addrLower of owners) {
+        try {
+          const user = await staking.users(addrLower);
+          const plantsStaked = Number(user.plants);
+          const landsStaked = Number(user.lands);
+          if (!plantsStaked && !landsStaked) continue;
+
+          const plantsBN = ethers.BigNumber.from(plantsStaked);
+          const landsBN = ethers.BigNumber.from(landsStaked);
+
+          const baseDaily = tokensPerPlantPerDay.mul(plantsBN);
+          const boostBps = landBps.mul(landsBN); // 250 bps per land
+          const multiplierBps = ethers.BigNumber.from(10000).add(boostBps);
+          const dailyBN = baseDaily.mul(multiplierBps).div(10000);
+
+          const totalSlots = 1 + landsStaked * 3;
+          const capacityUsed = plantsStaked;
+          const landBoostPct =
+            boostBps.toNumber() / 100; // 250 bps = 2.5%
+
+          const dailyRateFormatted = ethers.utils.formatUnits(dailyBN, 18);
+
+          rowsWithDaily.push({
+            row: {
+              address: addrLower,
+              plants: plantsStaked,
+              lands: landsStaked,
+              capacityUsed,
+              totalSlots,
+              landBoostPct,
+              dailyRateFormatted,
+            },
+            dailyBN,
+          });
+        } catch {
+        }
+      }
+
+      rowsWithDaily.sort((a, b) => {
+        if (a.dailyBN.eq(b.dailyBN)) return 0;
+        return a.dailyBN.lt(b.dailyBN) ? 1 : -1;
+      });
+
+      setCrimeRows(rowsWithDaily.slice(0, 10).map((x) => x.row));
+    } catch (e) {
+      console.error("Crime ladder load failed:", e);
+      setCrimeRows([]);
+    } finally {
+      setCrimeLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshCrimeLadder();
+  }, []);
 
   useEffect(() => {
     if (!stakingOpen) return;
@@ -682,6 +834,7 @@ export default function Home() {
       setSelectedAvailPlants([]);
       setSelectedAvailLands([]);
       await refreshStaking();
+      await refreshCrimeLadder();
     } catch (err) {
       console.error("Stake selected error:", err);
     } finally {
@@ -727,6 +880,7 @@ export default function Home() {
       setSelectedStakedPlants([]);
       setSelectedStakedLands([]);
       await refreshStaking();
+      await refreshCrimeLadder();
     } catch (err) {
       console.error("Unstake selected error:", err);
     } finally {
@@ -759,6 +913,7 @@ export default function Home() {
       const tx = await staking.claim();
       await waitForTx(tx);
       await refreshStaking();
+      await refreshCrimeLadder();
     } catch (err) {
       console.error("Claim error:", err);
     } finally {
@@ -795,43 +950,6 @@ export default function Home() {
   const stakeDisabled = !connected || actionLoading;
   const unstakeDisabled = !connected || actionLoading;
   const claimDisabled = !connected || actionLoading;
-
-  const crimeRows: {
-    rank: number;
-    address: string;
-    plants: number;
-    lands: number;
-    capacity: string;
-    landBoostPct: number;
-    dailyRate: string;
-  }[] = [];
-
-  if (stakingStats && userAddress) {
-    const plants = stakingStats.plantsStaked;
-    const lands = stakingStats.landsStaked;
-    let dailyRate = "0.00";
-    if (plants > 0) {
-      const tppdBn = ethers.BigNumber.from(
-        stakingStats.tokensPerPlantPerDay || "0"
-      );
-      const basePerDay = tppdBn.mul(plants);
-      const boostBpsTotal = lands * stakingStats.landBps;
-      const totalPerDay = basePerDay
-        .mul(10_000 + boostBpsTotal)
-        .div(10_000);
-      dailyRate = ethers.utils.formatUnits(totalPerDay, 18);
-    }
-
-    crimeRows.push({
-      rank: 1,
-      address: userAddress,
-      plants,
-      lands,
-      capacity: `${stakingStats.capacityUsed}/${stakingStats.totalSlots}`,
-      landBoostPct: stakingStats.landBoostPct,
-      dailyRate,
-    });
-  }
 
   return (
     <div
@@ -992,18 +1110,6 @@ export default function Home() {
               >
                 Staking
               </button>
-              <button
-                type="button"
-                className={styles.btnPrimary}
-                onClick={() =>
-                  window.open(
-                    "https://dexscreener.com/base",
-                    "_blank"
-                  )
-                }
-              >
-                Trade ${TOKEN_SYMBOL}
-              </button>
             </div>
 
             {mintStatus && (
@@ -1044,6 +1150,18 @@ export default function Home() {
               >
                 Trade Plant
               </button>
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() =>
+                  window.open(
+                    "https://dexscreener.com/base",
+                    "_blank"
+                  )
+                }
+              >
+                Trade ${TOKEN_SYMBOL}
+              </button>
             </div>
           </div>
         </section>
@@ -1056,7 +1174,7 @@ export default function Home() {
           }}
         >
           <Image
-            src="/fcweed-radio.gif"
+            src={GIFS[gifIndex]}
             alt="FCWEED Radio Vibes"
             width={320}
             height={120}
@@ -1087,42 +1205,46 @@ export default function Home() {
           <h2 className={styles.heading}>Use of Funds</h2>
           <ul className={styles.bulletList}>
             <li>
-              <b>50%</b> of all mint proceeds go directly to periodic{" "}
-              <b>buyback &amp; burn</b> of ${TOKEN_SYMBOL}.
+              <b>50% of all mint funds</b> are routed to periodic{" "}
+              <b>buyback and burns</b> of ${TOKEN_SYMBOL}.
             </li>
             <li>
-              ${TOKEN_SYMBOL} has a <b>3% buy &amp; sell tax</b> on every swap.
+              ${TOKEN_SYMBOL} has a <b>3% buy &amp; sell tax</b>:
+              <ul style={{ marginTop: 6, marginLeft: 18 }}>
+                <li>
+                  <b>2%</b> goes directly into automated{" "}
+                  <b>buyback &amp; burn</b>.
+                </li>
+                <li>
+                  <b>1%</b> is set aside for <b>top farmer rewards</b> in ETH,
+                  paid out based on the Crime Ladder leaderboard.
+                </li>
+              </ul>
             </li>
             <li>
-              <b>2%</b> of each trade is routed into automated{" "}
-              <b>buyback &amp; burn</b> of ${TOKEN_SYMBOL}.
-            </li>
-            <li>
-              <b>1%</b> of each trade is accumulated for{" "}
-              <b>top farmer rewards</b> paid in ETH, based on the Crime Ladder
-              leaderboard.
+              The more you farm and climb the ladder, the larger your share of
+              ETH rewards from the tax pool.
             </li>
           </ul>
         </section>
 
-        <section
-          className={styles.infoCard}
-          style={{ marginTop: 16 }}
-        >
+        <section className={styles.infoCard}>
           <h2 className={styles.heading}>Crime Ladder — Top Farmers</h2>
-          {crimeRows.length === 0 ? (
-            <p
+          {crimeLoading && crimeRows.length === 0 && (
+            <p style={{ fontSize: 13, opacity: 0.8 }}>Loading Crime Ladder…</p>
+          )}
+          {!crimeLoading && crimeRows.length === 0 && (
+            <p style={{ fontSize: 13, opacity: 0.8 }}>
+              No farmers yet. Stake Plants + Land to appear on the Crime Ladder.
+            </p>
+          )}
+          {crimeRows.length > 0 && (
+            <div
               style={{
-                fontSize: 12,
-                opacity: 0.85,
-                marginTop: 4,
+                marginTop: 10,
+                overflowX: "auto",
               }}
             >
-              Connect your wallet and stake Plants + Land to appear on the Crime
-              Ladder.
-            </p>
-          ) : (
-            <div style={{ overflowX: "auto", marginTop: 8 }}>
               <table
                 style={{
                   width: "100%",
@@ -1132,141 +1254,65 @@ export default function Home() {
               >
                 <thead>
                   <tr>
-                    <th
-                      style={{
-                        textAlign: "left",
-                        padding: "6px 4px",
-                        borderBottom: "1px solid rgba(255,255,255,0.12)",
-                      }}
-                    >
+                    <th style={{ textAlign: "left", padding: "6px 8px" }}>
                       Rank
                     </th>
-                    <th
-                      style={{
-                        textAlign: "left",
-                        padding: "6px 4px",
-                        borderBottom: "1px solid rgba(255,255,255,0.12)",
-                      }}
-                    >
-                      Wallet
+                    <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                      Farmer
                     </th>
-                    <th
-                      style={{
-                        textAlign: "right",
-                        padding: "6px 4px",
-                        borderBottom: "1px solid rgba(255,255,255,0.12)",
-                      }}
-                    >
+                    <th style={{ textAlign: "right", padding: "6px 8px" }}>
                       Plants
                     </th>
-                    <th
-                      style={{
-                        textAlign: "right",
-                        padding: "6px 4px",
-                        borderBottom: "1px solid rgba(255,255,255,0.12)",
-                      }}
-                    >
+                    <th style={{ textAlign: "right", padding: "6px 8px" }}>
                       Lands
                     </th>
-                    <th
-                      style={{
-                        textAlign: "right",
-                        padding: "6px 4px",
-                        borderBottom: "1px solid rgba(255,255,255,0.12)",
-                      }}
-                    >
+                    <th style={{ textAlign: "right", padding: "6px 8px" }}>
                       Land Boost
                     </th>
-                    <th
-                      style={{
-                        textAlign: "right",
-                        padding: "6px 4px",
-                        borderBottom: "1px solid rgba(255,255,255,0.12)",
-                      }}
-                    >
+                    <th style={{ textAlign: "right", padding: "6px 8px" }}>
                       Capacity
                     </th>
-                    <th
-                      style={{
-                        textAlign: "right",
-                        padding: "6px 4px",
-                        borderBottom: "1px solid rgba(255,255,255,0.12)",
-                      }}
-                    >
+                    <th style={{ textAlign: "right", padding: "6px 8px" }}>
                       Daily Rate
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {crimeRows.map((row) => (
-                    <tr key={row.rank}>
-                      <td
-                        style={{
-                          padding: "6px 4px",
-                          borderBottom:
-                            "1px solid rgba(255,255,255,0.06)",
-                        }}
-                      >
-                        #{row.rank}
-                      </td>
-                      <td
-                        style={{
-                          padding: "6px 4px",
-                          borderBottom:
-                            "1px solid rgba(255,255,255,0.06)",
-                        }}
-                      >
+                  {crimeRows.map((row, idx) => (
+                    <tr
+                      key={row.address + idx}
+                      style={{
+                        borderTop: "1px solid rgba(255,255,255,0.06)",
+                      }}
+                    >
+                      <td style={{ padding: "6px 8px" }}>{idx + 1}</td>
+                      <td style={{ padding: "6px 8px" }}>
                         {shortAddr(row.address)}
                       </td>
                       <td
-                        style={{
-                          padding: "6px 4px",
-                          textAlign: "right",
-                          borderBottom:
-                            "1px solid rgba(255,255,255,0.06)",
-                        }}
+                        style={{ padding: "6px 8px", textAlign: "right" }}
                       >
                         {row.plants}
                       </td>
                       <td
-                        style={{
-                          padding: "6px 4px",
-                          textAlign: "right",
-                          borderBottom:
-                            "1px solid rgba(255,255,255,0.06)",
-                        }}
+                        style={{ padding: "6px 8px", textAlign: "right" }}
                       >
                         {row.lands}
                       </td>
                       <td
-                        style={{
-                          padding: "6px 4px",
-                          textAlign: "right",
-                          borderBottom:
-                            "1px solid rgba(255,255,255,0.06)",
-                        }}
+                        style={{ padding: "6px 8px", textAlign: "right" }}
                       >
-                        +{row.landBoostPct.toFixed(2)}%
+                        +{row.landBoostPct.toFixed(1)}%
                       </td>
                       <td
-                        style={{
-                          padding: "6px 4px",
-                          textAlign: "right",
-                          borderBottom:
-                            "1px solid rgba(255,255,255,0.06)",
-                        }}
+                        style={{ padding: "6px 8px", textAlign: "right" }}
                       >
-                        {row.capacity}
+                        {row.capacityUsed}/{row.totalSlots}
                       </td>
                       <td
-                        style={{
-                          padding: "6px 4px",
-                          textAlign: "right",
-                          borderBottom:
-                            "1px solid rgba(255,255,255,0.06)",
-                        }}
+                        style={{ padding: "6px 8px", textAlign: "right" }}
                       >
-                        {parseFloat(row.dailyRate || "0").toFixed(2)}{" "}
+                        {Number(row.dailyRateFormatted).toFixed(2)}{" "}
                         {TOKEN_SYMBOL}/day
                       </td>
                     </tr>
