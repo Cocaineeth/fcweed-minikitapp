@@ -101,6 +101,10 @@ const GIFS = [
   "/fcweed-radio-4.gif",
 ];
 
+const ERC721_TRANSFER_TOPIC = ethers.utils.id(
+  "Transfer(address,address,uint256)"
+);
+
 async function waitForTx(
   tx: ethers.providers.TransactionResponse | undefined | null
 ) {
@@ -173,6 +177,12 @@ export default function Home() {
   const [ladderRows, setLadderRows] = useState<FarmerRow[]>([]);
   const [ladderLoading, setLadderLoading] = useState(false);
 
+  const ownedCacheRef = useRef<{
+    addr: string | null;
+    plants: number[];
+    lands: number[];
+  }>({ addr: null, plants: [], lands: [] });
+
   const currentTrackMeta = PLAYLIST[currentTrack];
 
   useEffect(() => {
@@ -193,7 +203,7 @@ export default function Home() {
   useEffect(() => {
     const id = setInterval(() => {
       setGifIndex((prev) => (prev + 1) % GIFS.length);
-    }, 6500);
+    }, 5000);
     return () => clearInterval(id);
   }, []);
 
@@ -446,11 +456,28 @@ export default function Home() {
           required,
         ]);
         await sendWalletCalls(addr, USDC_ADDRESS, data);
+
+        setMintStatus("Waiting for USDC approve confirmation…");
+
+        for (let i = 0; i < 20; i++) {
+          await new Promise((res) => setTimeout(res, 1500));
+          try {
+            const updated = await usdcRead.allowance(addr, spender);
+            if (updated.gte(required)) {
+              break;
+            }
+          } catch {
+            //
+          }
+        }
+
+        setMintStatus("USDC approve confirmed. Sending mint transaction…");
       } else {
         const tx = await usdcWrite.approve(spender, required);
         await waitForTx(tx);
+        setMintStatus("USDC approve confirmed. Sending mint transaction…");
       }
-      setMintStatus("USDC approve confirmed. Sending mint transaction…");
+
       return true;
     } catch (err) {
       console.error("USDC approve failed:", err);
@@ -583,18 +610,23 @@ export default function Home() {
   async function fetchNftImages(
     nftAddress: string,
     ids: number[],
-    prov: ethers.providers.Provider
+    prov: ethers.providers.Provider,
+    existing: Record<number, string>
   ): Promise<Record<number, string>> {
-    const out: Record<number, string> = {};
+    const out: Record<number, string> = { ...existing };
     if (ids.length === 0) return out;
 
     const isLand = nftAddress.toLowerCase() === LAND_ADDRESS.toLowerCase();
     const isPlant = nftAddress.toLowerCase() === PLANT_ADDRESS.toLowerCase();
 
+    const missing = ids.filter((id) => !out[id]);
+
+    if (missing.length === 0) return out;
+
     try {
       const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, prov);
 
-      const tasks = ids.map(async (id) => {
+      const tasks = missing.map(async (id) => {
         try {
           let img: string | undefined;
 
@@ -674,10 +706,27 @@ export default function Home() {
       const landBoostPct = (landsStaked * Number(landBps)) / 100;
       const pendingFormatted = ethers.utils.formatUnits(pendingRaw, 18);
 
-      const [plantOwned, landOwned] = await Promise.all([
-        loadOwnedTokens(PLANT_ADDRESS, addr),
-        loadOwnedTokens(LAND_ADDRESS, addr),
-      ]);
+      let plantOwned: number[] = [];
+      let landOwned: number[] = [];
+
+      if (ownedCacheRef.current.addr === addr) {
+        plantOwned = ownedCacheRef.current.plants;
+        landOwned = ownedCacheRef.current.lands;
+      } else {
+        const [pOwned, lOwned] = await Promise.all([
+          loadOwnedTokens(PLANT_ADDRESS, addr),
+          loadOwnedTokens(LAND_ADDRESS, addr),
+        ]);
+
+        plantOwned = pOwned;
+        landOwned = lOwned;
+
+        ownedCacheRef.current = {
+          addr,
+          plants: pOwned,
+          lands: lOwned,
+        };
+      }
 
       const stakedPlantNums = stakedPlantIds.map((x: any) => Number(x));
       const stakedLandNums = stakedLandIds.map((x: any) => Number(x));
@@ -712,8 +761,8 @@ export default function Home() {
       );
 
       const [plantImgs, landImgs] = await Promise.all([
-        fetchNftImages(PLANT_ADDRESS, allPlantIds, readProvider),
-        fetchNftImages(LAND_ADDRESS, allLandIds, readProvider),
+        fetchNftImages(PLANT_ADDRESS, allPlantIds, readProvider, plantImages),
+        fetchNftImages(LAND_ADDRESS, allLandIds, readProvider, landImages),
       ]);
 
       setPlantImages(plantImgs);
@@ -751,11 +800,21 @@ export default function Home() {
         ]);
 
       const fromBlock = Math.max(latestBlock - 500000, 0);
-      const logs = await readProvider.getLogs({
-        address: STAKING_ADDRESS,
-        fromBlock,
-        toBlock: latestBlock,
-      });
+
+      const [plantLogs, landLogs] = await Promise.all([
+        readProvider.getLogs({
+          address: PLANT_ADDRESS,
+          fromBlock,
+          toBlock: latestBlock,
+          topics: [ERC721_TRANSFER_TOPIC],
+        }),
+        readProvider.getLogs({
+          address: LAND_ADDRESS,
+          fromBlock,
+          toBlock: latestBlock,
+          topics: [ERC721_TRANSFER_TOPIC],
+        }),
+      ]);
 
       const addrSet = new Set<string>();
 
@@ -763,12 +822,20 @@ export default function Home() {
         addrSet.add(userAddress.toLowerCase());
       }
 
-      for (const log of logs) {
-        if (log.topics.length > 1) {
-          const t1 = log.topics[1];
-          if (t1 && t1.length === 66) {
-            const addr = ("0x" + t1.slice(26)).toLowerCase();
-            addrSet.add(addr);
+      const allNftLogs = [...plantLogs, ...landLogs];
+
+      for (const log of allNftLogs) {
+        if (log.topics.length >= 3) {
+          const fromTopic = log.topics[1];
+          const toTopic = log.topics[2];
+
+          if (fromTopic && fromTopic.length === 66) {
+            const fromAddr = ("0x" + fromTopic.slice(26)).toLowerCase();
+            addrSet.add(fromAddr);
+          }
+          if (toTopic && toTopic.length === 66) {
+            const toAddr = ("0x" + toTopic.slice(26)).toLowerCase();
+            addrSet.add(toAddr);
           }
         }
       }
