@@ -747,13 +747,19 @@ export default function Home() {
         new Set([...landOwned, ...stakedLandNums])
       );
 
-      const [plantImgs, landImgs] = await Promise.all([
-        fetchNftImages(PLANT_ADDRESS, allPlantIds, readProvider, plantImages),
-        fetchNftImages(LAND_ADDRESS, allLandIds, readProvider, landImages),
-      ]);
+      (async () => {
+        try {
+          const [plantImgs, landImgs] = await Promise.all([
+            fetchNftImages(PLANT_ADDRESS, allPlantIds, readProvider, {}),
+            fetchNftImages(LAND_ADDRESS, allLandIds, readProvider, {}),
+          ]);
 
-      setPlantImages(plantImgs);
-      setLandImages(landImgs);
+          setPlantImages((prev) => ({ ...prev, ...plantImgs }));
+          setLandImages((prev) => ({ ...prev, ...landImgs }));
+        } catch (e) {
+          console.error("Image fetch failed", e);
+        }
+      })();
     } catch (err) {
       console.error("Failed to load staking state:", err);
     } finally {
