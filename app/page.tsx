@@ -177,7 +177,7 @@ export default function Home() {
   const [ladderRows, setLadderRows] = useState<FarmerRow[]>([]);
   const [ladderLoading, setLadderLoading] = useState(false);
 
-  // 🔥 NEW: store your wallet’s rank + stats + total farmer count
+  // wallet’s rank + stats + total farmer count
   const [walletRank, setWalletRank] = useState<number | null>(null);
   const [walletRow, setWalletRow] = useState<FarmerRow | null>(null);
   const [farmerCount, setFarmerCount] = useState<number>(0);
@@ -804,22 +804,42 @@ export default function Home() {
           readProvider.getBlockNumber(),
         ]);
 
-      const fromBlock = Math.max(latestBlock - 500000, 0);
+      // In mini app, don't hammer logs if we don't even know the wallet yet
+      if (usingMiniApp && !userAddress) {
+        setFarmerCount(0);
+        setWalletRank(null);
+        setWalletRow(null);
+        setLadderRows([]);
+        return;
+      }
 
-      const [plantLogs, landLogs] = await Promise.all([
-        readProvider.getLogs({
+      const SAFE_WINDOW = usingMiniApp ? 120000 : 500000; // lighter window on mini app
+      const fromBlock = Math.max(latestBlock - SAFE_WINDOW, 0);
+
+      let plantLogs: any[] = [];
+      let landLogs: any[] = [];
+
+      try {
+        plantLogs = await readProvider.getLogs({
           address: PLANT_ADDRESS,
           fromBlock,
           toBlock: latestBlock,
           topics: [ERC721_TRANSFER_TOPIC],
-        }),
-        readProvider.getLogs({
+        });
+      } catch (e) {
+        console.warn("Plant logs load failed", e);
+      }
+
+      try {
+        landLogs = await readProvider.getLogs({
           address: LAND_ADDRESS,
           fromBlock,
           toBlock: latestBlock,
           topics: [ERC721_TRANSFER_TOPIC],
-        }),
-      ]);
+        });
+      } catch (e) {
+        console.warn("Land logs load failed", e);
+      }
 
       const addrSet = new Set<string>();
 
@@ -882,12 +902,59 @@ export default function Home() {
             }),
             dailyRaw: dailyFloat,
           });
-        } catch {
-          //
+        } catch (e) {
+          console.warn("Staking.users() failed for", addr, e);
         }
       });
 
       await Promise.all(tasks);
+
+      // Fallback: if nothing found but connected wallet exists, at least show them
+      if (rows.length === 0 && userAddress) {
+        try {
+          const u = await staking.users(userAddress);
+          const plants = Number(u.plants);
+          const lands = Number(u.lands);
+          if (plants > 0 || lands > 0) {
+            const plantsBn = ethers.BigNumber.from(plants);
+            const landsBn = ethers.BigNumber.from(lands);
+
+            const base = tokensPerPlantPerDayBn.mul(plantsBn);
+            const boostTotalBps = ethers.BigNumber.from(10000).add(
+              landBpsBn.mul(landsBn)
+            );
+            const dailyBn = base.mul(boostTotalBps).div(10000);
+            const dailyFloat = parseFloat(
+              ethers.utils.formatUnits(dailyBn, 18)
+            );
+
+            const capacityTotal = 1 + lands * 3;
+            const boostPct = (lands * landBpsBn.toNumber()) / 100;
+
+            rows.push({
+              addr: userAddress,
+              plants,
+              lands,
+              boostPct,
+              capacity: `${plants}/${capacityTotal}`,
+              daily: dailyFloat.toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              }),
+              dailyRaw: dailyFloat,
+            });
+          }
+        } catch (e) {
+          console.warn("Fallback users(userAddress) failed", e);
+        }
+      }
+
+      if (rows.length === 0) {
+        setFarmerCount(0);
+        setWalletRank(null);
+        setWalletRow(null);
+        setLadderRows([]);
+        return;
+      }
 
       // Sort by daily earnings desc
       rows.sort((a, b) => b.dailyRaw - a.dailyRaw);
@@ -895,12 +962,12 @@ export default function Home() {
       const total = rows.length;
       setFarmerCount(total);
 
-      // 🔥 NEW: compute current wallet rank + row
+      // compute current wallet rank + row (out of ALL rows)
       if (userAddress) {
         const lower = userAddress.toLowerCase();
         const idx = rows.findIndex((r) => r.addr.toLowerCase() === lower);
         if (idx !== -1) {
-          setWalletRank(idx + 1); // 1-based
+          setWalletRank(idx + 1); // 1-based rank
           setWalletRow(rows[idx]);
         } else {
           setWalletRank(null);
@@ -911,7 +978,7 @@ export default function Home() {
         setWalletRow(null);
       }
 
-      // Keep top 10 for the visible ladder
+      // Keep top 10 for visible ladder
       setLadderRows(rows.slice(0, 10));
     } catch (e) {
       console.error("Crime ladder load failed", e);
@@ -929,7 +996,7 @@ export default function Home() {
     refreshCrimeLadder();
   }, []);
 
-  // 🔥 Also recompute your rank whenever wallet changes
+  // Recompute your rank whenever wallet changes
   useEffect(() => {
     if (userAddress) {
       refreshCrimeLadder();
@@ -1241,6 +1308,18 @@ export default function Home() {
               payouts.
             </p>
 
+            {/* NEW tagline above mint buttons */}
+            <p
+              style={{
+                marginTop: 8,
+                fontSize: 13,
+                fontWeight: 600,
+                opacity: 0.95,
+              }}
+            >
+              <span>Mint 1 Plant to begin your Crime Empire on Base</span>
+            </p>
+
             <div className={styles.ctaRow}>
               <button
                 type="button"
@@ -1386,7 +1465,7 @@ export default function Home() {
         <section className={styles.infoCard}>
           <h2 className={styles.heading}>Crime Ladder — Top Farmers</h2>
 
-          {/* 🔥 Your personal ladder summary */}
+          {/* your personal ladder summary */}
           {connected && farmerCount > 0 && (
             <div
               style={{
@@ -1590,6 +1669,20 @@ export default function Home() {
                 </span>
               </div>
             </div>
+
+            {/* NEW: apology note under stats */}
+            <p
+              style={{
+                marginTop: 6,
+                marginBottom: 6,
+                fontSize: 11,
+                opacity: 0.7,
+                textAlign: "right",
+                padding: "0 10px",
+              }}
+            >
+              We apologize for loading times due to traffic.
+            </p>
 
             <div
               className={styles.modalBody}
