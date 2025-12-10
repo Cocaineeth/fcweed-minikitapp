@@ -57,8 +57,6 @@ const STAKING_ABI = [
   "function tokensPerPlantPerDay() view returns (uint256)",
   "function landStakingEnabled() view returns (bool)",
   "function claimEnabled() view returns (bool)",
-  "function plantStakerOf(uint256) view returns (address)",
-  "function landStakerOf(uint256) view returns (address)",
 ];
 
 const usdcInterface = new ethers.utils.Interface(USDC_ABI);
@@ -66,25 +64,6 @@ const landInterface = new ethers.utils.Interface(LAND_ABI);
 const plantInterface = new ethers.utils.Interface(PLANT_ABI);
 const stakingInterface = new ethers.utils.Interface(STAKING_ABI);
 const erc721Interface = new ethers.utils.Interface(ERC721_VIEW_ABI);
-
-const PLAYLIST = [
-  {
-    title: "Kendrick Lamar - Untitled 05 (LoVibe Remix)",
-    src: "/audio/track1.mp3",
-  },
-  { title: "Travis Scott - SDP Interlude", src: "/audio/track2.mp3" },
-  { title: "Yeat - if we being real", src: "/audio/track3.mp3" },
-];
-
-const GIFS = [
-  "/fcweed-radio.gif",
-  "/fcweed-radio-2.gif",
-  "/fcweed-radio-3.gif",
-  "/fcweed-radio-4.gif",
-];
-
-const TRY_AGAIN_SUFFIX = " Try minting again.";
-const MAX_SCAN_ID = 420;
 
 type StakingStats = {
   plantsStaked: number;
@@ -105,6 +84,26 @@ type FarmerRow = {
   daily: string;
   dailyRaw: number;
 };
+
+const PLAYLIST = [
+  {
+    title: "Kendrick Lamar - Untitled 05 (LoVibe Remix)",
+    src: "/audio/track1.mp3",
+  },
+  { title: "Travis Scott - SDP Interlude", src: "/audio/track2.mp3" },
+  { title: "Yeat - if we being real", src: "/audio/track3.mp3" },
+];
+
+const GIFS = [
+  "/fcweed-radio.gif",
+  "/fcweed-radio-2.gif",
+  "/fcweed-radio-3.gif",
+  "/fcweed-radio-4.gif",
+];
+
+const ERC721_TRANSFER_TOPIC = ethers.utils.id(
+  "Transfer(address,address,uint256)"
+);
 
 async function waitForTx(
   tx: ethers.providers.TransactionResponse | undefined | null
@@ -177,7 +176,10 @@ export default function Home() {
 
   const [ladderRows, setLadderRows] = useState<FarmerRow[]>([]);
   const [ladderLoading, setLadderLoading] = useState(false);
+
+  // 🔥 NEW: store your wallet’s rank + stats + total farmer count
   const [walletRank, setWalletRank] = useState<number | null>(null);
+  const [walletRow, setWalletRow] = useState<FarmerRow | null>(null);
   const [farmerCount, setFarmerCount] = useState<number>(0);
 
   const ownedCacheRef = useRef<{
@@ -282,8 +284,7 @@ export default function Home() {
         const anyWindow = window as any;
         if (!anyWindow.ethereum) {
           setMintStatus(
-            "No wallet found. Open this in the Farcaster app or install a browser wallet." +
-              TRY_AGAIN_SUFFIX
+            "No wallet found. Open this in the Farcaster app or install a browser wallet."
           );
           setConnecting(false);
           return null;
@@ -297,10 +298,7 @@ export default function Home() {
       const net = await p.getNetwork();
       if (net.chainId !== CHAIN_ID) {
         if (isMini) {
-          setMintStatus(
-            "Please switch your Farcaster wallet to Base to mint." +
-              TRY_AGAIN_SUFFIX
-          );
+          setMintStatus("Please switch your Farcaster wallet to Base to mint.");
         } else {
           const anyWindow = window as any;
           if (anyWindow.ethereum?.request) {
@@ -326,14 +324,10 @@ export default function Home() {
       console.error("Wallet connect failed:", err);
       if (usingMiniApp) {
         setMintStatus(
-          "Could not connect Farcaster wallet. Make sure the mini app has wallet permissions." +
-            TRY_AGAIN_SUFFIX
+          "Could not connect Farcaster wallet. Make sure the mini app has wallet permissions."
         );
       } else {
-        setMintStatus(
-          "Wallet connect failed. Check your wallet and try again." +
-            TRY_AGAIN_SUFFIX
-        );
+        setMintStatus("Wallet connect failed. Check your wallet and try again.");
       }
       setConnecting(false);
       return null;
@@ -423,8 +417,7 @@ export default function Home() {
     const code = await readProvider.getCode(USDC_ADDRESS);
     if (code === "0x") {
       setMintStatus(
-        "USDC token not found on this network. Please make sure you are on Base mainnet." +
-          TRY_AGAIN_SUFFIX
+        "USDC token not found on this network. Please make sure you are on Base mainnet."
       );
       return false;
     }
@@ -439,7 +432,7 @@ export default function Home() {
           `You need at least ${ethers.utils.formatUnits(
             required,
             USDC_DECIMALS
-          )} USDC on Base to mint.` + TRY_AGAIN_SUFFIX
+          )} USDC on Base to mint.`
         );
         return false;
       }
@@ -499,7 +492,7 @@ export default function Home() {
         (err as any)?.data?.message ||
         (err as any)?.message ||
         "USDC approve failed";
-      setMintStatus(msg + TRY_AGAIN_SUFFIX);
+      setMintStatus(msg);
       return false;
     }
   }
@@ -529,7 +522,7 @@ export default function Home() {
         err?.data?.message ||
         err?.message ||
         "Mint Land failed";
-      setMintStatus(`Land mint failed: ${msg}` + TRY_AGAIN_SUFFIX);
+      setMintStatus(`Land mint failed: ${msg}`);
     }
   }
 
@@ -558,7 +551,7 @@ export default function Home() {
         err?.data?.message ||
         err?.message ||
         "Mint Plant failed";
-      setMintStatus(`Mint Plant failed: ${msg}` + TRY_AGAIN_SUFFIX);
+      setMintStatus(`Mint Plant failed: ${msg}`);
     }
   }
 
@@ -600,34 +593,15 @@ export default function Home() {
 
       const ids: number[] = [];
       const ownerLower = owner.toLowerCase();
-      const BATCH = 25;
 
-      for (let tokenId = start; tokenId <= end && ids.length < bal; tokenId += BATCH) {
-        const batchIds: number[] = [];
-        for (
-          let t = tokenId;
-          t <= end && t < tokenId + BATCH && batchIds.length + ids.length < bal;
-          t++
-        ) {
-          batchIds.push(t);
-        }
-
-        const results = await Promise.all(
-          batchIds.map(async (t) => {
-            try {
-              const who: string = await nft.ownerOf(t);
-              return { tokenId: t, who };
-            } catch {
-              return { tokenId: t, who: "" };
-            }
-          })
-        );
-
-        for (const { tokenId: t, who } of results) {
-          if (who && who.toLowerCase() === ownerLower) {
-            ids.push(t);
-            if (ids.length >= bal) break;
+      for (let tokenId = start; tokenId <= end && ids.length < bal; tokenId++) {
+        try {
+          const who: string = await nft.ownerOf(tokenId);
+          if (who.toLowerCase() === ownerLower) {
+            ids.push(tokenId);
           }
+        } catch {
+          //
         }
       }
 
@@ -823,56 +797,53 @@ export default function Home() {
         readProvider
       );
 
-      const [tokensPerPlantPerDayBn, landBpsBn] = await Promise.all([
-        staking.tokensPerPlantPerDay(),
-        staking.landBoostBps(),
+      const [tokensPerPlantPerDayBn, landBpsBn, latestBlock] =
+        await Promise.all([
+          staking.tokensPerPlantPerDay(),
+          staking.landBoostBps(),
+          readProvider.getBlockNumber(),
+        ]);
+
+      const fromBlock = Math.max(latestBlock - 500000, 0);
+
+      const [plantLogs, landLogs] = await Promise.all([
+        readProvider.getLogs({
+          address: PLANT_ADDRESS,
+          fromBlock,
+          toBlock: latestBlock,
+          topics: [ERC721_TRANSFER_TOPIC],
+        }),
+        readProvider.getLogs({
+          address: LAND_ADDRESS,
+          fromBlock,
+          toBlock: latestBlock,
+          topics: [ERC721_TRANSFER_TOPIC],
+        }),
       ]);
 
       const addrSet = new Set<string>();
-      const zero = ethers.constants.AddressZero;
-      const BATCH = 25;
-      let emptyStreak = 0;
-      const EMPTY_THRESHOLD = 100;
 
-      const scanMapping = async (
-        fn: "plantStakerOf" | "landStakerOf"
-      ): Promise<void> => {
-        for (let start = 0; start < MAX_SCAN_ID; start += BATCH) {
-          const ids: number[] = [];
-          const end = Math.min(MAX_SCAN_ID, start + BATCH);
-          for (let i = start; i < end; i++) ids.push(i);
-
-          try {
-            const promises = ids.map((id) =>
-              (staking as any)[fn](id).catch(() => zero)
-            );
-            const results: string[] = await Promise.all(promises);
-
-            let batchEmpty = true;
-            results.forEach((who) => {
-              if (who && who !== zero) {
-                batchEmpty = false;
-                addrSet.add(who.toLowerCase());
-              }
-            });
-
-            if (batchEmpty) {
-              emptyStreak += end - start;
-              if (emptyStreak >= EMPTY_THRESHOLD) break;
-            } else {
-              emptyStreak = 0;
-            }
-          } catch (e) {
-            console.warn(`Batch scan error for ${fn}`, e);
-          }
-        }
-      };
-
-      await scanMapping("plantStakerOf");
-      await scanMapping("landStakerOf");
-
+      // Always include connected wallet if present
       if (userAddress) {
         addrSet.add(userAddress.toLowerCase());
+      }
+
+      const allNftLogs = [...plantLogs, ...landLogs];
+
+      for (const log of allNftLogs) {
+        if (log.topics.length >= 3) {
+          const fromTopic = log.topics[1];
+          const toTopic = log.topics[2];
+
+          if (fromTopic && fromTopic.length === 66) {
+            const fromAddr = ("0x" + fromTopic.slice(26)).toLowerCase();
+            addrSet.add(fromAddr);
+          }
+          if (toTopic && toTopic.length === 66) {
+            const toAddr = ("0x" + toTopic.slice(26)).toLowerCase();
+            addrSet.add(toAddr);
+          }
+        }
       }
 
       const allAddrs = Array.from(addrSet);
@@ -911,31 +882,42 @@ export default function Home() {
             }),
             dailyRaw: dailyFloat,
           });
-        } catch (e) {
-          console.warn("Failed to load user for ladder", addr, e);
+        } catch {
+          //
         }
       });
 
       await Promise.all(tasks);
 
+      // Sort by daily earnings desc
       rows.sort((a, b) => b.dailyRaw - a.dailyRaw);
 
       const total = rows.length;
       setFarmerCount(total);
 
+      // 🔥 NEW: compute current wallet rank + row
       if (userAddress) {
         const lower = userAddress.toLowerCase();
         const idx = rows.findIndex((r) => r.addr.toLowerCase() === lower);
-        setWalletRank(idx === -1 ? null : idx + 1);
+        if (idx !== -1) {
+          setWalletRank(idx + 1); // 1-based
+          setWalletRow(rows[idx]);
+        } else {
+          setWalletRank(null);
+          setWalletRow(null);
+        }
       } else {
         setWalletRank(null);
+        setWalletRow(null);
       }
 
+      // Keep top 10 for the visible ladder
       setLadderRows(rows.slice(0, 10));
     } catch (e) {
       console.error("Crime ladder load failed", e);
       setLadderRows([]);
       setWalletRank(null);
+      setWalletRow(null);
       setFarmerCount(0);
     } finally {
       setLadderLoading(false);
@@ -943,8 +925,16 @@ export default function Home() {
   }
 
   useEffect(() => {
+    // initial load
     refreshCrimeLadder();
   }, []);
+
+  // 🔥 Also recompute your rank whenever wallet changes
+  useEffect(() => {
+    if (userAddress) {
+      refreshCrimeLadder();
+    }
+  }, [userAddress]);
 
   async function ensureCollectionApproval(
     collectionAddress: string,
@@ -1251,17 +1241,6 @@ export default function Home() {
               payouts.
             </p>
 
-            <p
-              style={{
-                fontSize: 15,
-                fontWeight: 800,
-                margin: "6px 0 10px",
-                opacity: 0.98,
-              }}
-            >
-              <strong>Mint 1 Plant to begin your Crime Empire on Base</strong>
-            </p>
-
             <div className={styles.ctaRow}>
               <button
                 type="button"
@@ -1407,17 +1386,53 @@ export default function Home() {
         <section className={styles.infoCard}>
           <h2 className={styles.heading}>Crime Ladder — Top Farmers</h2>
 
-          {connected && walletRank && farmerCount > 0 && (
-            <p
+          {/* 🔥 Your personal ladder summary */}
+          {connected && farmerCount > 0 && (
+            <div
               style={{
                 fontSize: 12,
-                opacity: 0.85,
-                margin: "4px 0 8px",
+                margin: "4px 0 10px",
+                padding: "6px 8px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "rgba(5,8,20,0.8)",
               }}
             >
-              Your rank: <b>#{walletRank}</b> out of <b>{farmerCount}</b>{" "}
-              staked wallets.
-            </p>
+              {walletRow && walletRank ? (
+                <>
+                  <div style={{ marginBottom: 4 }}>
+                    Your rank: <b>#{walletRank}</b> out of{" "}
+                    <b>{farmerCount}</b> staked wallets.
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 10,
+                      opacity: 0.9,
+                    }}
+                  >
+                    <span>
+                      Plants: <b>{walletRow.plants}</b>
+                    </span>
+                    <span>
+                      Land: <b>{walletRow.lands}</b>
+                    </span>
+                    <span>
+                      Boost: <b>+{walletRow.boostPct.toFixed(1)}%</b>
+                    </span>
+                    <span>
+                      Daily: <b>{walletRow.daily}</b> {TOKEN_SYMBOL}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <span>
+                  You&apos;re not on the Crime Ladder yet. Stake Plants + Land
+                  to start earning.
+                </span>
+              )}
+            </div>
           )}
 
           {ladderLoading ? (
@@ -1535,16 +1550,6 @@ export default function Home() {
                 </button>
               </div>
             </header>
-
-            <p
-              style={{
-                fontSize: 11,
-                opacity: 0.65,
-                margin: "4px 14px 0",
-              }}
-            >
-              We apologize for loading times due to traffic.
-            </p>
 
             <div className={styles.modalStatsGrid}>
               <div className={styles.statCard}>
