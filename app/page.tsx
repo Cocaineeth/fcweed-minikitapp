@@ -37,10 +37,6 @@ const PLANT_ABI = ["function mint()"];
 const ERC721_VIEW_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
   "function ownerOf(uint256 tokenId) view returns (address)",
-  "function totalSupply() view returns (uint256)",
-  "function tokenURI(uint256 tokenId) view returns (string)",
-  "function isApprovedForAll(address owner, address operator) view returns (bool)",
-  "function setApprovalForAll(address operator, bool approved)",
 ];
 
 const STAKING_ABI = [
@@ -158,9 +154,6 @@ export default function Home() {
   const [selectedStakedPlants, setSelectedStakedPlants] =
     useState<number[]>([]);
   const [selectedStakedLands, setSelectedStakedLands] = useState<number[]>([]);
-
-  const [plantImages, setPlantImages] = useState<Record<number, string>>({});
-  const [landImages, setLandImages] = useState<Record<number, string>>({});
 
   const [mintStatus, setMintStatus] = useState<string>("");
 
@@ -328,14 +321,7 @@ export default function Home() {
 
     const { signer: s, userAddress: addr } = ctx;
 
-    setMintStatus("Checking USDC contract on Base…");
-    const code = await readProvider.getCode(USDC_ADDRESS);
-    if (code === "0x") {
-      setMintStatus(
-        "USDC token not found on this network. Please make sure you are on Base mainnet."
-      );
-      return false;
-    }
+    setMintStatus("Checking USDC allowance…");
 
     const usdcRead = new ethers.Contract(USDC_ADDRESS, USDC_ABI, readProvider);
     const usdcWrite = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
@@ -481,15 +467,6 @@ export default function Home() {
     }
   }
 
-  function toHttpFromMaybeIpfs(uri: string): string {
-    if (!uri) return "";
-    if (uri.startsWith("ipfs://")) {
-      const path = uri.slice("ipfs://".length);
-      return `https://ipfs.io/ipfs/${path}`;
-    }
-    return uri;
-  }
-
   async function loadOwnedTokens(
     nftAddress: string,
     owner: string
@@ -500,43 +477,36 @@ export default function Home() {
       const bal = balBn.toNumber();
       if (bal === 0) return [];
 
-      let start = 0;
-      let end = 400;
-
-      try {
-        const totalBn: ethers.BigNumber = await nft.totalSupply();
-        const total = totalBn.toNumber();
-        const span = Math.min(total, 400);
-        end = total + 2;
-        start = Math.max(0, end - span - 2);
-      } catch {
-        //
+      const MAX_ID = 400;
+      const ids: number[] = [];
+      for (let tokenId = 0; tokenId < MAX_ID; tokenId++) {
+        ids.push(tokenId);
       }
 
       const ownerLower = owner.toLowerCase();
       const found: number[] = [];
+      const BATCH = 20;
 
-      const ids: number[] = [];
-      for (let tokenId = start; tokenId <= end; tokenId++) {
-        ids.push(tokenId);
-      }
-
-      const BATCH = 40;
       for (let i = 0; i < ids.length; i += BATCH) {
         const slice = ids.slice(i, i + BATCH);
-        await Promise.all(
+        const results = await Promise.all(
           slice.map(async (tokenId) => {
-            if (found.length >= bal) return;
             try {
               const who: string = await nft.ownerOf(tokenId);
-              if (who && who.toLowerCase() === ownerLower) {
-                found.push(tokenId);
-              }
+              return { tokenId, who };
             } catch {
-              //
+              return { tokenId, who: "" };
             }
           })
         );
+
+        for (const r of results) {
+          if (!r.who) continue;
+          if (r.who.toLowerCase() === ownerLower) {
+            found.push(r.tokenId);
+            if (found.length >= bal) break;
+          }
+        }
         if (found.length >= bal) break;
       }
 
@@ -545,59 +515,6 @@ export default function Home() {
       console.error("Failed to enumerate tokens for", nftAddress, e);
       return [];
     }
-  }
-
-  async function fetchNftImages(
-    nftAddress: string,
-    ids: number[],
-    prov: ethers.providers.Provider,
-    existing: Record<number, string>
-  ): Promise<Record<number, string>> {
-    const out: Record<number, string> = { ...existing };
-    if (ids.length === 0) return out;
-
-    const isLand = nftAddress.toLowerCase() === LAND_ADDRESS.toLowerCase();
-    const isPlant = nftAddress.toLowerCase() === PLANT_ADDRESS.toLowerCase();
-
-    try {
-      const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, prov);
-
-      const tasks = ids.map(async (id) => {
-        if (out[id]) return;
-        try {
-          let img: string | undefined;
-
-          try {
-            const uri: string = await nft.tokenURI(id);
-            const url = toHttpFromMaybeIpfs(uri);
-            const res = await fetch(url);
-            if (res.ok) {
-              const meta = await res.json();
-              img = meta.image ? toHttpFromMaybeIpfs(meta.image) : undefined;
-            }
-          } catch {
-            //
-          }
-
-          if (!img) {
-            if (isLand) img = LAND_FALLBACK_IMG;
-            else if (isPlant) img = PLANT_FALLBACK_IMG;
-          }
-
-          if (img) {
-            out[id] = img;
-          }
-        } catch (e) {
-          console.error("Failed to fetch metadata", nftAddress, id, e);
-        }
-      });
-
-      await Promise.all(tasks);
-    } catch (e) {
-      console.error("fetchNftImages top-level error", nftAddress, e);
-    }
-
-    return out;
   }
 
   async function refreshStaking() {
@@ -672,37 +589,6 @@ export default function Home() {
       });
 
       setLoadingStaking(false);
-
-      (async () => {
-        try {
-          const allPlantIds = Array.from(
-            new Set([...plantOwned, ...stakedPlantNums])
-          );
-          const allLandIds = Array.from(
-            new Set([...landOwned, ...stakedLandNums])
-          );
-
-          const [plantImgs, landImgs] = await Promise.all([
-            fetchNftImages(
-              PLANT_ADDRESS,
-              allPlantIds,
-              readProvider,
-              plantImages
-            ),
-            fetchNftImages(
-              LAND_ADDRESS,
-              allLandIds,
-              readProvider,
-              landImages
-            ),
-          ]);
-
-          setPlantImages(plantImgs);
-          setLandImages(landImgs);
-        } catch (e) {
-          console.error("Image load error:", e);
-        }
-      })();
     } catch (err) {
       console.error("Failed to load staking state:", err);
       setLoadingStaking(false);
@@ -729,37 +615,34 @@ export default function Home() {
       ]);
 
       const addrSet = new Set<string>();
-      const MAX_TOKEN_ID_SCAN = 1500;
+      const MAX_ID = 400;
+      const BATCH = 40;
+      const zero = ethers.constants.AddressZero;
 
-      for (let id = 0; id < MAX_TOKEN_ID_SCAN; id++) {
-        try {
-          const who: string = await staking.plantStakerOf(id);
-          if (
-            who &&
-            who !== ethers.constants.AddressZero &&
-            who !== "0x0000000000000000000000000000000000000000"
-          ) {
-            addrSet.add(who.toLowerCase());
-          }
-        } catch {
-          //
-        }
-      }
+      const scanMapping = async (fn: "plantStakerOf" | "landStakerOf") => {
+        for (let start = 0; start < MAX_ID; start += BATCH) {
+          const ids: number[] = [];
+          const end = Math.min(MAX_ID, start + BATCH);
+          for (let i = start; i < end; i++) ids.push(i);
 
-      for (let id = 0; id < MAX_TOKEN_ID_SCAN; id++) {
-        try {
-          const who: string = await staking.landStakerOf(id);
-          if (
-            who &&
-            who !== ethers.constants.AddressZero &&
-            who !== "0x0000000000000000000000000000000000000000"
-          ) {
-            addrSet.add(who.toLowerCase());
+          try {
+            const promises = ids.map((id) =>
+              (staking as any)[fn](id).catch(() => zero)
+            );
+            const results: string[] = await Promise.all(promises);
+            results.forEach((who) => {
+              if (who && who !== zero) {
+                addrSet.add(who.toLowerCase());
+              }
+            });
+          } catch (e) {
+            console.warn(`Batch scan error for ${fn}`, e);
           }
-        } catch {
-          //
         }
-      }
+      };
+
+      await scanMapping("plantStakerOf");
+      await scanMapping("landStakerOf");
 
       const allAddrs = Array.from(addrSet);
       const rows: FarmerRow[] = [];
@@ -825,18 +708,19 @@ export default function Home() {
       userAddress: string;
     }
   ) {
+    // Minimal path: rely on UI-level approval via external site or previous approval.
+    // If you want, you can re-add isApprovedForAll checks here later.
     const nft = new ethers.Contract(
       collectionAddress,
-      ERC721_VIEW_ABI,
+      ["function setApprovalForAll(address,bool)"],
       ctx.signer
     );
-    const approved: boolean = await nft.isApprovedForAll(
-      ctx.userAddress,
-      STAKING_ADDRESS
-    );
-    if (!approved) {
+    // Best-effort approve; if fails, user will see wallet error but app won't crash.
+    try {
       const tx = await nft.setApprovalForAll(STAKING_ADDRESS, true);
       await waitForTx(tx);
+    } catch (e) {
+      console.warn("Approval tx failed or reverted (user may have rejected):", e);
     }
   }
 
@@ -1121,8 +1005,8 @@ export default function Home() {
 
             <p
               style={{
-                fontSize: 13,
-                fontWeight: 600,
+                fontSize: 14,
+                fontWeight: 700,
                 margin: "6px 0 10px",
                 opacity: 0.95,
               }}
@@ -1496,7 +1380,7 @@ export default function Home() {
                   ) : (
                     <>
                       {availableLands.map((id) => {
-                        const img = landImages[id] || "/land.png";
+                        const img = LAND_FALLBACK_IMG;
                         return (
                           <label
                             key={`al-${id}`}
@@ -1564,7 +1448,7 @@ export default function Home() {
                       })}
 
                       {availablePlants.map((id) => {
-                        const img = plantImages[id] || "/hero.png";
+                        const img = PLANT_FALLBACK_IMG;
                         return (
                           <label
                             key={`ap-${id}`}
@@ -1673,7 +1557,7 @@ export default function Home() {
                   ) : (
                     <>
                       {stakedLands.map((id) => {
-                        const img = landImages[id] || "/land.png";
+                        const img = LAND_FALLBACK_IMG;
                         return (
                           <label
                             key={`sl-${id}`}
@@ -1741,7 +1625,7 @@ export default function Home() {
                       })}
 
                       {stakedPlants.map((id) => {
-                        const img = plantImages[id] || "/hero.png";
+                        const img = PLANT_FALLBACK_IMG;
                         return (
                           <label
                             key={`sp-${id}`}
