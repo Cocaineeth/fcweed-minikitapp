@@ -57,13 +57,13 @@ const STAKING_ABI = [
   "function tokensPerPlantPerDay() view returns (uint256)",
   "function landStakingEnabled() view returns (bool)",
   "function claimEnabled() view returns (bool)",
+  "function plantStakerOf(uint256) view returns (address)",
+  "function landStakerOf(uint256) view returns (address)",
 ];
 
-const usdcInterface = new ethers.utils.Interface(USDC_ABI);
 const landInterface = new ethers.utils.Interface(LAND_ABI);
 const plantInterface = new ethers.utils.Interface(PLANT_ABI);
 const stakingInterface = new ethers.utils.Interface(STAKING_ABI);
-const erc721Interface = new ethers.utils.Interface(ERC721_VIEW_ABI);
 
 type StakingStats = {
   plantsStaked: number;
@@ -172,12 +172,6 @@ export default function Home() {
 
   const [ladderRows, setLadderRows] = useState<FarmerRow[]>([]);
   const [ladderLoading, setLadderLoading] = useState(false);
-
-  const ownedCacheRef = useRef<{
-    addr: string | null;
-    plants: number[];
-    lands: number[];
-  }>({ addr: null, plants: [], lands: [] });
 
   const currentTrackMeta = PLAYLIST[currentTrack];
 
@@ -325,76 +319,6 @@ export default function Home() {
     }
   }
 
-  async function sendWalletCalls(
-    from: string,
-    to: string,
-    data: string
-  ): Promise<ethers.providers.TransactionResponse> {
-    if (!usingMiniApp || !miniAppEthProvider) {
-      throw new Error("wallet_sendCalls not available");
-    }
-
-    const req =
-      miniAppEthProvider.request?.bind(miniAppEthProvider) ??
-      miniAppEthProvider.send?.bind(miniAppEthProvider);
-
-    if (!req) {
-      throw new Error("Mini app provider missing request/send");
-    }
-
-    const chainIdHex = ethers.utils.hexValue(CHAIN_ID);
-
-    const result = await req({
-      method: "wallet_sendCalls",
-      params: [
-        {
-          from,
-          chainId: chainIdHex,
-          atomicRequired: false,
-          calls: [
-            {
-              to,
-              data,
-              value: "0x0",
-            },
-          ],
-        },
-      ],
-    });
-
-    const txHash =
-      (result?.txHashes && result.txHashes[0]) ||
-      result?.txHash ||
-      result?.hash ||
-      "0x";
-
-    const fakeTx: any = {
-      hash: txHash,
-      wait: async () => {},
-    };
-
-    return fakeTx as ethers.providers.TransactionResponse;
-  }
-
-  async function sendContractTx(
-    to: string,
-    data: string
-  ): Promise<ethers.providers.TransactionResponse | null> {
-    const ctx = await ensureWallet();
-    if (!ctx) return null;
-
-    if (ctx.isMini && miniAppEthProvider) {
-      return await sendWalletCalls(ctx.userAddress, to, data);
-    } else {
-      const tx = await ctx.signer.sendTransaction({
-        to,
-        data,
-        value: 0,
-      });
-      return tx;
-    }
-  }
-
   async function ensureUsdcAllowance(
     spender: string,
     required: ethers.BigNumber
@@ -402,7 +326,7 @@ export default function Home() {
     const ctx = await ensureWallet();
     if (!ctx) return false;
 
-    const { signer: s, userAddress: addr, isMini } = ctx;
+    const { signer: s, userAddress: addr } = ctx;
 
     setMintStatus("Checking USDC contract on Base…");
     const code = await readProvider.getCode(USDC_ADDRESS);
@@ -446,34 +370,9 @@ export default function Home() {
     setMintStatus("Requesting USDC approve transaction in your wallet…");
 
     try {
-      if (isMini && miniAppEthProvider) {
-        const data = usdcInterface.encodeFunctionData("approve", [
-          spender,
-          required,
-        ]);
-        await sendWalletCalls(addr, USDC_ADDRESS, data);
-
-        setMintStatus("Waiting for USDC approve confirmation…");
-
-        for (let i = 0; i < 20; i++) {
-          await new Promise((res) => setTimeout(res, 1500));
-          try {
-            const updated = await usdcRead.allowance(addr, spender);
-            if (updated.gte(required)) {
-              break;
-            }
-          } catch {
-            //
-          }
-        }
-
-        setMintStatus("USDC approve confirmed. Sending mint transaction…");
-      } else {
-        const tx = await usdcWrite.approve(spender, required);
-        await waitForTx(tx);
-        setMintStatus("USDC approve confirmed. Sending mint transaction…");
-      }
-
+      const tx = await usdcWrite.approve(spender, required);
+      await waitForTx(tx);
+      setMintStatus("USDC approve confirmed. Sending mint transaction…");
       return true;
     } catch (err) {
       console.error("USDC approve failed:", err);
@@ -485,6 +384,42 @@ export default function Home() {
         "USDC approve failed";
       setMintStatus(msg);
       return false;
+    }
+  }
+
+  async function sendContractTx(
+    to: string,
+    data: string
+  ): Promise<ethers.providers.TransactionResponse | null> {
+    const ctx = await ensureWallet();
+    if (!ctx) return null;
+
+    if (ctx.isMini && miniAppEthProvider) {
+      const from = ctx.userAddress;
+      const valueHex = "0x0";
+      const txHash: string = await miniAppEthProvider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from,
+            to,
+            data,
+            value: valueHex,
+          },
+        ],
+      });
+      const fakeTx: any = {
+        hash: txHash,
+        wait: async () => {},
+      };
+      return fakeTx as ethers.providers.TransactionResponse;
+    } else {
+      const tx = await ctx.signer.sendTransaction({
+        to,
+        data,
+        value: 0,
+      });
+      return tx;
     }
   }
 
@@ -560,22 +495,18 @@ export default function Home() {
     owner: string
   ): Promise<number[]> {
     try {
-      const nft = new ethers.Contract(
-        nftAddress,
-        ERC721_VIEW_ABI,
-        readProvider
-      );
+      const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, readProvider);
       const balBn: ethers.BigNumber = await nft.balanceOf(owner);
       const bal = balBn.toNumber();
       if (bal === 0) return [];
 
       let start = 0;
-      let end = 250;
+      let end = 400;
 
       try {
         const totalBn: ethers.BigNumber = await nft.totalSupply();
         const total = totalBn.toNumber();
-        const span = Math.min(total, 250);
+        const span = Math.min(total, 400);
         end = total + 2;
         start = Math.max(0, end - span - 2);
       } catch {
@@ -615,14 +546,11 @@ export default function Home() {
     const isLand = nftAddress.toLowerCase() === LAND_ADDRESS.toLowerCase();
     const isPlant = nftAddress.toLowerCase() === PLANT_ADDRESS.toLowerCase();
 
-    const missing = ids.filter((id) => !out[id]);
-
-    if (missing.length === 0) return out;
-
     try {
       const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, prov);
 
-      const tasks = missing.map(async (id) => {
+      const tasks = ids.map(async (id) => {
+        if (out[id]) return;
         try {
           let img: string | undefined;
 
@@ -702,27 +630,10 @@ export default function Home() {
       const landBoostPct = (landsStaked * Number(landBps)) / 100;
       const pendingFormatted = ethers.utils.formatUnits(pendingRaw, 18);
 
-      let plantOwned: number[] = [];
-      let landOwned: number[] = [];
-
-      if (ownedCacheRef.current.addr === addr) {
-        plantOwned = ownedCacheRef.current.plants;
-        landOwned = ownedCacheRef.current.lands;
-      } else {
-        const [pOwned, lOwned] = await Promise.all([
-          loadOwnedTokens(PLANT_ADDRESS, addr),
-          loadOwnedTokens(LAND_ADDRESS, addr),
-        ]);
-
-        plantOwned = pOwned;
-        landOwned = lOwned;
-
-        ownedCacheRef.current = {
-          addr,
-          plants: pOwned,
-          lands: lOwned,
-        };
-      }
+      const [plantOwned, landOwned] = await Promise.all([
+        loadOwnedTokens(PLANT_ADDRESS, addr),
+        loadOwnedTokens(LAND_ADDRESS, addr),
+      ]);
 
       const stakedPlantNums = stakedPlantIds.map((x: any) => Number(x));
       const stakedLandNums = stakedLandIds.map((x: any) => Number(x));
@@ -787,35 +698,52 @@ export default function Home() {
         STAKING_ABI,
         readProvider
       );
+      const plantNft = new ethers.Contract(
+        PLANT_ADDRESS,
+        ERC721_VIEW_ABI,
+        readProvider
+      );
+      const landNft = new ethers.Contract(
+        LAND_ADDRESS,
+        ERC721_VIEW_ABI,
+        readProvider
+      );
 
-      const [tokensPerPlantPerDayBn, landBpsBn, latestBlock] =
+      const [tokensPerPlantPerDayBn, landBpsBn, plantTotalBn, landTotalBn] =
         await Promise.all([
           staking.tokensPerPlantPerDay(),
           staking.landBoostBps(),
-          readProvider.getBlockNumber(),
+          plantNft.totalSupply(),
+          landNft.totalSupply(),
         ]);
 
-      const fromBlock = 0;
-      const logs = await readProvider.getLogs({
-        address: STAKING_ADDRESS,
-        fromBlock,
-        toBlock: latestBlock,
-      });
+      const plantTotal = plantTotalBn.toNumber();
+      const landTotal = landTotalBn.toNumber();
+      const maxScan = 1000;
+      const plantLimit = Math.min(plantTotal, maxScan);
+      const landLimit = Math.min(landTotal, maxScan);
 
       const addrSet = new Set<string>();
-      if (userAddress) {
-        addrSet.add(userAddress.toLowerCase());
+
+      for (let id = 0; id < plantLimit; id++) {
+        try {
+          const who: string = await staking.plantStakerOf(id);
+          if (who && who !== ethers.constants.AddressZero) {
+            addrSet.add(who.toLowerCase());
+          }
+        } catch {
+          //
+        }
       }
 
-      for (const log of logs) {
-        for (let i = 1; i < log.topics.length; i++) {
-          const t = log.topics[i];
-          if (t && t.length === 66) {
-            const addr = ("0x" + t.slice(26)).toLowerCase();
-            if (addr !== "0x0000000000000000000000000000000000000000") {
-              addrSet.add(addr);
-            }
+      for (let id = 0; id < landLimit; id++) {
+        try {
+          const who: string = await staking.landStakerOf(id);
+          if (who && who !== ethers.constants.AddressZero) {
+            addrSet.add(who.toLowerCase());
           }
+        } catch {
+          //
         }
       }
 
@@ -883,21 +811,17 @@ export default function Home() {
       userAddress: string;
     }
   ) {
-    const nftRead = new ethers.Contract(
+    const nft = new ethers.Contract(
       collectionAddress,
       ERC721_VIEW_ABI,
-      readProvider
+      ctx.signer
     );
-    const approved: boolean = await nftRead.isApprovedForAll(
+    const approved: boolean = await nft.isApprovedForAll(
       ctx.userAddress,
       STAKING_ADDRESS
     );
     if (!approved) {
-      const data = erc721Interface.encodeFunctionData("setApprovalForAll", [
-        STAKING_ADDRESS,
-        true,
-      ]);
-      const tx = await sendContractTx(collectionAddress, data);
+      const tx = await nft.setApprovalForAll(STAKING_ADDRESS, true);
       await waitForTx(tx);
     }
   }
@@ -1179,6 +1103,16 @@ export default function Home() {
               Every Land NFT unlocks more Plant slots and increases your{" "}
               <span className={styles.highlight}>Land Boost</span> for higher
               payouts.
+            </p>
+
+            <p
+              style={{
+                fontSize: 12,
+                margin: "4px 0 8px",
+                opacity: 0.9,
+              }}
+            >
+              Mint 1 Plant to start farming like Pablo Escobar
             </p>
 
             <div className={styles.ctaRow}>
