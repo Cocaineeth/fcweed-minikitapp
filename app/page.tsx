@@ -70,6 +70,8 @@ type StakingStats = {
   landBoostPct: number;
   pendingFormatted: string;
   claimEnabled: boolean;
+  landBps: number;
+  tokensPerPlantPerDay: string;
 };
 
 const PLAYLIST = [
@@ -80,6 +82,30 @@ const PLAYLIST = [
   { title: "Travis Scott - SDP Interlude", src: "/audio/track2.mp3" },
   { title: "Yeat - if we being real", src: "/audio/track3.mp3" },
 ];
+
+async function waitForTx(
+  tx: ethers.providers.TransactionResponse | undefined | null
+) {
+  if (!tx) return;
+  try {
+    await tx.wait();
+  } catch (e: any) {
+    const msg =
+      e?.reason ||
+      e?.error?.message ||
+      e?.data?.message ||
+      e?.message ||
+      "";
+    if (
+      msg.includes("does not support the requested method") ||
+      msg.includes("unsupported method")
+    ) {
+      console.warn("Ignoring provider wait() error:", e);
+    } else {
+      throw e;
+    }
+  }
+}
 
 export default function Home() {
   const { setMiniAppReady, isMiniAppReady } = useMiniKit();
@@ -132,7 +158,8 @@ export default function Home() {
     if (isPlaying) {
       audioRef.current
         .play()
-        .catch(() => {
+        .catch((err) => {
+          console.warn("Autoplay blocked by browser", err);
           setIsPlaying(false);
         });
     } else if (!audioRef.current.paused) {
@@ -154,7 +181,7 @@ export default function Home() {
       try {
         await sdk.actions.ready();
       } catch {
-        // ignore
+        //
       }
     })();
   }, [isMiniAppReady, setMiniAppReady]);
@@ -162,31 +189,9 @@ export default function Home() {
   const shortAddr = (addr?: string | null) =>
     addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
 
-  async function getMiniAppAddress(ethProv: any): Promise<string> {
-    let accounts: string[] = [];
-    try {
-      accounts = await ethProv.request({ method: "eth_accounts" });
-    } catch {
-      try {
-        accounts = await ethProv.request({ method: "eth_requestAccounts" });
-      } catch {
-        accounts = [];
-      }
-    }
-    if (!accounts || accounts.length === 0) {
-      throw new Error("No accounts in Farcaster wallet");
-    }
-    return accounts[0];
-  }
-
-  async function ensureWallet(): Promise<{
-    signer: ethers.Signer;
-    provider: ethers.providers.Web3Provider;
-    userAddress: string;
-    usingMini: boolean;
-  } | null> {
+  async function ensureWallet() {
     if (signer && provider && userAddress) {
-      return { signer, provider, userAddress, usingMini: usingMiniApp };
+      return { signer, provider, userAddress };
     }
 
     try {
@@ -205,19 +210,30 @@ export default function Home() {
         }
       } catch {
         isMini = false;
-        ethProv = null;
       }
 
       if (isMini && ethProv) {
-        const addrMini = await getMiniAppAddress(ethProv);
-        p = new ethers.providers.Web3Provider(ethProv as any, {
-          name: "base",
-          chainId: CHAIN_ID,
-        });
-        s = p.getSigner();
-        addr = addrMini;
         setUsingMiniApp(true);
         setMiniAppEthProvider(ethProv);
+
+        p = new ethers.providers.Web3Provider(ethProv as any, "any");
+
+        let fcAddr: string | undefined;
+        try {
+          fcAddr = (await (sdk as any).wallet.getAddress?.()) as
+            | string
+            | undefined;
+        } catch {
+          fcAddr = undefined;
+        }
+
+        if (fcAddr) {
+          addr = fcAddr;
+          s = p.getSigner(fcAddr);
+        } else {
+          s = p.getSigner();
+          addr = await s.getAddress();
+        }
       } else {
         setUsingMiniApp(false);
         const anyWindow = window as any;
@@ -247,7 +263,7 @@ export default function Home() {
                 params: [{ chainId: "0x2105" }],
               });
             } catch {
-              // ignore
+              //
             }
           }
         }
@@ -258,8 +274,8 @@ export default function Home() {
       setUserAddress(addr);
       setConnecting(false);
 
-      return { signer: s, provider: p, userAddress: addr, usingMini: isMini };
-    } catch (err: any) {
+      return { signer: s, provider: p, userAddress: addr };
+    } catch (err) {
       console.error("Wallet connect failed:", err);
       if (usingMiniApp) {
         setMintStatus(
@@ -324,10 +340,8 @@ export default function Home() {
     setMintStatus("Requesting USDC approve transaction in your wallet…");
 
     try {
-      const tx = await usdcWrite.approve(spender, required, {
-        gasLimit: 200000,
-      });
-      await tx.wait();
+      const tx = await usdcWrite.approve(spender, required);
+      await waitForTx(tx);
       setMintStatus("USDC approve confirmed. Sending mint transaction…");
       return true;
     } catch (err) {
@@ -356,9 +370,9 @@ export default function Home() {
       if (!okAllowance) return;
 
       const land = new ethers.Contract(LAND_ADDRESS, LAND_ABI, ctx.signer);
-      const tx = await land.mint({ gasLimit: 500000 });
+      const tx = await land.mint();
       setMintStatus("Land mint transaction sent. Waiting for confirmation…");
-      await tx.wait();
+      await waitForTx(tx);
       setMintStatus(
         "Land mint submitted ✅ Check your wallet / explorer for confirmation."
       );
@@ -387,9 +401,9 @@ export default function Home() {
       if (!okAllowance) return;
 
       const plant = new ethers.Contract(PLANT_ADDRESS, PLANT_ABI, ctx.signer);
-      const tx = await plant.mint({ gasLimit: 500000 });
+      const tx = await plant.mint();
       setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
-      await tx.wait();
+      await waitForTx(tx);
       setMintStatus(
         "Plant mint submitted ✅ Check your wallet / explorer for confirmation."
       );
@@ -429,7 +443,7 @@ export default function Home() {
         const total = totalBn.toNumber();
         maxId = Math.min(total + 5, 2000);
       } catch {
-        // ignore
+        //
       }
 
       const ids: number[] = [];
@@ -442,7 +456,7 @@ export default function Home() {
             ids.push(tokenId);
           }
         } catch {
-          // non-existent tokenId
+          //
         }
       }
 
@@ -480,7 +494,7 @@ export default function Home() {
               img = meta.image ? toHttpFromMaybeIpfs(meta.image) : undefined;
             }
           } catch {
-            // ignore and fall back
+            //
           }
 
           if (!img) {
@@ -524,6 +538,7 @@ export default function Home() {
         stakedPlantIds,
         stakedLandIds,
         landBps,
+        tokensPerPlantPerDayRaw,
         claimEnabled,
         landEnabled,
       ] = await Promise.all([
@@ -532,6 +547,7 @@ export default function Home() {
         staking.plantsOf(addr),
         staking.landsOf(addr),
         staking.landBoostBps(),
+        staking.tokensPerPlantPerDay(),
         staking.claimEnabled(),
         staking.landStakingEnabled(),
       ]);
@@ -540,7 +556,8 @@ export default function Home() {
       const landsStaked = Number(user.lands);
       const totalSlots = 1 + landsStaked * 3;
       const capacityUsed = plantsStaked;
-      const landBoostPct = (landsStaked * Number(landBps)) / 100;
+      const landBpsNum = Number(landBps);
+      const landBoostPct = (landsStaked * landBpsNum) / 100;
       const pendingFormatted = ethers.utils.formatUnits(pendingRaw, 18);
 
       const plantOwned = await loadOwnedTokens(PLANT_ADDRESS, addr);
@@ -569,6 +586,8 @@ export default function Home() {
         landBoostPct,
         pendingFormatted,
         claimEnabled,
+        landBps: landBpsNum,
+        tokensPerPlantPerDay: tokensPerPlantPerDayRaw.toString(),
       });
 
       const allPlantIds = Array.from(
@@ -618,10 +637,8 @@ export default function Home() {
       STAKING_ADDRESS
     );
     if (!approved) {
-      const tx = await nft.setApprovalForAll(STAKING_ADDRESS, true, {
-        gasLimit: 300000,
-      });
-      await tx.wait();
+      const tx = await nft.setApprovalForAll(STAKING_ADDRESS, true);
+      await waitForTx(tx);
     }
   }
 
@@ -649,19 +666,17 @@ export default function Home() {
       if (toStakePlants.length > 0) {
         await ensureCollectionApproval(PLANT_ADDRESS, ctx);
         const tx = await staking.stakePlants(
-          toStakePlants.map((id) => ethers.BigNumber.from(id)),
-          { gasLimit: 600000 }
+          toStakePlants.map((id) => ethers.BigNumber.from(id))
         );
-        await tx.wait();
+        await waitForTx(tx);
       }
 
       if (toStakeLands.length > 0 && landStakingEnabled) {
         await ensureCollectionApproval(LAND_ADDRESS, ctx);
         const tx2 = await staking.stakeLands(
-          toStakeLands.map((id) => ethers.BigNumber.from(id)),
-          { gasLimit: 600000 }
+          toStakeLands.map((id) => ethers.BigNumber.from(id))
         );
-        await tx2.wait();
+        await waitForTx(tx2);
       }
 
       setSelectedAvailPlants([]);
@@ -697,18 +712,16 @@ export default function Home() {
 
       if (toUnstakePlants.length > 0) {
         const tx = await staking.unstakePlants(
-          toUnstakePlants.map((id) => ethers.BigNumber.from(id)),
-          { gasLimit: 600000 }
+          toUnstakePlants.map((id) => ethers.BigNumber.from(id))
         );
-        await tx.wait();
+        await waitForTx(tx);
       }
 
       if (toUnstakeLands.length > 0) {
         const tx2 = await staking.unstakeLands(
-          toUnstakeLands.map((id) => ethers.BigNumber.from(id)),
-          { gasLimit: 600000 }
+          toUnstakeLands.map((id) => ethers.BigNumber.from(id))
         );
-        await tx2.wait();
+        await waitForTx(tx2);
       }
 
       setSelectedStakedPlants([]);
@@ -743,8 +756,8 @@ export default function Home() {
 
     try {
       setActionLoading(true);
-      const tx = await staking.claim({ gasLimit: 300000 });
-      await tx.wait();
+      const tx = await staking.claim();
+      await waitForTx(tx);
       await refreshStaking();
     } catch (err) {
       console.error("Claim error:", err);
@@ -782,6 +795,43 @@ export default function Home() {
   const stakeDisabled = !connected || actionLoading;
   const unstakeDisabled = !connected || actionLoading;
   const claimDisabled = !connected || actionLoading;
+
+  const crimeRows: {
+    rank: number;
+    address: string;
+    plants: number;
+    lands: number;
+    capacity: string;
+    landBoostPct: number;
+    dailyRate: string;
+  }[] = [];
+
+  if (stakingStats && userAddress) {
+    const plants = stakingStats.plantsStaked;
+    const lands = stakingStats.landsStaked;
+    let dailyRate = "0.00";
+    if (plants > 0) {
+      const tppdBn = ethers.BigNumber.from(
+        stakingStats.tokensPerPlantPerDay || "0"
+      );
+      const basePerDay = tppdBn.mul(plants);
+      const boostBpsTotal = lands * stakingStats.landBps;
+      const totalPerDay = basePerDay
+        .mul(10_000 + boostBpsTotal)
+        .div(10_000);
+      dailyRate = ethers.utils.formatUnits(totalPerDay, 18);
+    }
+
+    crimeRows.push({
+      rank: 1,
+      address: userAddress,
+      plants,
+      lands,
+      capacity: `${stakingStats.capacityUsed}/${stakingStats.totalSlots}`,
+      landBoostPct: stakingStats.landBoostPct,
+      dailyRate,
+    });
+  }
 
   return (
     <div
@@ -942,6 +992,18 @@ export default function Home() {
               >
                 Staking
               </button>
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={() =>
+                  window.open(
+                    "https://dexscreener.com/base",
+                    "_blank"
+                  )
+                }
+              >
+                Trade ${TOKEN_SYMBOL}
+              </button>
             </div>
 
             {mintStatus && (
@@ -1022,14 +1084,197 @@ export default function Home() {
             </li>
           </ul>
 
-          <h2 className={styles.heading}>Coming Soon</h2>
+          <h2 className={styles.heading}>Use of Funds</h2>
           <ul className={styles.bulletList}>
-            <li>Plant NFT artwork reveal.</li>
-            <li>Reward token + staking UI polish.</li>
             <li>
-              Stake, compound, and climb up the Crime Ladder (KOTH leaderboard).
+              <b>50%</b> of all mint proceeds go directly to periodic{" "}
+              <b>buyback &amp; burn</b> of ${TOKEN_SYMBOL}.
+            </li>
+            <li>
+              ${TOKEN_SYMBOL} has a <b>3% buy &amp; sell tax</b> on every swap.
+            </li>
+            <li>
+              <b>2%</b> of each trade is routed into automated{" "}
+              <b>buyback &amp; burn</b> of ${TOKEN_SYMBOL}.
+            </li>
+            <li>
+              <b>1%</b> of each trade is accumulated for{" "}
+              <b>top farmer rewards</b> paid in ETH, based on the Crime Ladder
+              leaderboard.
             </li>
           </ul>
+        </section>
+
+        <section
+          className={styles.infoCard}
+          style={{ marginTop: 16 }}
+        >
+          <h2 className={styles.heading}>Crime Ladder — Top Farmers</h2>
+          {crimeRows.length === 0 ? (
+            <p
+              style={{
+                fontSize: 12,
+                opacity: 0.85,
+                marginTop: 4,
+              }}
+            >
+              Connect your wallet and stake Plants + Land to appear on the Crime
+              Ladder.
+            </p>
+          ) : (
+            <div style={{ overflowX: "auto", marginTop: 8 }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 12,
+                }}
+              >
+                <thead>
+                  <tr>
+                    <th
+                      style={{
+                        textAlign: "left",
+                        padding: "6px 4px",
+                        borderBottom: "1px solid rgba(255,255,255,0.12)",
+                      }}
+                    >
+                      Rank
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "left",
+                        padding: "6px 4px",
+                        borderBottom: "1px solid rgba(255,255,255,0.12)",
+                      }}
+                    >
+                      Wallet
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "right",
+                        padding: "6px 4px",
+                        borderBottom: "1px solid rgba(255,255,255,0.12)",
+                      }}
+                    >
+                      Plants
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "right",
+                        padding: "6px 4px",
+                        borderBottom: "1px solid rgba(255,255,255,0.12)",
+                      }}
+                    >
+                      Lands
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "right",
+                        padding: "6px 4px",
+                        borderBottom: "1px solid rgba(255,255,255,0.12)",
+                      }}
+                    >
+                      Land Boost
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "right",
+                        padding: "6px 4px",
+                        borderBottom: "1px solid rgba(255,255,255,0.12)",
+                      }}
+                    >
+                      Capacity
+                    </th>
+                    <th
+                      style={{
+                        textAlign: "right",
+                        padding: "6px 4px",
+                        borderBottom: "1px solid rgba(255,255,255,0.12)",
+                      }}
+                    >
+                      Daily Rate
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {crimeRows.map((row) => (
+                    <tr key={row.rank}>
+                      <td
+                        style={{
+                          padding: "6px 4px",
+                          borderBottom:
+                            "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        #{row.rank}
+                      </td>
+                      <td
+                        style={{
+                          padding: "6px 4px",
+                          borderBottom:
+                            "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        {shortAddr(row.address)}
+                      </td>
+                      <td
+                        style={{
+                          padding: "6px 4px",
+                          textAlign: "right",
+                          borderBottom:
+                            "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        {row.plants}
+                      </td>
+                      <td
+                        style={{
+                          padding: "6px 4px",
+                          textAlign: "right",
+                          borderBottom:
+                            "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        {row.lands}
+                      </td>
+                      <td
+                        style={{
+                          padding: "6px 4px",
+                          textAlign: "right",
+                          borderBottom:
+                            "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        +{row.landBoostPct.toFixed(2)}%
+                      </td>
+                      <td
+                        style={{
+                          padding: "6px 4px",
+                          textAlign: "right",
+                          borderBottom:
+                            "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        {row.capacity}
+                      </td>
+                      <td
+                        style={{
+                          padding: "6px 4px",
+                          textAlign: "right",
+                          borderBottom:
+                            "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        {parseFloat(row.dailyRate || "0").toFixed(2)}{" "}
+                        {TOKEN_SYMBOL}/day
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       </main>
 
