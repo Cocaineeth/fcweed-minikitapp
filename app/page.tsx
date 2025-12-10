@@ -193,7 +193,7 @@ export default function Home() {
   useEffect(() => {
     const id = setInterval(() => {
       setGifIndex((prev) => (prev + 1) % GIFS.length);
-    }, 4000);
+    }, 5000);
     return () => clearInterval(id);
   }, []);
 
@@ -513,21 +513,34 @@ export default function Home() {
         //
       }
 
-      const ids: number[] = [];
       const ownerLower = owner.toLowerCase();
+      const found: number[] = [];
 
-      for (let tokenId = start; tokenId <= end && ids.length < bal; tokenId++) {
-        try {
-          const who: string = await nft.ownerOf(tokenId);
-          if (who.toLowerCase() === ownerLower) {
-            ids.push(tokenId);
-          }
-        } catch {
-          //
-        }
+      const ids: number[] = [];
+      for (let tokenId = start; tokenId <= end; tokenId++) {
+        ids.push(tokenId);
       }
 
-      return ids;
+      const BATCH = 40;
+      for (let i = 0; i < ids.length; i += BATCH) {
+        const slice = ids.slice(i, i + BATCH);
+        await Promise.all(
+          slice.map(async (tokenId) => {
+            if (found.length >= bal) return;
+            try {
+              const who: string = await nft.ownerOf(tokenId);
+              if (who && who.toLowerCase() === ownerLower) {
+                found.push(tokenId);
+              }
+            } catch {
+              //
+            }
+          })
+        );
+        if (found.length >= bal) break;
+      }
+
+      return found;
     } catch (e) {
       console.error("Failed to enumerate tokens for", nftAddress, e);
       return [];
@@ -588,8 +601,6 @@ export default function Home() {
   }
 
   async function refreshStaking() {
-    if (!stakingOpen) return;
-
     let addr = userAddress;
     if (!addr) {
       const ctx = await ensureWallet();
@@ -660,23 +671,40 @@ export default function Home() {
         claimEnabled,
       });
 
-      const allPlantIds = Array.from(
-        new Set([...plantOwned, ...stakedPlantNums])
-      );
-      const allLandIds = Array.from(
-        new Set([...landOwned, ...stakedLandNums])
-      );
+      setLoadingStaking(false);
 
-      const [plantImgs, landImgs] = await Promise.all([
-        fetchNftImages(PLANT_ADDRESS, allPlantIds, readProvider, plantImages),
-        fetchNftImages(LAND_ADDRESS, allLandIds, readProvider, landImages),
-      ]);
+      (async () => {
+        try {
+          const allPlantIds = Array.from(
+            new Set([...plantOwned, ...stakedPlantNums])
+          );
+          const allLandIds = Array.from(
+            new Set([...landOwned, ...stakedLandNums])
+          );
 
-      setPlantImages(plantImgs);
-      setLandImages(landImgs);
+          const [plantImgs, landImgs] = await Promise.all([
+            fetchNftImages(
+              PLANT_ADDRESS,
+              allPlantIds,
+              readProvider,
+              plantImages
+            ),
+            fetchNftImages(
+              LAND_ADDRESS,
+              allLandIds,
+              readProvider,
+              landImages
+            ),
+          ]);
+
+          setPlantImages(plantImgs);
+          setLandImages(landImgs);
+        } catch (e) {
+          console.error("Image load error:", e);
+        }
+      })();
     } catch (err) {
       console.error("Failed to load staking state:", err);
-    } finally {
       setLoadingStaking(false);
     }
   }
@@ -684,10 +712,6 @@ export default function Home() {
   useEffect(() => {
     if (!stakingOpen) return;
     refreshStaking();
-    const id = setInterval(() => {
-      refreshStaking();
-    }, 20000);
-    return () => clearInterval(id);
   }, [stakingOpen]);
 
   async function refreshCrimeLadder() {
@@ -698,37 +722,23 @@ export default function Home() {
         STAKING_ABI,
         readProvider
       );
-      const plantNft = new ethers.Contract(
-        PLANT_ADDRESS,
-        ERC721_VIEW_ABI,
-        readProvider
-      );
-      const landNft = new ethers.Contract(
-        LAND_ADDRESS,
-        ERC721_VIEW_ABI,
-        readProvider
-      );
 
-      const [tokensPerPlantPerDayBn, landBpsBn, plantTotalBn, landTotalBn] =
-        await Promise.all([
-          staking.tokensPerPlantPerDay(),
-          staking.landBoostBps(),
-          plantNft.totalSupply(),
-          landNft.totalSupply(),
-        ]);
-
-      const plantTotal = plantTotalBn.toNumber();
-      const landTotal = landTotalBn.toNumber();
-      const maxScan = 1000;
-      const plantLimit = Math.min(plantTotal, maxScan);
-      const landLimit = Math.min(landTotal, maxScan);
+      const [tokensPerPlantPerDayBn, landBpsBn] = await Promise.all([
+        staking.tokensPerPlantPerDay(),
+        staking.landBoostBps(),
+      ]);
 
       const addrSet = new Set<string>();
+      const MAX_TOKEN_ID_SCAN = 1500;
 
-      for (let id = 0; id < plantLimit; id++) {
+      for (let id = 0; id < MAX_TOKEN_ID_SCAN; id++) {
         try {
           const who: string = await staking.plantStakerOf(id);
-          if (who && who !== ethers.constants.AddressZero) {
+          if (
+            who &&
+            who !== ethers.constants.AddressZero &&
+            who !== "0x0000000000000000000000000000000000000000"
+          ) {
             addrSet.add(who.toLowerCase());
           }
         } catch {
@@ -736,10 +746,14 @@ export default function Home() {
         }
       }
 
-      for (let id = 0; id < landLimit; id++) {
+      for (let id = 0; id < MAX_TOKEN_ID_SCAN; id++) {
         try {
           const who: string = await staking.landStakerOf(id);
-          if (who && who !== ethers.constants.AddressZero) {
+          if (
+            who &&
+            who !== ethers.constants.AddressZero &&
+            who !== "0x0000000000000000000000000000000000000000"
+          ) {
             addrSet.add(who.toLowerCase());
           }
         } catch {
@@ -1107,12 +1121,15 @@ export default function Home() {
 
             <p
               style={{
-                fontSize: 12,
-                margin: "4px 0 8px",
-                opacity: 0.9,
+                fontSize: 13,
+                fontWeight: 600,
+                margin: "6px 0 10px",
+                opacity: 0.95,
               }}
             >
-              Mint 1 Plant to start farming like Pablo Escobar
+              <strong>
+                Mint 1 Plant to start farming like Pablo Escobar
+              </strong>
             </p>
 
             <div className={styles.ctaRow}>
