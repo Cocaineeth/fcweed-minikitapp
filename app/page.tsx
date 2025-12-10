@@ -61,6 +61,19 @@ const landInterface = new ethers.utils.Interface(LAND_ABI);
 const plantInterface = new ethers.utils.Interface(PLANT_ABI);
 const stakingInterface = new ethers.utils.Interface(STAKING_ABI);
 
+const PLAYLIST = [
+  {
+    title: "Kendrick Lamar - Untitled 05 (LoVibe Remix)",
+    src: "/audio/track1.mp3",
+  },
+  { title: "Travis Scott - SDP Interlude", src: "/audio/track2.mp3" },
+  { title: "Yeat - if we being real", src: "/audio/track3.mp3" },
+];
+
+const GIFS = ["/fcweed-radio.gif", "/fcweed-radio-2.gif", "/fcweed-radio-3.gif", "/fcweed-radio-4.gif"];
+
+const TRY_AGAIN_SUFFIX = " Try minting again.";
+
 type StakingStats = {
   plantsStaked: number;
   landsStaked: number;
@@ -81,35 +94,12 @@ type FarmerRow = {
   dailyRaw: number;
 };
 
-const PLAYLIST = [
-  {
-    title: "Kendrick Lamar - Untitled 05 (LoVibe Remix)",
-    src: "/audio/track1.mp3",
-  },
-  { title: "Travis Scott - SDP Interlude", src: "/audio/track2.mp3" },
-  { title: "Yeat - if we being real", src: "/audio/track3.mp3" },
-];
-
-const GIFS = [
-  "/fcweed-radio.gif",
-  "/fcweed-radio-2.gif",
-  "/fcweed-radio-3.gif",
-  "/fcweed-radio-4.gif",
-];
-
-async function waitForTx(
-  tx: ethers.providers.TransactionResponse | undefined | null
-) {
+async function waitForTx(tx: ethers.providers.TransactionResponse | undefined | null) {
   if (!tx) return;
   try {
     await tx.wait();
   } catch (e: any) {
-    const msg =
-      e?.reason ||
-      e?.error?.message ||
-      e?.data?.message ||
-      e?.message ||
-      "";
+    const msg = e?.reason || e?.error?.message || e?.data?.message || e?.message || "";
     if (
       msg.includes("does not support the requested method") ||
       msg.includes("unsupported method")
@@ -124,15 +114,12 @@ async function waitForTx(
 export default function Home() {
   const { setMiniAppReady, isMiniAppReady } = useMiniKit();
 
-  const [provider, setProvider] =
-    useState<ethers.providers.Web3Provider | null>(null);
+  const [provider, setProvider] = useState<ethers.providers.Web3Provider | null>(null);
   const [signer, setSigner] = useState<ethers.Signer | null>(null);
   const [userAddress, setUserAddress] = useState<string | null>(null);
   const [usingMiniApp, setUsingMiniApp] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [miniAppEthProvider, setMiniAppEthProvider] = useState<any | null>(
-    null
-  );
+  const [miniAppEthProvider, setMiniAppEthProvider] = useState<any | null>(null);
 
   const [readProvider] = useState(
     () => new ethers.providers.JsonRpcProvider(PUBLIC_BASE_RPC)
@@ -151,8 +138,7 @@ export default function Home() {
 
   const [selectedAvailPlants, setSelectedAvailPlants] = useState<number[]>([]);
   const [selectedAvailLands, setSelectedAvailLands] = useState<number[]>([]);
-  const [selectedStakedPlants, setSelectedStakedPlants] =
-    useState<number[]>([]);
+  const [selectedStakedPlants, setSelectedStakedPlants] = useState<number[]>([]);
   const [selectedStakedLands, setSelectedStakedLands] = useState<number[]>([]);
 
   const [mintStatus, setMintStatus] = useState<string>("");
@@ -243,9 +229,7 @@ export default function Home() {
 
         let fcAddr: string | undefined;
         try {
-          fcAddr = (await (sdk as any).wallet.getAddress?.()) as
-            | string
-            | undefined;
+          fcAddr = (await (sdk as any).wallet.getAddress?.()) as string | undefined;
         } catch {
           fcAddr = undefined;
         }
@@ -276,7 +260,7 @@ export default function Home() {
       const net = await p.getNetwork();
       if (net.chainId !== CHAIN_ID) {
         if (isMini) {
-          setMintStatus("Please switch your Farcaster wallet to Base to mint.");
+          setMintStatus("Please switch your Farcaster wallet to Base to mint." + TRY_AGAIN_SUFFIX);
         } else {
           const anyWindow = window as any;
           if (anyWindow.ethereum?.request) {
@@ -302,10 +286,13 @@ export default function Home() {
       console.error("Wallet connect failed:", err);
       if (usingMiniApp) {
         setMintStatus(
-          "Could not connect Farcaster wallet. Make sure the mini app has wallet permissions."
+          "Could not connect Farcaster wallet. Make sure the mini app has wallet permissions." +
+            TRY_AGAIN_SUFFIX
         );
       } else {
-        setMintStatus("Wallet connect failed. Check your wallet and try again.");
+        setMintStatus(
+          "Wallet connect failed. Check your wallet and try again." + TRY_AGAIN_SUFFIX
+        );
       }
       setConnecting(false);
       return null;
@@ -333,7 +320,7 @@ export default function Home() {
           `You need at least ${ethers.utils.formatUnits(
             required,
             USDC_DECIMALS
-          )} USDC on Base to mint.`
+          )} USDC on Base to mint.` + TRY_AGAIN_SUFFIX
         );
         return false;
       }
@@ -368,7 +355,7 @@ export default function Home() {
         (err as any)?.data?.message ||
         (err as any)?.message ||
         "USDC approve failed";
-      setMintStatus(msg);
+      setMintStatus(msg + TRY_AGAIN_SUFFIX);
       return false;
     }
   }
@@ -412,10 +399,7 @@ export default function Home() {
   async function handleMintLand() {
     try {
       setMintStatus("Preparing to mint 1 Land (199.99 USDC + gas)…");
-      const okAllowance = await ensureUsdcAllowance(
-        LAND_ADDRESS,
-        LAND_PRICE_USDC
-      );
+      const okAllowance = await ensureUsdcAllowance(LAND_ADDRESS, LAND_PRICE_USDC);
       if (!okAllowance) return;
 
       const data = landInterface.encodeFunctionData("mint", []);
@@ -434,17 +418,14 @@ export default function Home() {
         err?.data?.message ||
         err?.message ||
         "Mint Land failed";
-      setMintStatus(`Land mint failed: ${msg}`);
+      setMintStatus(`Land mint failed: ${msg}` + TRY_AGAIN_SUFFIX);
     }
   }
 
   async function handleMintPlant() {
     try {
       setMintStatus("Preparing to mint 1 Plant (49.99 USDC + gas)…");
-      const okAllowance = await ensureUsdcAllowance(
-        PLANT_ADDRESS,
-        PLANT_PRICE_USDC
-      );
+      const okAllowance = await ensureUsdcAllowance(PLANT_ADDRESS, PLANT_PRICE_USDC);
       if (!okAllowance) return;
 
       const data = plantInterface.encodeFunctionData("mint", []);
@@ -463,7 +444,7 @@ export default function Home() {
         err?.data?.message ||
         err?.message ||
         "Mint Plant failed";
-      setMintStatus(`Plant mint failed: ${msg}`);
+      setMintStatus(`Plant mint failed: ${msg}` + TRY_AGAIN_SUFFIX);
     }
   }
 
@@ -477,7 +458,8 @@ export default function Home() {
       const bal = balBn.toNumber();
       if (bal === 0) return [];
 
-      const MAX_ID = 400;
+      // Reduce scan range for speed (assumes early IDs for now)
+      const MAX_ID = 120;
       const ids: number[] = [];
       for (let tokenId = 0; tokenId < MAX_ID; tokenId++) {
         ids.push(tokenId);
@@ -525,11 +507,7 @@ export default function Home() {
       addr = ctx.userAddress;
     }
 
-    const staking = new ethers.Contract(
-      STAKING_ADDRESS,
-      STAKING_ABI,
-      readProvider
-    );
+    const staking = new ethers.Contract(STAKING_ADDRESS, STAKING_ABI, readProvider);
 
     setLoadingStaking(true);
     try {
@@ -603,11 +581,7 @@ export default function Home() {
   async function refreshCrimeLadder() {
     setLadderLoading(true);
     try {
-      const staking = new ethers.Contract(
-        STAKING_ADDRESS,
-        STAKING_ABI,
-        readProvider
-      );
+      const staking = new ethers.Contract(STAKING_ADDRESS, STAKING_ABI, readProvider);
 
       const [tokensPerPlantPerDayBn, landBpsBn] = await Promise.all([
         staking.tokensPerPlantPerDay(),
@@ -615,8 +589,9 @@ export default function Home() {
       ]);
 
       const addrSet = new Set<string>();
-      const MAX_ID = 400;
-      const BATCH = 40;
+      // Reduced scan range + smaller batches to avoid timeouts/throttling
+      const MAX_ID = 120;
+      const BATCH = 20;
       const zero = ethers.constants.AddressZero;
 
       const scanMapping = async (fn: "plantStakerOf" | "landStakerOf") => {
@@ -662,9 +637,7 @@ export default function Home() {
             landBpsBn.mul(landsBn)
           );
           const dailyBn = base.mul(boostTotalBps).div(10000);
-          const dailyFloat = parseFloat(
-            ethers.utils.formatUnits(dailyBn, 18)
-          );
+          const dailyFloat = parseFloat(ethers.utils.formatUnits(dailyBn, 18));
 
           const capacityTotal = 1 + lands * 3;
           const boostPct = (lands * landBpsBn.toNumber()) / 100;
@@ -708,14 +681,11 @@ export default function Home() {
       userAddress: string;
     }
   ) {
-    // Minimal path: rely on UI-level approval via external site or previous approval.
-    // If you want, you can re-add isApprovedForAll checks here later.
     const nft = new ethers.Contract(
       collectionAddress,
       ["function setApprovalForAll(address,bool)"],
       ctx.signer
     );
-    // Best-effort approve; if fails, user will see wallet error but app won't crash.
     try {
       const tx = await nft.setApprovalForAll(STAKING_ADDRESS, true);
       await waitForTx(tx);
@@ -1005,10 +975,10 @@ export default function Home() {
 
             <p
               style={{
-                fontSize: 14,
-                fontWeight: 700,
+                fontSize: 15,
+                fontWeight: 800,
                 margin: "6px 0 10px",
-                opacity: 0.95,
+                opacity: 0.98,
               }}
             >
               <strong>
@@ -1537,8 +1507,7 @@ export default function Home() {
                   </span>
                   <span style={{ fontSize: 12 }}>
                     Selected:{" "}
-                    {selectedStakedPlants.length +
-                      selectedStakedLands.length}
+                    {selectedStakedPlants.length + selectedStakedLands.length}
                   </span>
                 </div>
 
