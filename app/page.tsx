@@ -24,6 +24,9 @@ const USDC_DECIMALS = 6;
 const PLANT_PRICE_USDC = ethers.utils.parseUnits("49.99", USDC_DECIMALS);
 const LAND_PRICE_USDC = ethers.utils.parseUnits("199.99", USDC_DECIMALS);
 
+// max tokenId we scan for ladder & ownership (heuristic)
+const MAX_SCAN_ID = 420;
+
 const USDC_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
   "function allowance(address owner, address spender) view returns (uint256)",
@@ -72,6 +75,7 @@ const PLAYLIST = [
 
 const GIFS = ["/fcweed-radio.gif", "/fcweed-radio-2.gif", "/fcweed-radio-3.gif", "/fcweed-radio-4.gif"];
 
+// suffix for Farcaster wallet errors so user knows to try again
 const TRY_AGAIN_SUFFIX = " Try minting again.";
 
 type StakingStats = {
@@ -94,12 +98,15 @@ type FarmerRow = {
   dailyRaw: number;
 };
 
-async function waitForTx(tx: ethers.providers.TransactionResponse | undefined | null) {
+async function waitForTx(
+  tx: ethers.providers.TransactionResponse | undefined | null
+) {
   if (!tx) return;
   try {
     await tx.wait();
   } catch (e: any) {
-    const msg = e?.reason || e?.error?.message || e?.data?.message || e?.message || "";
+    const msg =
+      e?.reason || e?.error?.message || e?.data?.message || e?.message || "";
     if (
       msg.includes("does not support the requested method") ||
       msg.includes("unsupported method")
@@ -114,12 +121,15 @@ async function waitForTx(tx: ethers.providers.TransactionResponse | undefined | 
 export default function Home() {
   const { setMiniAppReady, isMiniAppReady } = useMiniKit();
 
-  const [provider, setProvider] = useState<ethers.providers.Web3Provider | null>(null);
+  const [provider, setProvider] =
+    useState<ethers.providers.Web3Provider | null>(null);
   const [signer, setSigner] = useState<ethers.Signer | null>(null);
   const [userAddress, setUserAddress] = useState<string | null>(null);
   const [usingMiniApp, setUsingMiniApp] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [miniAppEthProvider, setMiniAppEthProvider] = useState<any | null>(null);
+  const [miniAppEthProvider, setMiniAppEthProvider] = useState<any | null>(
+    null
+  );
 
   const [readProvider] = useState(
     () => new ethers.providers.JsonRpcProvider(PUBLIC_BASE_RPC)
@@ -138,7 +148,9 @@ export default function Home() {
 
   const [selectedAvailPlants, setSelectedAvailPlants] = useState<number[]>([]);
   const [selectedAvailLands, setSelectedAvailLands] = useState<number[]>([]);
-  const [selectedStakedPlants, setSelectedStakedPlants] = useState<number[]>([]);
+  const [selectedStakedPlants, setSelectedStakedPlants] = useState<number[]>(
+    []
+  );
   const [selectedStakedLands, setSelectedStakedLands] = useState<number[]>([]);
 
   const [mintStatus, setMintStatus] = useState<string>("");
@@ -229,7 +241,9 @@ export default function Home() {
 
         let fcAddr: string | undefined;
         try {
-          fcAddr = (await (sdk as any).wallet.getAddress?.()) as string | undefined;
+          fcAddr = (await (sdk as any).wallet.getAddress?.()) as
+            | string
+            | undefined;
         } catch {
           fcAddr = undefined;
         }
@@ -260,7 +274,10 @@ export default function Home() {
       const net = await p.getNetwork();
       if (net.chainId !== CHAIN_ID) {
         if (isMini) {
-          setMintStatus("Please switch your Farcaster wallet to Base to mint." + TRY_AGAIN_SUFFIX);
+          setMintStatus(
+            "Please switch your Farcaster wallet to Base to mint." +
+              TRY_AGAIN_SUFFIX
+          );
         } else {
           const anyWindow = window as any;
           if (anyWindow.ethereum?.request) {
@@ -291,7 +308,8 @@ export default function Home() {
         );
       } else {
         setMintStatus(
-          "Wallet connect failed. Check your wallet and try again." + TRY_AGAIN_SUFFIX
+          "Wallet connect failed. Check your wallet and try again." +
+            TRY_AGAIN_SUFFIX
         );
       }
       setConnecting(false);
@@ -347,13 +365,13 @@ export default function Home() {
       await waitForTx(tx);
       setMintStatus("USDC approve confirmed. Sending mint transaction…");
       return true;
-    } catch (err) {
+    } catch (err: any) {
       console.error("USDC approve failed:", err);
       const msg =
-        (err as any)?.reason ||
-        (err as any)?.error?.message ||
-        (err as any)?.data?.message ||
-        (err as any)?.message ||
+        err?.reason ||
+        err?.error?.message ||
+        err?.data?.message ||
+        err?.message ||
         "USDC approve failed";
       setMintStatus(msg + TRY_AGAIN_SUFFIX);
       return false;
@@ -367,32 +385,84 @@ export default function Home() {
     const ctx = await ensureWallet();
     if (!ctx) return null;
 
+    const baseReq = {
+      from: ctx.userAddress,
+      to,
+      data,
+      value: "0x0",
+    };
+
     if (ctx.isMini && miniAppEthProvider) {
-      const from = ctx.userAddress;
-      const valueHex = "0x0";
-      const txHash: string = await miniAppEthProvider.request({
-        method: "eth_sendTransaction",
-        params: [
-          {
-            from,
+      const txReq: any = { ...baseReq };
+
+      try {
+        const gas = await ctx.provider.estimateGas({
+          from: ctx.userAddress!,
+          to,
+          data,
+          value: 0,
+        });
+        txReq.gas = gas.mul(12).div(10).toHexString();
+      } catch (e) {
+        console.warn("Miniapp estimateGas failed, sending without gas:", e);
+      }
+
+      try {
+        const txHash: string = await miniAppEthProvider.request({
+          method: "eth_sendTransaction",
+          params: [txReq],
+        });
+        const fakeTx: any = {
+          hash: txHash,
+          wait: async () => {},
+        };
+        return fakeTx as ethers.providers.TransactionResponse;
+      } catch (err: any) {
+        console.error("Miniapp eth_sendTransaction failed:", err);
+        const msg =
+          err?.reason ||
+          err?.error?.message ||
+          err?.data?.message ||
+          err?.message ||
+          "Transaction failed";
+        setMintStatus(msg + TRY_AGAIN_SUFFIX);
+        return null;
+      }
+    } else {
+      try {
+        let gasLimit: ethers.BigNumber | undefined;
+        try {
+          gasLimit = await ctx.signer.estimateGas({
             to,
             data,
-            value: valueHex,
-          },
-        ],
-      });
-      const fakeTx: any = {
-        hash: txHash,
-        wait: async () => {},
-      };
-      return fakeTx as ethers.providers.TransactionResponse;
-    } else {
-      const tx = await ctx.signer.sendTransaction({
-        to,
-        data,
-        value: 0,
-      });
-      return tx;
+            value: 0,
+          });
+        } catch (e) {
+          console.warn("estimateGas (EOA) failed, sending without:", e);
+        }
+
+        const tx = await ctx.signer.sendTransaction(
+          gasLimit
+            ? {
+                to,
+                data,
+                value: 0,
+                gasLimit: gasLimit.mul(12).div(10),
+              }
+            : { to, data, value: 0 }
+        );
+        return tx;
+      } catch (err: any) {
+        console.error("sendTransaction failed:", err);
+        const msg =
+          err?.reason ||
+          err?.error?.message ||
+          err?.data?.message ||
+          err?.message ||
+          "Transaction failed";
+        setMintStatus(msg + TRY_AGAIN_SUFFIX);
+        return null;
+      }
     }
   }
 
@@ -425,7 +495,10 @@ export default function Home() {
   async function handleMintPlant() {
     try {
       setMintStatus("Preparing to mint 1 Plant (49.99 USDC + gas)…");
-      const okAllowance = await ensureUsdcAllowance(PLANT_ADDRESS, PLANT_PRICE_USDC);
+      const okAllowance = await ensureUsdcAllowance(
+        PLANT_ADDRESS,
+        PLANT_PRICE_USDC
+      );
       if (!okAllowance) return;
 
       const data = plantInterface.encodeFunctionData("mint", []);
@@ -458,16 +531,14 @@ export default function Home() {
       const bal = balBn.toNumber();
       if (bal === 0) return [];
 
-      // Reduce scan range for speed (assumes early IDs for now)
-      const MAX_ID = 120;
       const ids: number[] = [];
-      for (let tokenId = 0; tokenId < MAX_ID; tokenId++) {
+      for (let tokenId = 0; tokenId < MAX_SCAN_ID; tokenId++) {
         ids.push(tokenId);
       }
 
       const ownerLower = owner.toLowerCase();
       const found: number[] = [];
-      const BATCH = 20;
+      const BATCH = 25;
 
       for (let i = 0; i < ids.length; i += BATCH) {
         const slice = ids.slice(i, i + BATCH);
@@ -589,15 +660,15 @@ export default function Home() {
       ]);
 
       const addrSet = new Set<string>();
-      // Reduced scan range + smaller batches to avoid timeouts/throttling
-      const MAX_ID = 120;
-      const BATCH = 20;
       const zero = ethers.constants.AddressZero;
+      const BATCH = 25;
+      let emptyStreak = 0;
+      const EMPTY_THRESHOLD = 100;
 
       const scanMapping = async (fn: "plantStakerOf" | "landStakerOf") => {
-        for (let start = 0; start < MAX_ID; start += BATCH) {
+        for (let start = 0; start < MAX_SCAN_ID; start += BATCH) {
           const ids: number[] = [];
-          const end = Math.min(MAX_ID, start + BATCH);
+          const end = Math.min(MAX_SCAN_ID, start + BATCH);
           for (let i = start; i < end; i++) ids.push(i);
 
           try {
@@ -605,11 +676,21 @@ export default function Home() {
               (staking as any)[fn](id).catch(() => zero)
             );
             const results: string[] = await Promise.all(promises);
+
+            let batchEmpty = true;
             results.forEach((who) => {
               if (who && who !== zero) {
+                batchEmpty = false;
                 addrSet.add(who.toLowerCase());
               }
             });
+
+            if (batchEmpty) {
+              emptyStreak += end - start;
+              if (emptyStreak >= EMPTY_THRESHOLD) break;
+            } else {
+              emptyStreak = 0;
+            }
           } catch (e) {
             console.warn(`Batch scan error for ${fn}`, e);
           }
@@ -653,8 +734,8 @@ export default function Home() {
             }),
             dailyRaw: dailyFloat,
           });
-        } catch {
-          //
+        } catch (e) {
+          console.warn("Failed to load user for ladder", addr, e);
         }
       });
 
@@ -981,9 +1062,7 @@ export default function Home() {
                 opacity: 0.98,
               }}
             >
-              <strong>
-                Mint 1 Plant to start farming like Pablo Escobar
-              </strong>
+              <strong>Mint 1 Plant to start farming like Pablo Escobar</strong>
             </p>
 
             <div className={styles.ctaRow}>
