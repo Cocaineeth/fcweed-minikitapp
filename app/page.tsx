@@ -190,7 +190,7 @@ export default function Home() {
   useEffect(() => {
     const id = setInterval(() => {
       setGifIndex((prev) => (prev + 1) % GIFS.length);
-    }, 6500);
+    }, 5000);
     return () => clearInterval(id);
   }, []);
 
@@ -218,7 +218,7 @@ export default function Home() {
 
   async function ensureWallet() {
     if (signer && provider && userAddress) {
-      return { signer, provider, userAddress };
+      return { signer, provider, userAddress, isMini: usingMiniApp };
     }
 
     try {
@@ -301,7 +301,7 @@ export default function Home() {
       setUserAddress(addr);
       setConnecting(false);
 
-      return { signer: s, provider: p, userAddress: addr };
+      return { signer: s, provider: p, userAddress: addr, isMini };
     } catch (err) {
       console.error("Wallet connect failed:", err);
       if (usingMiniApp) {
@@ -384,12 +384,45 @@ export default function Home() {
     }
   }
 
+  async function sendContractTx(
+    to: string,
+    data: string
+  ): Promise<ethers.providers.TransactionResponse | null> {
+    const ctx = await ensureWallet();
+    if (!ctx) return null;
+
+    if (ctx.isMini && miniAppEthProvider) {
+      const from = ctx.userAddress;
+      const valueHex = "0x0";
+      const txHash: string = await miniAppEthProvider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from,
+            to,
+            data,
+            value: valueHex,
+          },
+        ],
+      });
+      const fakeTx: any = {
+        hash: txHash,
+        wait: async () => {},
+      };
+      return fakeTx as ethers.providers.TransactionResponse;
+    } else {
+      const tx = await ctx.signer.sendTransaction({
+        to,
+        data,
+        value: 0,
+      });
+      return tx;
+    }
+  }
+
   async function handleMintLand() {
     try {
       setMintStatus("Preparing to mint 1 Land (199.99 USDC + gas)…");
-      const ctx = await ensureWallet();
-      if (!ctx) return;
-
       const okAllowance = await ensureUsdcAllowance(
         LAND_ADDRESS,
         LAND_PRICE_USDC
@@ -397,12 +430,8 @@ export default function Home() {
       if (!okAllowance) return;
 
       const data = landInterface.encodeFunctionData("mint", []);
-      const tx = await ctx.signer.sendTransaction({
-        to: LAND_ADDRESS,
-        data,
-        value: 0,
-        gasLimit: ethers.BigNumber.from("400000"),
-      });
+      const tx = await sendContractTx(LAND_ADDRESS, data);
+      if (!tx) return;
       setMintStatus("Land mint transaction sent. Waiting for confirmation…");
       await waitForTx(tx);
       setMintStatus(
@@ -423,9 +452,6 @@ export default function Home() {
   async function handleMintPlant() {
     try {
       setMintStatus("Preparing to mint 1 Plant (49.99 USDC + gas)…");
-      const ctx = await ensureWallet();
-      if (!ctx) return;
-
       const okAllowance = await ensureUsdcAllowance(
         PLANT_ADDRESS,
         PLANT_PRICE_USDC
@@ -433,12 +459,8 @@ export default function Home() {
       if (!okAllowance) return;
 
       const data = plantInterface.encodeFunctionData("mint", []);
-      const tx = await ctx.signer.sendTransaction({
-        to: PLANT_ADDRESS,
-        data,
-        value: 0,
-        gasLimit: ethers.BigNumber.from("400000"),
-      });
+      const tx = await sendContractTx(PLANT_ADDRESS, data);
+      if (!tx) return;
       setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
       await waitForTx(tx);
       setMintStatus(
@@ -474,11 +496,16 @@ export default function Home() {
       const balBn: ethers.BigNumber = await nft.balanceOf(owner);
       const bal = balBn.toNumber();
       if (bal === 0) return [];
-      let maxId = 2000;
+
+      let start = 0;
+      let end = 400;
+
       try {
         const totalBn: ethers.BigNumber = await nft.totalSupply();
         const total = totalBn.toNumber();
-        maxId = Math.min(total + 5, 2000);
+        const span = Math.min(total, 400);
+        end = total + 2;
+        start = Math.max(0, end - span - 2);
       } catch {
         //
       }
@@ -486,27 +513,16 @@ export default function Home() {
       const ids: number[] = [];
       const ownerLower = owner.toLowerCase();
 
-      const tasks: Promise<void>[] = [];
-      for (
-        let tokenId = 0;
-        tokenId <= maxId && ids.length < bal;
-        tokenId++
-      ) {
-        tasks.push(
-          (async () => {
-            if (ids.length >= bal) return;
-            try {
-              const who: string = await nft.ownerOf(tokenId);
-              if (who.toLowerCase() === ownerLower) {
-                ids.push(tokenId);
-              }
-            } catch {
-              //
-            }
-          })()
-        );
+      for (let tokenId = start; tokenId <= end && ids.length < bal; tokenId++) {
+        try {
+          const who: string = await nft.ownerOf(tokenId);
+          if (who.toLowerCase() === ownerLower) {
+            ids.push(tokenId);
+          }
+        } catch {
+          //
+        }
       }
-      await Promise.all(tasks);
 
       return ids;
     } catch (e) {
@@ -669,42 +685,6 @@ export default function Home() {
     return () => clearInterval(id);
   }, [stakingOpen]);
 
-  async function collectOwners(
-    nftAddress: string,
-    maxScan: number
-  ): Promise<Set<string>> {
-    const owners = new Set<string>();
-    try {
-      const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, readProvider);
-      let upper = maxScan;
-      try {
-        const totalBn: ethers.BigNumber = await nft.totalSupply();
-        const total = totalBn.toNumber();
-        upper = Math.min(total, maxScan);
-      } catch {
-        //
-      }
-
-      const tasks: Promise<void>[] = [];
-      for (let tokenId = 0; tokenId < upper; tokenId++) {
-        tasks.push(
-          (async () => {
-            try {
-              const owner: string = await nft.ownerOf(tokenId);
-              owners.add(owner.toLowerCase());
-            } catch {
-              //
-            }
-          })()
-        );
-      }
-      await Promise.all(tasks);
-    } catch (e) {
-      console.error("collectOwners failed", nftAddress, e);
-    }
-    return owners;
-  }
-
   async function refreshCrimeLadder() {
     setLadderLoading(true);
     try {
@@ -714,20 +694,32 @@ export default function Home() {
         readProvider
       );
 
-      const [tokensPerPlantPerDayBn, landBpsBn] = await Promise.all([
-        staking.tokensPerPlantPerDay(),
-        staking.landBoostBps(),
-      ]);
+      const [tokensPerPlantPerDayBn, landBpsBn, latestBlock] =
+        await Promise.all([
+          staking.tokensPerPlantPerDay(),
+          staking.landBoostBps(),
+          readProvider.getBlockNumber(),
+        ]);
 
-      const [plantOwners, landOwners] = await Promise.all([
-        collectOwners(PLANT_ADDRESS, 600),
-        collectOwners(LAND_ADDRESS, 600),
-      ]);
+      const fromBlock = Math.max(latestBlock - 500000, 0);
+      const logs = await readProvider.getLogs({
+        address: STAKING_ADDRESS,
+        fromBlock,
+        toBlock: latestBlock,
+      });
 
-      const allAddrs = Array.from(
-        new Set([...plantOwners, ...landOwners])
-      ).slice(0, 250);
+      const addrSet = new Set<string>();
+      for (const log of logs) {
+        if (log.topics.length > 1) {
+          const t1 = log.topics[1];
+          if (t1 && t1.length === 66) {
+            const addr = ("0x" + t1.slice(26)).toLowerCase();
+            addrSet.add(addr);
+          }
+        }
+      }
 
+      const allAddrs = Array.from(addrSet);
       const rows: FarmerRow[] = [];
 
       const tasks = allAddrs.map(async (addr) => {
@@ -1183,21 +1175,8 @@ export default function Home() {
             margin: "18px 0",
             display: "flex",
             justifyContent: "center",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 8,
           }}
         >
-          <h2
-            style={{
-              fontSize: 16,
-              fontWeight: 600,
-              marginBottom: 4,
-              textAlign: "center",
-            }}
-          >
-            FCWEED Radio Vibes
-          </h2>
           <Image
             src={GIFS[gifIndex]}
             alt="FCWEED Radio Vibes"
