@@ -177,7 +177,6 @@ export default function Home() {
   const [ladderRows, setLadderRows] = useState<FarmerRow[]>([]);
   const [ladderLoading, setLadderLoading] = useState(false);
 
-  // wallet’s rank + stats + total farmer count
   const [walletRank, setWalletRank] = useState<number | null>(null);
   const [walletRow, setWalletRow] = useState<FarmerRow | null>(null);
   const [farmerCount, setFarmerCount] = useState<number>(0);
@@ -250,35 +249,18 @@ export default function Home() {
 
       try {
         ethProv = await sdk.wallet.getEthereumProvider();
-        if (ethProv) {
-          isMini = true;
-        }
       } catch {
-        isMini = false;
+        ethProv = null;
       }
 
-      if (isMini && ethProv) {
+      if (ethProv) {
+        isMini = true;
         setUsingMiniApp(true);
         setMiniAppEthProvider(ethProv);
 
         p = new ethers.providers.Web3Provider(ethProv as any, "any");
-
-        let fcAddr: string | undefined;
-        try {
-          fcAddr = (await (sdk as any).wallet.getAddress?.()) as
-            | string
-            | undefined;
-        } catch {
-          fcAddr = undefined;
-        }
-
-        if (fcAddr) {
-          addr = fcAddr;
-          s = p.getSigner(fcAddr);
-        } else {
-          s = p.getSigner();
-          addr = await s.getAddress();
-        }
+        s = p.getSigner();
+        addr = await s.getAddress();
       } else {
         setUsingMiniApp(false);
         const anyWindow = window as any;
@@ -804,7 +786,6 @@ export default function Home() {
           readProvider.getBlockNumber(),
         ]);
 
-      // In mini app, don't hammer logs if we don't even know the wallet yet
       if (usingMiniApp && !userAddress) {
         setFarmerCount(0);
         setWalletRank(null);
@@ -813,7 +794,7 @@ export default function Home() {
         return;
       }
 
-      const SAFE_WINDOW = usingMiniApp ? 120000 : 500000; // lighter window on mini app
+      const SAFE_WINDOW = usingMiniApp ? 120000 : 500000;
       const fromBlock = Math.max(latestBlock - SAFE_WINDOW, 0);
 
       let plantLogs: any[] = [];
@@ -843,7 +824,6 @@ export default function Home() {
 
       const addrSet = new Set<string>();
 
-      // Always include connected wallet if present
       if (userAddress) {
         addrSet.add(userAddress.toLowerCase());
       }
@@ -909,7 +889,6 @@ export default function Home() {
 
       await Promise.all(tasks);
 
-      // Fallback: if nothing found but connected wallet exists, at least show them
       if (rows.length === 0 && userAddress) {
         try {
           const u = await staking.users(userAddress);
@@ -956,18 +935,16 @@ export default function Home() {
         return;
       }
 
-      // Sort by daily earnings desc
       rows.sort((a, b) => b.dailyRaw - a.dailyRaw);
 
       const total = rows.length;
       setFarmerCount(total);
 
-      // compute current wallet rank + row (out of ALL rows)
       if (userAddress) {
         const lower = userAddress.toLowerCase();
         const idx = rows.findIndex((r) => r.addr.toLowerCase() === lower);
         if (idx !== -1) {
-          setWalletRank(idx + 1); // 1-based rank
+          setWalletRank(idx + 1);
           setWalletRow(rows[idx]);
         } else {
           setWalletRank(null);
@@ -978,7 +955,6 @@ export default function Home() {
         setWalletRow(null);
       }
 
-      // Keep top 10 for visible ladder
       setLadderRows(rows.slice(0, 10));
     } catch (e) {
       console.error("Crime ladder load failed", e);
@@ -992,11 +968,9 @@ export default function Home() {
   }
 
   useEffect(() => {
-    // initial load
     refreshCrimeLadder();
   }, []);
 
-  // Recompute your rank whenever wallet changes
   useEffect(() => {
     if (userAddress) {
       refreshCrimeLadder();
@@ -1045,7 +1019,10 @@ export default function Home() {
       setActionLoading(true);
 
       if (toStakePlants.length > 0) {
-        await ensureCollectionApproval(PLANT_ADDRESS, ctx);
+        await ensureCollectionApproval(PLANT_ADDRESS, {
+          signer: ctx.signer,
+          userAddress: ctx.userAddress,
+        });
         const data = stakingInterface.encodeFunctionData("stakePlants", [
           toStakePlants.map((id) => ethers.BigNumber.from(id)),
         ]);
@@ -1054,7 +1031,10 @@ export default function Home() {
       }
 
       if (toStakeLands.length > 0 && landStakingEnabled) {
-        await ensureCollectionApproval(LAND_ADDRESS, ctx);
+        await ensureCollectionApproval(LAND_ADDRESS, {
+          signer: ctx.signer,
+          userAddress: ctx.userAddress,
+        });
         const data2 = stakingInterface.encodeFunctionData("stakeLands", [
           toStakeLands.map((id) => ethers.BigNumber.from(id)),
         ]);
@@ -1308,7 +1288,6 @@ export default function Home() {
               payouts.
             </p>
 
-            {/* NEW tagline above mint buttons */}
             <p
               style={{
                 marginTop: 8,
@@ -1465,7 +1444,6 @@ export default function Home() {
         <section className={styles.infoCard}>
           <h2 className={styles.heading}>Crime Ladder — Top Farmers</h2>
 
-          {/* your personal ladder summary */}
           {connected && farmerCount > 0 && (
             <div
               style={{
@@ -1670,7 +1648,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* NEW: apology note under stats */}
             <p
               style={{
                 marginTop: 6,
