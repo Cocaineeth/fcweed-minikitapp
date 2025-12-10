@@ -101,10 +101,6 @@ const GIFS = [
   "/fcweed-radio-4.gif",
 ];
 
-const ERC721_TRANSFER_TOPIC = ethers.utils.id(
-  "Transfer(address,address,uint256)"
-);
-
 async function waitForTx(
   tx: ethers.providers.TransactionResponse | undefined | null
 ) {
@@ -203,7 +199,7 @@ export default function Home() {
   useEffect(() => {
     const id = setInterval(() => {
       setGifIndex((prev) => (prev + 1) % GIFS.length);
-    }, 5000);
+    }, 4000);
     return () => clearInterval(id);
   }, []);
 
@@ -574,12 +570,12 @@ export default function Home() {
       if (bal === 0) return [];
 
       let start = 0;
-      let end = 400;
+      let end = 250;
 
       try {
         const totalBn: ethers.BigNumber = await nft.totalSupply();
         const total = totalBn.toNumber();
-        const span = Math.min(total, 400);
+        const span = Math.min(total, 250);
         end = total + 2;
         start = Math.max(0, end - span - 2);
       } catch {
@@ -799,43 +795,26 @@ export default function Home() {
           readProvider.getBlockNumber(),
         ]);
 
-      const fromBlock = Math.max(latestBlock - 500000, 0);
-
-      const [plantLogs, landLogs] = await Promise.all([
-        readProvider.getLogs({
-          address: PLANT_ADDRESS,
-          fromBlock,
-          toBlock: latestBlock,
-          topics: [ERC721_TRANSFER_TOPIC],
-        }),
-        readProvider.getLogs({
-          address: LAND_ADDRESS,
-          fromBlock,
-          toBlock: latestBlock,
-          topics: [ERC721_TRANSFER_TOPIC],
-        }),
-      ]);
+      const fromBlock = 0;
+      const logs = await readProvider.getLogs({
+        address: STAKING_ADDRESS,
+        fromBlock,
+        toBlock: latestBlock,
+      });
 
       const addrSet = new Set<string>();
-
       if (userAddress) {
         addrSet.add(userAddress.toLowerCase());
       }
 
-      const allNftLogs = [...plantLogs, ...landLogs];
-
-      for (const log of allNftLogs) {
-        if (log.topics.length >= 3) {
-          const fromTopic = log.topics[1];
-          const toTopic = log.topics[2];
-
-          if (fromTopic && fromTopic.length === 66) {
-            const fromAddr = ("0x" + fromTopic.slice(26)).toLowerCase();
-            addrSet.add(fromAddr);
-          }
-          if (toTopic && toTopic.length === 66) {
-            const toAddr = ("0x" + toTopic.slice(26)).toLowerCase();
-            addrSet.add(toAddr);
+      for (const log of logs) {
+        for (let i = 1; i < log.topics.length; i++) {
+          const t = log.topics[i];
+          if (t && t.length === 66) {
+            const addr = ("0x" + t.slice(26)).toLowerCase();
+            if (addr !== "0x0000000000000000000000000000000000000000") {
+              addrSet.add(addr);
+            }
           }
         }
       }
