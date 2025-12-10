@@ -763,11 +763,14 @@ export default function Home() {
 
   useEffect(() => {
     if (!stakingOpen) return;
+
     refreshStaking();
-    const id = setInterval(() => {
+
+    const interval = setInterval(() => {
       refreshStaking();
-    }, 20000);
-    return () => clearInterval(id);
+    }, 60000);
+
+    return () => clearInterval(interval);
   }, [stakingOpen]);
 
   async function refreshCrimeLadder() {
@@ -1344,7 +1347,7 @@ export default function Home() {
                 className={styles.btnSecondary}
                 onClick={() =>
                   window.open(
-                    "https://opensea.io/collection/x420-land-763750895",
+                    "https://element.market/collections/x420-land-1?search[toggles][0]=ALL",
                     "_blank"
                   )
                 }
@@ -1356,7 +1359,7 @@ export default function Home() {
                 className={styles.btnSecondary}
                 onClick={() =>
                   window.open(
-                    "https://opensea.io/collection/x420-plants",
+                    "https://element.market/collections/x420-plants?search[toggles][0]=ALL",
                     "_blank"
                   )
                 }
@@ -1593,14 +1596,6 @@ export default function Home() {
                 <button
                   type="button"
                   className={styles.modalClose}
-                  onClick={refreshStaking}
-                  disabled={loadingStaking}
-                >
-                  ⟳
-                </button>
-                <button
-                  type="button"
-                  className={styles.modalClose}
                   onClick={() => setStakingOpen(false)}
                 >
                   ✕
@@ -1658,7 +1653,7 @@ export default function Home() {
                 padding: "0 10px",
               }}
             >
-              We apologize for loading times. If it takes too long, stake on x420ponzi.com
+              We apologize for loading times due to traffic.
             </p>
 
             <div
