@@ -761,13 +761,10 @@ export default function Home() {
     }
   }
 
+  // 🔄 Staking now only refreshes once when modal opens (no auto interval)
   useEffect(() => {
     if (!stakingOpen) return;
     refreshStaking();
-    const id = setInterval(() => {
-      refreshStaking();
-    }, 20000);
-    return () => clearInterval(id);
   }, [stakingOpen]);
 
   async function refreshCrimeLadder() {
@@ -786,15 +783,8 @@ export default function Home() {
           readProvider.getBlockNumber(),
         ]);
 
-      if (usingMiniApp && !userAddress) {
-        setFarmerCount(0);
-        setWalletRank(null);
-        setWalletRow(null);
-        setLadderRows([]);
-        return;
-      }
-
-      const SAFE_WINDOW = usingMiniApp ? 120000 : 500000;
+      // Wider scan window so we pick up more farmers (anyone who has minted/transferred)
+      const SAFE_WINDOW = 2_000_000;
       const fromBlock = Math.max(latestBlock - SAFE_WINDOW, 0);
 
       let plantLogs: any[] = [];
@@ -1658,7 +1648,8 @@ export default function Home() {
                 padding: "0 10px",
               }}
             >
-              We apologize for loading times. If it takes too long, stake on x420ponzi.com
+              We apologize for loading times. If it takes too long, stake on
+              x420ponzi.com
             </p>
 
             <div
