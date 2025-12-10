@@ -59,8 +59,11 @@ const STAKING_ABI = [
   "function claimEnabled() view returns (bool)",
 ];
 
+const usdcInterface = new ethers.utils.Interface(USDC_ABI);
 const landInterface = new ethers.utils.Interface(LAND_ABI);
 const plantInterface = new ethers.utils.Interface(PLANT_ABI);
+const stakingInterface = new ethers.utils.Interface(STAKING_ABI);
+const erc721Interface = new ethers.utils.Interface(ERC721_VIEW_ABI);
 
 type StakingStats = {
   plantsStaked: number;
@@ -190,7 +193,7 @@ export default function Home() {
   useEffect(() => {
     const id = setInterval(() => {
       setGifIndex((prev) => (prev + 1) % GIFS.length);
-    }, 5000);
+    }, 6500);
     return () => clearInterval(id);
   }, []);
 
@@ -316,6 +319,76 @@ export default function Home() {
     }
   }
 
+  async function sendWalletCalls(
+    from: string,
+    to: string,
+    data: string
+  ): Promise<ethers.providers.TransactionResponse> {
+    if (!usingMiniApp || !miniAppEthProvider) {
+      throw new Error("wallet_sendCalls not available");
+    }
+
+    const req =
+      miniAppEthProvider.request?.bind(miniAppEthProvider) ??
+      miniAppEthProvider.send?.bind(miniAppEthProvider);
+
+    if (!req) {
+      throw new Error("Mini app provider missing request/send");
+    }
+
+    const chainIdHex = ethers.utils.hexValue(CHAIN_ID);
+
+    const result = await req({
+      method: "wallet_sendCalls",
+      params: [
+        {
+          from,
+          chainId: chainIdHex,
+          atomicRequired: false,
+          calls: [
+            {
+              to,
+              data,
+              value: "0x0",
+            },
+          ],
+        },
+      ],
+    });
+
+    const txHash =
+      (result?.txHashes && result.txHashes[0]) ||
+      result?.txHash ||
+      result?.hash ||
+      "0x";
+
+    const fakeTx: any = {
+      hash: txHash,
+      wait: async () => {},
+    };
+
+    return fakeTx as ethers.providers.TransactionResponse;
+  }
+
+  async function sendContractTx(
+    to: string,
+    data: string
+  ): Promise<ethers.providers.TransactionResponse | null> {
+    const ctx = await ensureWallet();
+    if (!ctx) return null;
+
+    if (ctx.isMini && miniAppEthProvider) {
+      return await sendWalletCalls(ctx.userAddress, to, data);
+    } else {
+      const tx = await ctx.signer.sendTransaction({
+        to,
+        data,
+        value: 0,
+      });
+      return tx;
+    }
+  }
+
   async function ensureUsdcAllowance(
     spender: string,
     required: ethers.BigNumber
@@ -323,7 +396,7 @@ export default function Home() {
     const ctx = await ensureWallet();
     if (!ctx) return false;
 
-    const { signer: s, userAddress: addr } = ctx;
+    const { signer: s, userAddress: addr, isMini } = ctx;
 
     setMintStatus("Checking USDC contract on Base…");
     const code = await readProvider.getCode(USDC_ADDRESS);
@@ -367,8 +440,16 @@ export default function Home() {
     setMintStatus("Requesting USDC approve transaction in your wallet…");
 
     try {
-      const tx = await usdcWrite.approve(spender, required);
-      await waitForTx(tx);
+      if (isMini && miniAppEthProvider) {
+        const data = usdcInterface.encodeFunctionData("approve", [
+          spender,
+          required,
+        ]);
+        await sendWalletCalls(addr, USDC_ADDRESS, data);
+      } else {
+        const tx = await usdcWrite.approve(spender, required);
+        await waitForTx(tx);
+      }
       setMintStatus("USDC approve confirmed. Sending mint transaction…");
       return true;
     } catch (err) {
@@ -381,42 +462,6 @@ export default function Home() {
         "USDC approve failed";
       setMintStatus(msg);
       return false;
-    }
-  }
-
-  async function sendContractTx(
-    to: string,
-    data: string
-  ): Promise<ethers.providers.TransactionResponse | null> {
-    const ctx = await ensureWallet();
-    if (!ctx) return null;
-
-    if (ctx.isMini && miniAppEthProvider) {
-      const from = ctx.userAddress;
-      const valueHex = "0x0";
-      const txHash: string = await miniAppEthProvider.request({
-        method: "eth_sendTransaction",
-        params: [
-          {
-            from,
-            to,
-            data,
-            value: valueHex,
-          },
-        ],
-      });
-      const fakeTx: any = {
-        hash: txHash,
-        wait: async () => {},
-      };
-      return fakeTx as ethers.providers.TransactionResponse;
-    } else {
-      const tx = await ctx.signer.sendTransaction({
-        to,
-        data,
-        value: 0,
-      });
-      return tx;
     }
   }
 
@@ -492,7 +537,11 @@ export default function Home() {
     owner: string
   ): Promise<number[]> {
     try {
-      const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, readProvider);
+      const nft = new ethers.Contract(
+        nftAddress,
+        ERC721_VIEW_ABI,
+        readProvider
+      );
       const balBn: ethers.BigNumber = await nft.balanceOf(owner);
       const bal = balBn.toNumber();
       if (bal === 0) return [];
@@ -709,6 +758,11 @@ export default function Home() {
       });
 
       const addrSet = new Set<string>();
+
+      if (userAddress) {
+        addrSet.add(userAddress.toLowerCase());
+      }
+
       for (const log of logs) {
         if (log.topics.length > 1) {
           const t1 = log.topics[1];
@@ -783,17 +837,21 @@ export default function Home() {
       userAddress: string;
     }
   ) {
-    const nft = new ethers.Contract(
+    const nftRead = new ethers.Contract(
       collectionAddress,
       ERC721_VIEW_ABI,
-      ctx.signer
+      readProvider
     );
-    const approved: boolean = await nft.isApprovedForAll(
+    const approved: boolean = await nftRead.isApprovedForAll(
       ctx.userAddress,
       STAKING_ADDRESS
     );
     if (!approved) {
-      const tx = await nft.setApprovalForAll(STAKING_ADDRESS, true);
+      const data = erc721Interface.encodeFunctionData("setApprovalForAll", [
+        STAKING_ADDRESS,
+        true,
+      ]);
+      const tx = await sendContractTx(collectionAddress, data);
       await waitForTx(tx);
     }
   }
@@ -810,28 +868,24 @@ export default function Home() {
       return;
     }
 
-    const staking = new ethers.Contract(
-      STAKING_ADDRESS,
-      STAKING_ABI,
-      ctx.signer
-    );
-
     try {
       setActionLoading(true);
 
       if (toStakePlants.length > 0) {
         await ensureCollectionApproval(PLANT_ADDRESS, ctx);
-        const tx = await staking.stakePlants(
-          toStakePlants.map((id) => ethers.BigNumber.from(id))
-        );
+        const data = stakingInterface.encodeFunctionData("stakePlants", [
+          toStakePlants.map((id) => ethers.BigNumber.from(id)),
+        ]);
+        const tx = await sendContractTx(STAKING_ADDRESS, data);
         await waitForTx(tx);
       }
 
       if (toStakeLands.length > 0 && landStakingEnabled) {
         await ensureCollectionApproval(LAND_ADDRESS, ctx);
-        const tx2 = await staking.stakeLands(
-          toStakeLands.map((id) => ethers.BigNumber.from(id))
-        );
+        const data2 = stakingInterface.encodeFunctionData("stakeLands", [
+          toStakeLands.map((id) => ethers.BigNumber.from(id)),
+        ]);
+        const tx2 = await sendContractTx(STAKING_ADDRESS, data2);
         await waitForTx(tx2);
       }
 
@@ -858,26 +912,22 @@ export default function Home() {
       return;
     }
 
-    const staking = new ethers.Contract(
-      STAKING_ADDRESS,
-      STAKING_ABI,
-      ctx.signer
-    );
-
     try {
       setActionLoading(true);
 
       if (toUnstakePlants.length > 0) {
-        const tx = await staking.unstakePlants(
-          toUnstakePlants.map((id) => ethers.BigNumber.from(id))
-        );
+        const data = stakingInterface.encodeFunctionData("unstakePlants", [
+          toUnstakePlants.map((id) => ethers.BigNumber.from(id)),
+        ]);
+        const tx = await sendContractTx(STAKING_ADDRESS, data);
         await waitForTx(tx);
       }
 
       if (toUnstakeLands.length > 0) {
-        const tx2 = await staking.unstakeLands(
-          toUnstakeLands.map((id) => ethers.BigNumber.from(id))
-        );
+        const data2 = stakingInterface.encodeFunctionData("unstakeLands", [
+          toUnstakeLands.map((id) => ethers.BigNumber.from(id)),
+        ]);
+        const tx2 = await sendContractTx(STAKING_ADDRESS, data2);
         await waitForTx(tx2);
       }
 
@@ -896,12 +946,6 @@ export default function Home() {
     const ctx = await ensureWallet();
     if (!ctx) return;
 
-    const staking = new ethers.Contract(
-      STAKING_ADDRESS,
-      STAKING_ABI,
-      ctx.signer
-    );
-
     const pendingAmount =
       stakingStats && stakingStats.pendingFormatted
         ? parseFloat(stakingStats.pendingFormatted)
@@ -914,7 +958,8 @@ export default function Home() {
 
     try {
       setActionLoading(true);
-      const tx = await staking.claim();
+      const data = stakingInterface.encodeFunctionData("claim", []);
+      const tx = await sendContractTx(STAKING_ADDRESS, data);
       await waitForTx(tx);
       await refreshStaking();
       await refreshCrimeLadder();
