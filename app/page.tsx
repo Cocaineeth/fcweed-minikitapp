@@ -1451,7 +1451,7 @@ export default function Home() {
         </section>
 
         <section className={styles.infoCard}>
-          <h2 className={styles.heading}>Crime Ladder — Top Farmers</h2>
+          <h2 className={styles.heading}>Crime Ladder — (Top Farmers Soon)</h2>
 
           {connected && farmerCount > 0 && (
             <div
@@ -1505,8 +1505,7 @@ export default function Home() {
             <p style={{ fontSize: 13, opacity: 0.8 }}>Loading ladder…</p>
           ) : ladderRows.length === 0 ? (
             <p style={{ fontSize: 13, opacity: 0.8 }}>
-              No farmers yet. Stake Plants + Land to appear on the Crime
-              Ladder.
+              Stake Plants + Land to appear on the Crime Ladder.
             </p>
           ) : (
             <div
@@ -1660,6 +1659,7 @@ export default function Home() {
               }}
             >
               We apologize for loading times due to traffic.
+              If it's taking too long please use x420ponzi.com
             </p>
 
             <div
