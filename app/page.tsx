@@ -177,6 +177,8 @@ export default function Home() {
 
   const [ladderRows, setLadderRows] = useState<FarmerRow[]>([]);
   const [ladderLoading, setLadderLoading] = useState(false);
+  const [walletRank, setWalletRank] = useState<number | null>(null);
+  const [farmerCount, setFarmerCount] = useState<number>(0);
 
   const ownedCacheRef = useRef<{
     addr: string | null;
@@ -917,10 +919,24 @@ export default function Home() {
       await Promise.all(tasks);
 
       rows.sort((a, b) => b.dailyRaw - a.dailyRaw);
+
+      const total = rows.length;
+      setFarmerCount(total);
+
+      if (userAddress) {
+        const lower = userAddress.toLowerCase();
+        const idx = rows.findIndex((r) => r.addr.toLowerCase() === lower);
+        setWalletRank(idx === -1 ? null : idx + 1);
+      } else {
+        setWalletRank(null);
+      }
+
       setLadderRows(rows.slice(0, 10));
     } catch (e) {
       console.error("Crime ladder load failed", e);
       setLadderRows([]);
+      setWalletRank(null);
+      setFarmerCount(0);
     } finally {
       setLadderLoading(false);
     }
@@ -1243,7 +1259,7 @@ export default function Home() {
                 opacity: 0.98,
               }}
             >
-              <strong>Mint 1 Plant to start farming like Pablo Escobar</strong>
+              <strong>Mint 1 Plant to begin your Crime Empire on Base</strong>
             </p>
 
             <div className={styles.ctaRow}>
@@ -1390,6 +1406,20 @@ export default function Home() {
 
         <section className={styles.infoCard}>
           <h2 className={styles.heading}>Crime Ladder — Top Farmers</h2>
+
+          {connected && walletRank && farmerCount > 0 && (
+            <p
+              style={{
+                fontSize: 12,
+                opacity: 0.85,
+                margin: "4px 0 8px",
+              }}
+            >
+              Your rank: <b>#{walletRank}</b> out of <b>{farmerCount}</b>{" "}
+              staked wallets.
+            </p>
+          )}
+
           {ladderLoading ? (
             <p style={{ fontSize: 13, opacity: 0.8 }}>Loading ladder…</p>
           ) : ladderRows.length === 0 ? (
@@ -1505,6 +1535,16 @@ export default function Home() {
                 </button>
               </div>
             </header>
+
+            <p
+              style={{
+                fontSize: 11,
+                opacity: 0.65,
+                margin: "4px 14px 0",
+              }}
+            >
+              We apologize for loading times due to traffic.
+            </p>
 
             <div className={styles.modalStatsGrid}>
               <div className={styles.statCard}>
