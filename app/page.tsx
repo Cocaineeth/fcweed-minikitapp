@@ -1377,7 +1377,7 @@ export default function Home() {
                 className={styles.btnSecondary}
                 onClick={() =>
                   window.open(
-                    "https://dexscreener.com/base/0x0000000000000000000000000000000000000000",
+                    "https://dexscreener.com/base/0xa1a1b6b489ceb413999ccce73415d4fa92e826a1",
                     "_blank"
                   )
                 }
