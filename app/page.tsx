@@ -1353,7 +1353,7 @@ export default function Home() {
                 className={styles.btnSecondary}
                 onClick={() =>
                   window.open(
-                    "https://element.market/collections/x420-land-1?search[toggles][0]=ALL",
+                    "https://opensea.io/collection/x420-land-763750895",
                     "_blank"
                   )
                 }
@@ -1365,7 +1365,7 @@ export default function Home() {
                 className={styles.btnSecondary}
                 onClick={() =>
                   window.open(
-                    "https://element.market/collections/x420-plants?search[toggles][0]=ALL",
+                    "https://opensea.io/collection/x420-plants",
                     "_blank"
                   )
                 }
