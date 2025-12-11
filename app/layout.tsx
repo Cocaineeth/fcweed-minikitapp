@@ -6,18 +6,23 @@ import { RootProvider } from "./rootProvider";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
+  const baseUrl = "https://fcweed-minikitapp.vercel.app";
+
   return {
     title: minikitConfig.miniapp.name,
     description: minikitConfig.miniapp.description,
     other: {
       "fc:miniapp": JSON.stringify({
-        version: minikitConfig.miniapp.version,
-        imageUrl: minikitConfig.miniapp.heroImageUrl,
+        version: "1",
+        imageUrl: `${baseUrl}/logo.png`,
         button: {
-          title: `Launch ${minikitConfig.miniapp.name}`,
+          title: "Start your Crime Empire",
           action: {
-            name: `Launch ${minikitConfig.miniapp.name}`,
             type: "launch_miniapp",
+            name: "FCWEED",
+            url: `${baseUrl}/`,
+            splashImageUrl: `${baseUrl}/splash.png`,
+            splashBackgroundColor: "#050812",
           },
         },
       }),
