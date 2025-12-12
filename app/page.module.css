@@ -423,7 +423,7 @@
 
 .radioTitleWrap {
   position: relative;
-  max-width: 120px; /* keeps the pill small */
+  max-width: 120px;
   overflow: hidden;
   flex: 1;
 }
