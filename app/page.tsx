@@ -786,8 +786,8 @@ export default function Home()
             (async () => {
                 try {
                     const [plantImgs, landImgs] = await Promise.all([
-                        fetchNftImages(PLANT_ADDRESS, allPlantIds, readProvider, plantImgs),
-                        fetchNftImages(LAND_ADDRESS, allLandIds, readProvider, landImgs),
+                        fetchNftImages(PLANT_ADDRESS, allPlantIds, readProvider, plantImages),
+                        fetchNftImages(LAND_ADDRESS, allLandIds, readProvider, landImages),
                     ]);
 
                     setPlantImages((prev) => ({ ...prev, ...plantImgs }));
