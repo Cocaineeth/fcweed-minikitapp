@@ -290,10 +290,36 @@ export default function Home() {
   async function loadOwnedTokens(nftAddress: string, owner: string, maxSupply: number = 500): Promise<number[]> {
     try {
       const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, readProvider);
-      const bal = (await nft.balanceOf(owner)).toNumber(); if (bal === 0) return [];
-      let total = maxSupply; try { total = Math.min((await nft.totalSupply()).toNumber(), maxSupply); } catch {}
-      const ids: number[] = []; const ownerLower = owner.toLowerCase();
-      for (let tokenId = 1; tokenId <= total && ids.length < bal; tokenId++) { try { if ((await nft.ownerOf(tokenId)).toLowerCase() === ownerLower) ids.push(tokenId); } catch {} }
+      const bal = (await nft.balanceOf(owner)).toNumber();
+      if (bal === 0) return [];
+      let total = maxSupply;
+      try { total = Math.min((await nft.totalSupply()).toNumber(), maxSupply); } catch {}
+      
+      // Batch check ownership in parallel chunks for speed
+      const BATCH_SIZE = 20;
+      const ids: number[] = [];
+      const ownerLower = owner.toLowerCase();
+      
+      for (let start = 1; start <= total && ids.length < bal; start += BATCH_SIZE) {
+        const end = Math.min(start + BATCH_SIZE - 1, total);
+        const batch: Promise<{ id: number; owner: string | null }>[] = [];
+        
+        for (let tokenId = start; tokenId <= end; tokenId++) {
+          batch.push(
+            nft.ownerOf(tokenId)
+              .then((o: string) => ({ id: tokenId, owner: o.toLowerCase() }))
+              .catch(() => ({ id: tokenId, owner: null }))
+          );
+        }
+        
+        const results = await Promise.all(batch);
+        for (const r of results) {
+          if (r.owner === ownerLower) {
+            ids.push(r.id);
+            if (ids.length >= bal) break;
+          }
+        }
+      }
       return ids;
     } catch { return []; }
   }
@@ -437,12 +463,19 @@ export default function Home() {
     if (selectedOldAvailPlants.length === 0 && selectedOldAvailLands.length === 0) { setMintStatus("Select NFTs."); return; }
     try {
       setActionLoading(true);
-      if (selectedOldAvailPlants.length > 0) { await ensureCollectionApproval(PLANT_ADDRESS, OLD_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("stakePlants", [selectedOldAvailPlants.map((id) => ethers.BigNumber.from(id))]))); }
-      if (selectedOldAvailLands.length > 0 && oldLandStakingEnabled) { await ensureCollectionApproval(LAND_ADDRESS, OLD_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("stakeLands", [selectedOldAvailLands.map((id) => ethers.BigNumber.from(id))]))); }
+      const stakingPlants = [...selectedOldAvailPlants];
+      const stakingLands = [...selectedOldAvailLands];
+      if (stakingPlants.length > 0) { await ensureCollectionApproval(PLANT_ADDRESS, OLD_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("stakePlants", [stakingPlants.map((id) => ethers.BigNumber.from(id))]))); }
+      if (stakingLands.length > 0 && oldLandStakingEnabled) { await ensureCollectionApproval(LAND_ADDRESS, OLD_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("stakeLands", [stakingLands.map((id) => ethers.BigNumber.from(id))]))); }
+      // Optimistic UI update
+      setAvailablePlants(prev => prev.filter(id => !stakingPlants.includes(id)));
+      setAvailableLands(prev => prev.filter(id => !stakingLands.includes(id)));
+      setOldStakedPlants(prev => [...prev, ...stakingPlants]);
+      setOldStakedLands(prev => [...prev, ...stakingLands]);
       setSelectedOldAvailPlants([]); setSelectedOldAvailLands([]);
-      refreshOldStakingRef.current = false;
-      await refreshOldStaking();
-    } catch (err) { console.error(err); } finally { setActionLoading(false); }
+      // Background refresh for accurate data
+      setTimeout(() => { refreshOldStakingRef.current = false; refreshOldStaking(); }, 2000);
+    } catch (err) { console.error(err); refreshOldStakingRef.current = false; refreshOldStaking(); } finally { setActionLoading(false); }
   }
 
   async function handleOldUnstakeSelected() {
@@ -450,18 +483,32 @@ export default function Home() {
     if (selectedOldStakedPlants.length === 0 && selectedOldStakedLands.length === 0) { setMintStatus("Select NFTs."); return; }
     try {
       setActionLoading(true);
-      if (selectedOldStakedPlants.length > 0) await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("unstakePlants", [selectedOldStakedPlants.map((id) => ethers.BigNumber.from(id))])));
-      if (selectedOldStakedLands.length > 0) await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("unstakeLands", [selectedOldStakedLands.map((id) => ethers.BigNumber.from(id))])));
+      const unstakingPlants = [...selectedOldStakedPlants];
+      const unstakingLands = [...selectedOldStakedLands];
+      if (unstakingPlants.length > 0) await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("unstakePlants", [unstakingPlants.map((id) => ethers.BigNumber.from(id))])));
+      if (unstakingLands.length > 0) await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("unstakeLands", [unstakingLands.map((id) => ethers.BigNumber.from(id))])));
+      // Optimistic UI update
+      setOldStakedPlants(prev => prev.filter(id => !unstakingPlants.includes(id)));
+      setOldStakedLands(prev => prev.filter(id => !unstakingLands.includes(id)));
+      setAvailablePlants(prev => [...prev, ...unstakingPlants]);
+      setAvailableLands(prev => [...prev, ...unstakingLands]);
       setSelectedOldStakedPlants([]); setSelectedOldStakedLands([]);
-      refreshOldStakingRef.current = false;
-      await refreshOldStaking();
-    } catch (err) { console.error(err); } finally { setActionLoading(false); }
+      // Background refresh for accurate data
+      setTimeout(() => { refreshOldStakingRef.current = false; refreshOldStaking(); }, 2000);
+    } catch (err) { console.error(err); refreshOldStakingRef.current = false; refreshOldStaking(); } finally { setActionLoading(false); }
   }
 
   async function handleOldClaim() {
     if (!oldStakingStats || parseFloat(oldStakingStats.pendingFormatted) <= 0) { setMintStatus("No rewards."); return; }
-    try { setActionLoading(true); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("claim", []))); refreshOldStakingRef.current = false; await refreshOldStaking(); }
-    catch (err) { console.error(err); } finally { setActionLoading(false); }
+    try {
+      setActionLoading(true);
+      await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("claim", [])));
+      // Immediately reset pending to 0
+      setOldRealTimePending("0.00");
+      setOldStakingStats(prev => prev ? { ...prev, pendingRaw: ethers.BigNumber.from(0), pendingFormatted: "0" } : null);
+      // Background refresh
+      setTimeout(() => { refreshOldStakingRef.current = false; refreshOldStaking(); }, 2000);
+    } catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
   async function handleNewStakeSelected() {
@@ -469,13 +516,23 @@ export default function Home() {
     if (selectedNewAvailPlants.length === 0 && selectedNewAvailLands.length === 0 && selectedNewAvailSuperLands.length === 0) { setMintStatus("Select NFTs."); return; }
     try {
       setActionLoading(true);
-      if (selectedNewAvailPlants.length > 0) { await ensureCollectionApproval(PLANT_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("stakePlants", [selectedNewAvailPlants.map((id) => ethers.BigNumber.from(id))]))); }
-      if (selectedNewAvailLands.length > 0 && newLandStakingEnabled) { await ensureCollectionApproval(LAND_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("stakeLands", [selectedNewAvailLands.map((id) => ethers.BigNumber.from(id))]))); }
-      if (selectedNewAvailSuperLands.length > 0 && newSuperLandStakingEnabled) { await ensureCollectionApproval(SUPER_LAND_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("stakeSuperLands", [selectedNewAvailSuperLands.map((id) => ethers.BigNumber.from(id))]))); }
+      const stakingPlants = [...selectedNewAvailPlants];
+      const stakingLands = [...selectedNewAvailLands];
+      const stakingSuperLands = [...selectedNewAvailSuperLands];
+      if (stakingPlants.length > 0) { await ensureCollectionApproval(PLANT_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("stakePlants", [stakingPlants.map((id) => ethers.BigNumber.from(id))]))); }
+      if (stakingLands.length > 0 && newLandStakingEnabled) { await ensureCollectionApproval(LAND_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("stakeLands", [stakingLands.map((id) => ethers.BigNumber.from(id))]))); }
+      if (stakingSuperLands.length > 0 && newSuperLandStakingEnabled) { await ensureCollectionApproval(SUPER_LAND_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("stakeSuperLands", [stakingSuperLands.map((id) => ethers.BigNumber.from(id))]))); }
+      // Optimistic UI update
+      setAvailablePlants(prev => prev.filter(id => !stakingPlants.includes(id)));
+      setAvailableLands(prev => prev.filter(id => !stakingLands.includes(id)));
+      setAvailableSuperLands(prev => prev.filter(id => !stakingSuperLands.includes(id)));
+      setNewStakedPlants(prev => [...prev, ...stakingPlants]);
+      setNewStakedLands(prev => [...prev, ...stakingLands]);
+      setNewStakedSuperLands(prev => [...prev, ...stakingSuperLands]);
       setSelectedNewAvailPlants([]); setSelectedNewAvailLands([]); setSelectedNewAvailSuperLands([]);
-      refreshNewStakingRef.current = false;
-      await refreshNewStaking(); await refreshCrimeLadder();
-    } catch (err) { console.error(err); } finally { setActionLoading(false); }
+      // Background refresh
+      setTimeout(() => { refreshNewStakingRef.current = false; refreshNewStaking(); refreshCrimeLadder(); }, 2000);
+    } catch (err) { console.error(err); refreshNewStakingRef.current = false; refreshNewStaking(); } finally { setActionLoading(false); }
   }
 
   async function handleNewUnstakeSelected() {
@@ -483,19 +540,36 @@ export default function Home() {
     if (selectedNewStakedPlants.length === 0 && selectedNewStakedLands.length === 0 && selectedNewStakedSuperLands.length === 0) { setMintStatus("Select NFTs."); return; }
     try {
       setActionLoading(true);
-      if (selectedNewStakedPlants.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("unstakePlants", [selectedNewStakedPlants.map((id) => ethers.BigNumber.from(id))])));
-      if (selectedNewStakedLands.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("unstakeLands", [selectedNewStakedLands.map((id) => ethers.BigNumber.from(id))])));
-      if (selectedNewStakedSuperLands.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("unstakeSuperLands", [selectedNewStakedSuperLands.map((id) => ethers.BigNumber.from(id))])));
+      const unstakingPlants = [...selectedNewStakedPlants];
+      const unstakingLands = [...selectedNewStakedLands];
+      const unstakingSuperLands = [...selectedNewStakedSuperLands];
+      if (unstakingPlants.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("unstakePlants", [unstakingPlants.map((id) => ethers.BigNumber.from(id))])));
+      if (unstakingLands.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("unstakeLands", [unstakingLands.map((id) => ethers.BigNumber.from(id))])));
+      if (unstakingSuperLands.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("unstakeSuperLands", [unstakingSuperLands.map((id) => ethers.BigNumber.from(id))])));
+      // Optimistic UI update
+      setNewStakedPlants(prev => prev.filter(id => !unstakingPlants.includes(id)));
+      setNewStakedLands(prev => prev.filter(id => !unstakingLands.includes(id)));
+      setNewStakedSuperLands(prev => prev.filter(id => !unstakingSuperLands.includes(id)));
+      setAvailablePlants(prev => [...prev, ...unstakingPlants]);
+      setAvailableLands(prev => [...prev, ...unstakingLands]);
+      setAvailableSuperLands(prev => [...prev, ...unstakingSuperLands]);
       setSelectedNewStakedPlants([]); setSelectedNewStakedLands([]); setSelectedNewStakedSuperLands([]);
-      refreshNewStakingRef.current = false;
-      await refreshNewStaking(); await refreshCrimeLadder();
-    } catch (err) { console.error(err); } finally { setActionLoading(false); }
+      // Background refresh
+      setTimeout(() => { refreshNewStakingRef.current = false; refreshNewStaking(); refreshCrimeLadder(); }, 2000);
+    } catch (err) { console.error(err); refreshNewStakingRef.current = false; refreshNewStaking(); } finally { setActionLoading(false); }
   }
 
   async function handleNewClaim() {
     if (!newStakingStats || parseFloat(newStakingStats.pendingFormatted) <= 0) { setMintStatus("No rewards."); return; }
-    try { setActionLoading(true); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("claim", []))); refreshNewStakingRef.current = false; await refreshNewStaking(); }
-    catch (err) { console.error(err); } finally { setActionLoading(false); }
+    try {
+      setActionLoading(true);
+      await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("claim", [])));
+      // Immediately reset pending to 0
+      setRealTimePending("0.00");
+      setNewStakingStats(prev => prev ? { ...prev, pendingRaw: ethers.BigNumber.from(0), pendingFormatted: "0" } : null);
+      // Background refresh
+      setTimeout(() => { refreshNewStakingRef.current = false; refreshNewStaking(); }, 2000);
+    } catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
   const connected = !!userAddress;
@@ -698,7 +772,6 @@ export default function Home() {
               <h2 className={styles.modalTitle}>Old Staking</h2>
               <button type="button" className={styles.modalClose} onClick={() => setOldStakingOpen(false)}>✕</button>
             </header>
-            <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
               <div className={styles.statCard}><span className={styles.statLabel}>Plants</span><span className={styles.statValue}>{oldStakingStats?.plantsStaked || 0}</span></div>
               <div className={styles.statCard}><span className={styles.statLabel}>Lands</span><span className={styles.statValue}>{oldStakingStats?.landsStaked || 0}</span></div>
@@ -748,7 +821,6 @@ export default function Home() {
               <h2 className={styles.modalTitle}>New Staking</h2>
               <button type="button" className={styles.modalClose} onClick={() => setNewStakingOpen(false)}>✕</button>
             </header>
-            <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
               <div className={styles.statCard}><span className={styles.statLabel}>Plants</span><span className={styles.statValue}>{newStakingStats?.plantsStaked || 0}</span></div>
               <div className={styles.statCard}><span className={styles.statLabel}>Lands</span><span className={styles.statValue}>{newStakingStats?.landsStaked || 0}</span></div>
