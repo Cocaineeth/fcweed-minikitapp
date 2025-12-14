@@ -42,7 +42,7 @@ const newStakingInterface = new ethers.utils.Interface(NEW_STAKING_ABI);
 const superLandInterface = new ethers.utils.Interface(SUPER_LAND_ABI);
 const erc721Interface = new ethers.utils.Interface(ERC721_VIEW_ABI);
 
-type StakingStats = { plantsStaked: number; landsStaked: number; totalSlots: number; capacityUsed: number; landBoostPct: number; pendingFormatted: string; pendingRaw: ethers.BigNumber; claimEnabled: boolean; };
+type StakingStats = { plantsStaked: number; landsStaked: number; totalSlots: number; capacityUsed: number; landBoostPct: number; pendingFormatted: string; pendingRaw: ethers.BigNumber; claimEnabled: boolean; tokensPerSecond: ethers.BigNumber; };
 type NewStakingStats = { plantsStaked: number; landsStaked: number; superLandsStaked: number; totalSlots: number; capacityUsed: number; totalBoostPct: number; pendingFormatted: string; pendingRaw: ethers.BigNumber; dailyRewards: string; claimEnabled: boolean; tokensPerSecond: ethers.BigNumber; };
 type FarmerRow = { addr: string; plants: number; lands: number; superLands: number; boostPct: number; capacity: string; daily: string; dailyRaw: number; };
 
@@ -133,9 +133,16 @@ export default function Home() {
   useEffect(() => { setSelectedOldAvailPlants([]); setSelectedOldAvailLands([]); setSelectedOldStakedPlants([]); setSelectedOldStakedLands([]); setSelectedNewAvailPlants([]); setSelectedNewAvailLands([]); setSelectedNewAvailSuperLands([]); setSelectedNewStakedPlants([]); setSelectedNewStakedLands([]); setSelectedNewStakedSuperLands([]); }, [userAddress]);
 
   useEffect(() => {
-    if (!newStakingStats || !newStakingOpen) return;
+    if (!newStakingStats || !newStakingOpen) { setRealTimePending("0.00"); return; }
     const { pendingRaw, tokensPerSecond, plantsStaked, totalBoostPct } = newStakingStats;
-    if (plantsStaked === 0) { setRealTimePending("0.00"); return; }
+    const formatPending = (raw: ethers.BigNumber) => {
+      const formatted = parseFloat(ethers.utils.formatUnits(raw, 18));
+      if (formatted >= 1_000_000) return (formatted / 1_000_000).toFixed(4) + "M";
+      if (formatted >= 1_000) return (formatted / 1_000).toFixed(2) + "K";
+      return formatted.toFixed(4);
+    };
+    setRealTimePending(formatPending(pendingRaw));
+    if (plantsStaked === 0) return;
     const boostBps = Math.round(totalBoostPct * 100);
     const startTime = Date.now();
     const interval = setInterval(() => {
@@ -143,31 +150,30 @@ export default function Home() {
       const baseAdd = tokensPerSecond.mul(elapsed).mul(plantsStaked);
       const boostedAdd = baseAdd.mul(boostBps).div(10000);
       const total = pendingRaw.add(boostedAdd);
-      const formatted = parseFloat(ethers.utils.formatUnits(total, 18));
-      if (formatted >= 1_000_000) setRealTimePending((formatted / 1_000_000).toFixed(4) + "M");
-      else if (formatted >= 1_000) setRealTimePending((formatted / 1_000).toFixed(2) + "K");
-      else setRealTimePending(formatted.toFixed(4));
+      setRealTimePending(formatPending(total));
     }, 100);
     return () => clearInterval(interval);
   }, [newStakingStats, newStakingOpen]);
 
   useEffect(() => {
-    if (!oldStakingStats || !oldStakingOpen) return;
-    const { pendingRaw, plantsStaked, landBoostPct } = oldStakingStats;
-    if (plantsStaked === 0) { setOldRealTimePending("0.00"); return; }
-    const startTime = Date.now();
-    const tokensPerDay = ethers.utils.parseUnits("420000", 18);
-    const tokensPerSecond = tokensPerDay.div(86400);
+    if (!oldStakingStats || !oldStakingOpen) { setOldRealTimePending("0.00"); return; }
+    const { pendingRaw, plantsStaked, landBoostPct, tokensPerSecond } = oldStakingStats;
+    const formatPending = (raw: ethers.BigNumber) => {
+      const formatted = parseFloat(ethers.utils.formatUnits(raw, 18));
+      if (formatted >= 1_000_000) return (formatted / 1_000_000).toFixed(4) + "M";
+      if (formatted >= 1_000) return (formatted / 1_000).toFixed(2) + "K";
+      return formatted.toFixed(4);
+    };
+    setOldRealTimePending(formatPending(pendingRaw));
+    if (plantsStaked === 0) return;
     const boostBps = 10000 + Math.round(landBoostPct * 100);
+    const startTime = Date.now();
     const interval = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const baseAdd = tokensPerSecond.mul(elapsed).mul(plantsStaked);
       const boostedAdd = baseAdd.mul(boostBps).div(10000);
       const total = pendingRaw.add(boostedAdd);
-      const formatted = parseFloat(ethers.utils.formatUnits(total, 18));
-      if (formatted >= 1_000_000) setOldRealTimePending((formatted / 1_000_000).toFixed(4) + "M");
-      else if (formatted >= 1_000) setOldRealTimePending((formatted / 1_000).toFixed(2) + "K");
-      else setOldRealTimePending(formatted.toFixed(4));
+      setOldRealTimePending(formatPending(total));
     }, 100);
     return () => clearInterval(interval);
   }, [oldStakingStats, oldStakingOpen]);
@@ -291,42 +297,36 @@ export default function Home() {
   }
 
   const refreshOldStakingRef = useRef(false);
-  const oldStakingLoadedRef = useRef(false);
-  async function refreshOldStaking(forceRefresh = false) {
+  async function refreshOldStaking() {
     if (!oldStakingOpen || refreshOldStakingRef.current) return;
-    if (oldStakingLoadedRef.current && !forceRefresh) return;
     refreshOldStakingRef.current = true;
     let addr = userAddress;
     if (!addr) { const ctx = await ensureWallet(); if (!ctx) { refreshOldStakingRef.current = false; return; } addr = ctx.userAddress; }
     setLoadingOldStaking(true);
     try {
       const staking = new ethers.Contract(OLD_STAKING_ADDRESS, OLD_STAKING_ABI, readProvider);
-      const [user, pendingRaw, stakedPlantIds, stakedLandIds, landBps, claimEnabled, landEnabled] = await Promise.all([
-        staking.users(addr), staking.pending(addr), staking.plantsOf(addr), staking.landsOf(addr), staking.landBoostBps(), staking.claimEnabled(), staking.landStakingEnabled(),
+      const [user, pendingRaw, stakedPlantIds, stakedLandIds, landBps, claimEnabled, landEnabled, tokensPerDay] = await Promise.all([
+        staking.users(addr), staking.pending(addr), staking.plantsOf(addr), staking.landsOf(addr), staking.landBoostBps(), staking.claimEnabled(), staking.landStakingEnabled(), staking.tokensPerPlantPerDay(),
       ]);
       const plantsStaked = Number(user.plants), landsStaked = Number(user.lands);
-      if (ownedCacheRef.current.addr !== addr || forceRefresh) {
-        const [pOwned, lOwned, slOwned] = await Promise.all([loadOwnedTokens(PLANT_ADDRESS, addr, 500), loadOwnedTokens(LAND_ADDRESS, addr, 200), loadOwnedTokens(SUPER_LAND_ADDRESS, addr, 99)]);
-        ownedCacheRef.current = { addr, plants: pOwned, lands: lOwned, superLands: slOwned };
-      }
+      const [pOwned, lOwned, slOwned] = await Promise.all([loadOwnedTokens(PLANT_ADDRESS, addr, 500), loadOwnedTokens(LAND_ADDRESS, addr, 200), loadOwnedTokens(SUPER_LAND_ADDRESS, addr, 99)]);
+      ownedCacheRef.current = { addr, plants: pOwned, lands: lOwned, superLands: slOwned };
       const stakedPlantNums = stakedPlantIds.map((x: any) => Number(x));
       const stakedLandNums = stakedLandIds.map((x: any) => Number(x));
       setOldStakedPlants(stakedPlantNums); setOldStakedLands(stakedLandNums);
-      setAvailablePlants(ownedCacheRef.current.plants.filter((id) => !new Set(stakedPlantNums).has(id)));
-      setAvailableLands(ownedCacheRef.current.lands.filter((id) => !new Set(stakedLandNums).has(id)));
-      setAvailableSuperLands(ownedCacheRef.current.superLands);
+      setAvailablePlants(pOwned.filter((id) => !new Set(stakedPlantNums).has(id)));
+      setAvailableLands(lOwned.filter((id) => !new Set(stakedLandNums).has(id)));
+      setAvailableSuperLands(slOwned);
       setOldLandStakingEnabled(landEnabled);
-      setOldStakingStats({ plantsStaked, landsStaked, totalSlots: 1 + landsStaked * 3, capacityUsed: plantsStaked, landBoostPct: (landsStaked * Number(landBps)) / 100, pendingFormatted: ethers.utils.formatUnits(pendingRaw, 18), pendingRaw, claimEnabled });
-      oldStakingLoadedRef.current = true;
+      const tokensPerSecond = tokensPerDay.div(86400);
+      setOldStakingStats({ plantsStaked, landsStaked, totalSlots: 1 + landsStaked * 3, capacityUsed: plantsStaked, landBoostPct: (landsStaked * Number(landBps)) / 100, pendingFormatted: ethers.utils.formatUnits(pendingRaw, 18), pendingRaw, claimEnabled, tokensPerSecond });
     } catch (err) { console.error("Old staking refresh failed:", err); }
     finally { refreshOldStakingRef.current = false; setLoadingOldStaking(false); }
   }
 
   const refreshNewStakingRef = useRef(false);
-  const newStakingLoadedRef = useRef(false);
-  async function refreshNewStaking(forceRefresh = false) {
+  async function refreshNewStaking() {
     if (!newStakingOpen || refreshNewStakingRef.current) return;
-    if (newStakingLoadedRef.current && !forceRefresh) return;
     refreshNewStakingRef.current = true;
     let addr = userAddress;
     if (!addr) { const ctx = await ensureWallet(); if (!ctx) { refreshNewStakingRef.current = false; return; } addr = ctx.userAddress; }
@@ -342,26 +342,23 @@ export default function Home() {
       const dailyBase = tokensPerDay.mul(plantsStaked);
       const dailyWithBoost = dailyBase.mul(totalBoostBps).div(10000);
       const dailyFormatted = parseFloat(ethers.utils.formatUnits(dailyWithBoost, 18));
-      if (ownedCacheRef.current.addr !== addr || forceRefresh) {
-        const [pOwned, lOwned, slOwned] = await Promise.all([loadOwnedTokens(PLANT_ADDRESS, addr, 500), loadOwnedTokens(LAND_ADDRESS, addr, 200), loadOwnedTokens(SUPER_LAND_ADDRESS, addr, 99)]);
-        ownedCacheRef.current = { addr, plants: pOwned, lands: lOwned, superLands: slOwned };
-      }
+      const [pOwned, lOwned, slOwned] = await Promise.all([loadOwnedTokens(PLANT_ADDRESS, addr, 500), loadOwnedTokens(LAND_ADDRESS, addr, 200), loadOwnedTokens(SUPER_LAND_ADDRESS, addr, 99)]);
+      ownedCacheRef.current = { addr, plants: pOwned, lands: lOwned, superLands: slOwned };
       const stakedPlantNums = stakedPlantIds.map((x: any) => Number(x));
       const stakedLandNums = stakedLandIds.map((x: any) => Number(x));
       const stakedSuperLandNums = stakedSuperLandIds.map((x: any) => Number(x));
       setNewStakedPlants(stakedPlantNums); setNewStakedLands(stakedLandNums); setNewStakedSuperLands(stakedSuperLandNums);
-      setAvailablePlants(ownedCacheRef.current.plants.filter((id) => !new Set(stakedPlantNums).has(id)));
-      setAvailableLands(ownedCacheRef.current.lands.filter((id) => !new Set(stakedLandNums).has(id)));
-      setAvailableSuperLands(ownedCacheRef.current.superLands.filter((id) => !new Set(stakedSuperLandNums).has(id)));
+      setAvailablePlants(pOwned.filter((id) => !new Set(stakedPlantNums).has(id)));
+      setAvailableLands(lOwned.filter((id) => !new Set(stakedLandNums).has(id)));
+      setAvailableSuperLands(slOwned.filter((id) => !new Set(stakedSuperLandNums).has(id)));
       setNewLandStakingEnabled(landEnabled); setNewSuperLandStakingEnabled(superLandEnabled);
       setNewStakingStats({ plantsStaked, landsStaked, superLandsStaked, totalSlots, capacityUsed: plantsStaked, totalBoostPct: boostPct, pendingFormatted: ethers.utils.formatUnits(pendingRaw, 18), pendingRaw, dailyRewards: dailyFormatted >= 1_000_000 ? (dailyFormatted / 1_000_000).toFixed(2) + "M" : dailyFormatted >= 1000 ? (dailyFormatted / 1000).toFixed(1) + "K" : dailyFormatted.toFixed(0), claimEnabled, tokensPerSecond });
-      newStakingLoadedRef.current = true;
     } catch (err) { console.error("New staking refresh failed:", err); }
     finally { refreshNewStakingRef.current = false; setLoadingNewStaking(false); }
   }
 
-  useEffect(() => { if (oldStakingOpen) { refreshOldStaking(); const i = setInterval(() => refreshOldStaking(true), 60000); return () => { clearInterval(i); oldStakingLoadedRef.current = false; }; } }, [oldStakingOpen]);
-  useEffect(() => { if (newStakingOpen) { refreshNewStaking(); const i = setInterval(() => refreshNewStaking(true), 60000); return () => { clearInterval(i); newStakingLoadedRef.current = false; }; } }, [newStakingOpen]);
+  useEffect(() => { if (oldStakingOpen) { refreshOldStaking(); } }, [oldStakingOpen]);
+  useEffect(() => { if (newStakingOpen) { refreshNewStaking(); } }, [newStakingOpen]);
 
   async function refreshCrimeLadder() {
     setLadderLoading(true);
@@ -423,9 +420,8 @@ export default function Home() {
       if (selectedOldAvailPlants.length > 0) { await ensureCollectionApproval(PLANT_ADDRESS, OLD_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("stakePlants", [selectedOldAvailPlants.map((id) => ethers.BigNumber.from(id))]))); }
       if (selectedOldAvailLands.length > 0 && oldLandStakingEnabled) { await ensureCollectionApproval(LAND_ADDRESS, OLD_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("stakeLands", [selectedOldAvailLands.map((id) => ethers.BigNumber.from(id))]))); }
       setSelectedOldAvailPlants([]); setSelectedOldAvailLands([]);
-      ownedCacheRef.current = { addr: null, plants: [], lands: [], superLands: [] };
-      oldStakingLoadedRef.current = false;
-      await refreshOldStaking(true);
+      refreshOldStakingRef.current = false;
+      await refreshOldStaking();
     } catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
@@ -437,15 +433,14 @@ export default function Home() {
       if (selectedOldStakedPlants.length > 0) await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("unstakePlants", [selectedOldStakedPlants.map((id) => ethers.BigNumber.from(id))])));
       if (selectedOldStakedLands.length > 0) await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("unstakeLands", [selectedOldStakedLands.map((id) => ethers.BigNumber.from(id))])));
       setSelectedOldStakedPlants([]); setSelectedOldStakedLands([]);
-      ownedCacheRef.current = { addr: null, plants: [], lands: [], superLands: [] };
-      oldStakingLoadedRef.current = false;
-      await refreshOldStaking(true);
+      refreshOldStakingRef.current = false;
+      await refreshOldStaking();
     } catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
   async function handleOldClaim() {
     if (!oldStakingStats || parseFloat(oldStakingStats.pendingFormatted) <= 0) { setMintStatus("No rewards."); return; }
-    try { setActionLoading(true); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("claim", []))); oldStakingLoadedRef.current = false; await refreshOldStaking(true); }
+    try { setActionLoading(true); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("claim", []))); refreshOldStakingRef.current = false; await refreshOldStaking(); }
     catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
@@ -458,9 +453,8 @@ export default function Home() {
       if (selectedNewAvailLands.length > 0 && newLandStakingEnabled) { await ensureCollectionApproval(LAND_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("stakeLands", [selectedNewAvailLands.map((id) => ethers.BigNumber.from(id))]))); }
       if (selectedNewAvailSuperLands.length > 0 && newSuperLandStakingEnabled) { await ensureCollectionApproval(SUPER_LAND_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("stakeSuperLands", [selectedNewAvailSuperLands.map((id) => ethers.BigNumber.from(id))]))); }
       setSelectedNewAvailPlants([]); setSelectedNewAvailLands([]); setSelectedNewAvailSuperLands([]);
-      ownedCacheRef.current = { addr: null, plants: [], lands: [], superLands: [] };
-      newStakingLoadedRef.current = false;
-      await refreshNewStaking(true); await refreshCrimeLadder();
+      refreshNewStakingRef.current = false;
+      await refreshNewStaking(); await refreshCrimeLadder();
     } catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
@@ -473,15 +467,14 @@ export default function Home() {
       if (selectedNewStakedLands.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("unstakeLands", [selectedNewStakedLands.map((id) => ethers.BigNumber.from(id))])));
       if (selectedNewStakedSuperLands.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("unstakeSuperLands", [selectedNewStakedSuperLands.map((id) => ethers.BigNumber.from(id))])));
       setSelectedNewStakedPlants([]); setSelectedNewStakedLands([]); setSelectedNewStakedSuperLands([]);
-      ownedCacheRef.current = { addr: null, plants: [], lands: [], superLands: [] };
-      newStakingLoadedRef.current = false;
-      await refreshNewStaking(true); await refreshCrimeLadder();
+      refreshNewStakingRef.current = false;
+      await refreshNewStaking(); await refreshCrimeLadder();
     } catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
   async function handleNewClaim() {
     if (!newStakingStats || parseFloat(newStakingStats.pendingFormatted) <= 0) { setMintStatus("No rewards."); return; }
-    try { setActionLoading(true); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("claim", []))); newStakingLoadedRef.current = false; await refreshNewStaking(true); }
+    try { setActionLoading(true); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("claim", []))); refreshNewStakingRef.current = false; await refreshNewStaking(); }
     catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
@@ -537,6 +530,36 @@ export default function Home() {
               </p>
             </section>
             <section className={styles.infoCard}>
+              <h2 className={styles.heading}>Crime Ladder — Top 10 Farmers</h2>
+              {connected && walletRow && walletRank && (
+                <div style={{ fontSize: 11, margin: "4px 0 8px", padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(59,130,246,0.4)", background: "rgba(59,130,246,0.1)" }}>
+                  <div style={{ marginBottom: 4, fontWeight: 600, color: "#3b82f6" }}>Your Stats — Rank #{walletRank} of {farmerCount} stakers</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10, opacity: 0.95 }}>
+                    <span>Plants: <b>{walletRow.plants}</b></span>
+                    <span>Land: <b>{walletRow.lands}</b></span>
+                    <span>Super Land: <b>{walletRow.superLands}</b></span>
+                    <span>Boost: <b>+{(walletRow.boostPct - 100).toFixed(1)}%</b></span>
+                    <span>Daily: <b>{walletRow.daily}</b></span>
+                  </div>
+                </div>
+              )}
+              {!connected && (
+                <div style={{ fontSize: 11, margin: "4px 0 8px", padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(5,8,20,0.8)" }}>
+                  Connect wallet to see your rank
+                </div>
+              )}
+              {ladderLoading ? <p style={{ fontSize: 12, opacity: 0.7 }}>Loading…</p> : ladderRows.length === 0 ? <p style={{ fontSize: 12, opacity: 0.7 }}>No farmers yet. Stake Plants + Land to appear on the Crime Ladder.</p> : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                    <thead><tr><th style={{ textAlign: "left", padding: 3 }}>Rank</th><th style={{ textAlign: "left", padding: 3 }}>Farmer</th><th style={{ textAlign: "right", padding: 3 }}>Plants</th><th style={{ textAlign: "right", padding: 3 }}>Land</th><th style={{ textAlign: "right", padding: 3 }}>Super</th><th style={{ textAlign: "right", padding: 3 }}>Daily</th></tr></thead>
+                    <tbody>{ladderRows.map((row, idx) => (
+                      <tr key={row.addr} style={{ background: connected && userAddress?.toLowerCase() === row.addr.toLowerCase() ? "rgba(59,130,246,0.15)" : "transparent" }}><td style={{ padding: 3 }}>{idx + 1}</td><td style={{ padding: 3 }}>{row.addr.slice(0, 6)}…{row.addr.slice(-4)}</td><td style={{ padding: 3, textAlign: "right" }}>{row.plants}</td><td style={{ padding: 3, textAlign: "right" }}>{row.lands}</td><td style={{ padding: 3, textAlign: "right" }}>{row.superLands}</td><td style={{ padding: 3, textAlign: "right" }}>{row.daily}</td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+            <section className={styles.infoCard}>
               <h2 className={styles.heading}>How it Works</h2>
               <ul className={styles.bulletList}>
                 <li>Connect your wallet on Base to begin.</li>
@@ -561,30 +584,6 @@ export default function Home() {
               </ul>
             </section>
             <section className={styles.infoCard}>
-              <h2 className={styles.heading}>Crime Ladder — (Top Farmers)</h2>
-              {connected && walletRow && walletRank && (
-                <div style={{ fontSize: 11, margin: "4px 0 8px", padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(5,8,20,0.8)" }}>
-                  <div style={{ marginBottom: 3 }}>Your rank: <b>#{walletRank}</b> / {farmerCount}</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, opacity: 0.9 }}>
-                    <span>Plants: <b>{walletRow.plants}</b></span>
-                    <span>Land: <b>{walletRow.lands}</b></span>
-                    <span>Super: <b>{walletRow.superLands}</b></span>
-                    <span>Boost: <b>+{(walletRow.boostPct - 100).toFixed(1)}%</b></span>
-                  </div>
-                </div>
-              )}
-              {ladderLoading ? <p style={{ fontSize: 12, opacity: 0.7 }}>Loading…</p> : ladderRows.length === 0 ? <p style={{ fontSize: 12, opacity: 0.7 }}>No farmers yet. Stake Plants + Land to appear on the Crime Ladder.</p> : (
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
-                    <thead><tr><th style={{ textAlign: "left", padding: 3 }}>Rank</th><th style={{ textAlign: "left", padding: 3 }}>Farmer</th><th style={{ textAlign: "right", padding: 3 }}>Plants</th><th style={{ textAlign: "right", padding: 3 }}>Land</th><th style={{ textAlign: "right", padding: 3 }}>Super</th><th style={{ textAlign: "right", padding: 3 }}>Daily</th></tr></thead>
-                    <tbody>{ladderRows.map((row, idx) => (
-                      <tr key={row.addr}><td style={{ padding: 3 }}>{idx + 1}</td><td style={{ padding: 3 }}>{row.addr.slice(0, 6)}…{row.addr.slice(-4)}</td><td style={{ padding: 3, textAlign: "right" }}>{row.plants}</td><td style={{ padding: 3, textAlign: "right" }}>{row.lands}</td><td style={{ padding: 3, textAlign: "right" }}>{row.superLands}</td><td style={{ padding: 3, textAlign: "right" }}>{row.daily}</td></tr>
-                    ))}</tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-            <section className={styles.infoCard}>
               <h2 className={styles.heading}>Coming Soon</h2>
               <ul className={styles.bulletList}>
                 <li style={{ color: "#fbbf24" }}>🎁 Referrals — Earn rewards for inviting friends</li>
@@ -596,7 +595,10 @@ export default function Home() {
 
         {activeTab === "mint" && (
           <section className={styles.infoCard} style={{ textAlign: "center", padding: 20 }}>
-            <h2 style={{ fontSize: 18, margin: "0 0 16px", color: "#7cb3ff" }}>Mint NFTs</h2>
+            <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#7cb3ff" }}>Mint NFTs</h2>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+              <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <button type="button" className={styles.btnPrimary} onClick={handleMintPlant} disabled={connecting || actionLoading} style={{ width: "100%", padding: 14 }}>🌱 Mint Plant (49.99 USDC)</button>
               <button type="button" className={styles.btnPrimary} onClick={handleMintLand} disabled={connecting || actionLoading} style={{ width: "100%", padding: 14 }}>🏠 Mint Land (199.99 USDC)</button>
@@ -621,7 +623,11 @@ export default function Home() {
               <button type="button" className={styles.btnPrimary} onClick={() => setOldStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>📦 Old Staking</button>
               <button type="button" className={styles.btnPrimary} onClick={() => setNewStakingOpen(true)} style={{ width: "100%", padding: 14 }}>⚡ New Staking</button>
             </div>
-            <p style={{ marginTop: 12, fontSize: 11, color: "#f87171" }}>⚠️ Migrate to New Staking for Super Land support</p>
+            <div style={{ marginTop: 12, padding: 10, background: "rgba(251,191,36,0.1)", borderRadius: 10, border: "1px solid rgba(251,191,36,0.3)" }}>
+              <p style={{ fontSize: 11, color: "#fbbf24", margin: 0, fontWeight: 600 }}>⚠️ Migrate to New Staking for Super Land Support</p>
+              <p style={{ fontSize: 10, color: "#38e0a3", margin: "6px 0 0", fontWeight: 500 }}>✓ No tokens will be lost and no NFTs will be lost</p>
+              <p style={{ fontSize: 10, color: "#9ca3af", margin: "6px 0 0" }}>Claiming FCWEED on New Staking will resume after everyone has claimed and unstaked from Old Staking, by <b>5 PM EST on 12/14/2025</b>.</p>
+            </div>
           </section>
         )}
 
@@ -780,7 +786,7 @@ export default function Home() {
                 <li>Burn <b>1 × Land NFT</b></li>
                 <li>Burn <b>2,000,000 $FCWEED</b></li>
               </ul>
-              <p style={{ fontSize: 10, opacity: 0.8 }}>Super Land gives +12% boost and +3 plant capacity!</p>
+              <p style={{ fontSize: 10, opacity: 0.8 }}>Super Land gives +12% boost!</p>
             </div>
             {availableLands.length > 0 ? (
               <div style={{ marginTop: 12 }}>
