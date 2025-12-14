@@ -536,7 +536,7 @@ export default function Home() {
                 <li>Each Land grants a <b style={{ color: "#38e0a3" }}>+2.5% token boost</b> to all yield earned.</li>
                 <li>The more Land you stack — the stronger your multiplier will be.</li>
                 <li style={{ color: "#fbbf24" }}><b>NEW: Super Land</b> — Burn 1 Land + 2M FCWEED to upgrade!</li>
-                <li>Each Super Land grants <b style={{ color: "#fbbf24" }}>+12% token boost.</li>
+                <li>Each Super Land grants <b style={{ color: "#fbbf24" }}>+12% token boost</b>.</li>
               </ul>
               <h2 className={styles.heading}>Use of Funds</h2>
               <ul className={styles.bulletList}>
