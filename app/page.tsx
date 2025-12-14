@@ -409,41 +409,73 @@ export default function Home() {
   async function refreshCrimeLadder() {
     setLadderLoading(true);
     try {
-      const staking = new ethers.Contract(NEW_STAKING_ADDRESS, NEW_STAKING_ABI, readProvider);
-      const [tokensPerPlantPerDayBn, latestBlock] = await Promise.all([staking.tokensPerPlantPerDay(), readProvider.getBlockNumber()]);
-      const SAFE_WINDOW = usingMiniApp ? 80000 : 300000;
-      const fromBlock = Math.max(latestBlock - SAFE_WINDOW, 0);
-      let plantLogs: any[] = [], landLogs: any[] = [];
-      try { plantLogs = await readProvider.getLogs({ address: PLANT_ADDRESS, fromBlock, toBlock: latestBlock, topics: [ERC721_TRANSFER_TOPIC] }); } catch {}
-      try { landLogs = await readProvider.getLogs({ address: LAND_ADDRESS, fromBlock, toBlock: latestBlock, topics: [ERC721_TRANSFER_TOPIC] }); } catch {}
+      const STAKER_ABI = [
+        "function plantStakerOf(uint256) view returns (address)",
+        "function landStakerOf(uint256) view returns (address)",
+        "function superLandStakerOf(uint256) view returns (address)",
+        "function users(address) view returns (uint64,uint32,uint32,uint32,uint256,uint256)",
+        "function getBoostBps(address) view returns (uint256)",
+        "function tokensPerPlantPerDay() view returns (uint256)"
+      ];
+      const staking = new ethers.Contract(NEW_STAKING_ADDRESS, STAKER_ABI, readProvider);
+      const tokensPerDay = await staking.tokensPerPlantPerDay();
+
+      // Collect all staker addresses by scanning token IDs (same as PHP)
       const addrSet = new Set<string>();
       if (userAddress) addrSet.add(userAddress.toLowerCase());
-      for (const log of [...plantLogs, ...landLogs]) {
-        if (log.topics.length >= 3) {
-          if (log.topics[1]?.length === 66) addrSet.add(("0x" + log.topics[1].slice(26)).toLowerCase());
-          if (log.topics[2]?.length === 66) addrSet.add(("0x" + log.topics[2].slice(26)).toLowerCase());
+
+      const checkBatch = async (fn: (id: number) => Promise<string>, maxId: number) => {
+        const BATCH = 25;
+        for (let start = 1; start <= maxId; start += BATCH) {
+          const promises: Promise<string | null>[] = [];
+          for (let id = start; id <= Math.min(start + BATCH - 1, maxId); id++) {
+            promises.push(fn(id).then((addr: string) => addr.toLowerCase()).catch(() => null));
+          }
+          const results = await Promise.all(promises);
+          results.forEach((addr) => {
+            if (addr && addr !== "0x0000000000000000000000000000000000000000") addrSet.add(addr);
+          });
         }
-      }
+      };
+
+      await Promise.all([
+        checkBatch((id) => staking.plantStakerOf(id), 150),
+        checkBatch((id) => staking.landStakerOf(id), 50),
+        checkBatch((id) => staking.superLandStakerOf(id), 20)
+      ]);
+
       const rows: FarmerRow[] = [];
       await Promise.all(Array.from(addrSet).map(async (addr) => {
         try {
-          const u = await staking.users(addr);
-          const plants = Number(u.plants), lands = Number(u.lands), superLands = Number(u.superLands);
-          if (plants === 0 && lands === 0 && superLands === 0) return;
-          const totalBoostBps = await staking.getBoostBps(addr);
-          const capacityVal = await staking.capacityOf(addr);
-          const dailyBase = tokensPerPlantPerDayBn.mul(plants);
-          const dailyWithBoost = dailyBase.mul(totalBoostBps).div(10000);
+          const [user, boostBps] = await Promise.all([staking.users(addr), staking.getBoostBps(addr)]);
+          const plants = Number(user[1]), lands = Number(user[2]), superLands = Number(user[3]);
+          if (!plants && !lands && !superLands) return;
+          const dailyBase = tokensPerDay.mul(plants);
+          const dailyWithBoost = dailyBase.mul(boostBps).div(10000);
           const dailyFloat = parseFloat(ethers.utils.formatUnits(dailyWithBoost, 18));
-          rows.push({ addr, plants, lands, superLands, boostPct: Number(totalBoostBps) / 100, capacity: plants + "/" + Number(capacityVal), daily: dailyFloat >= 1_000_000 ? (dailyFloat / 1_000_000).toFixed(2) + "M" : dailyFloat.toLocaleString(undefined, { maximumFractionDigits: 0 }), dailyRaw: dailyFloat });
+          const boostPct = (Number(boostBps) / 100) - 100;
+          const dailyDisplay = dailyFloat >= 1_000_000 ? (dailyFloat / 1_000_000).toFixed(2) + "M" : dailyFloat.toLocaleString(undefined, { maximumFractionDigits: 0 });
+          rows.push({ addr, plants, lands, superLands, boostPct, capacity: "", daily: dailyDisplay, dailyRaw: dailyFloat });
         } catch {}
       }));
+
       rows.sort((a, b) => b.dailyRaw - a.dailyRaw);
       setFarmerCount(rows.length);
-      if (userAddress) { const idx = rows.findIndex((r) => r.addr.toLowerCase() === userAddress.toLowerCase()); setWalletRank(idx !== -1 ? idx + 1 : null); setWalletRow(idx !== -1 ? rows[idx] : null); }
+      if (userAddress) {
+        const idx = rows.findIndex((r) => r.addr.toLowerCase() === userAddress.toLowerCase());
+        setWalletRank(idx !== -1 ? idx + 1 : null);
+        setWalletRow(idx !== -1 ? rows[idx] : null);
+      }
       setLadderRows(rows.slice(0, 10));
-    } catch { setLadderRows([]); setWalletRank(null); setWalletRow(null); setFarmerCount(0); }
-    finally { setLadderLoading(false); }
+    } catch (e) {
+      console.error("Crime ladder error:", e);
+      setLadderRows([]);
+      setWalletRank(null);
+      setWalletRow(null);
+      setFarmerCount(0);
+    } finally {
+      setLadderLoading(false);
+    }
   }
 
   useEffect(() => { refreshCrimeLadder(); }, []);
