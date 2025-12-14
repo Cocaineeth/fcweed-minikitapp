@@ -496,13 +496,13 @@ export default function Home() {
   return (
     <div className={styles.page} style={{ paddingBottom: 70 }} onPointerDown={() => { if (!isPlaying && audioRef.current) audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {}); }}>
       <header className={styles.headerWrapper}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
           <div className={styles.brand}><span className={styles.liveDot} /><span className={styles.brandText}>FCWEED</span></div>
+          <button type="button" disabled={connecting} onClick={() => void ensureWallet()} style={{ padding: "4px 10px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.25)", background: connected ? "rgba(0,200,130,0.18)" : "rgba(39,95,255,0.55)", fontSize: 10, fontWeight: 500, color: "#fff", cursor: "pointer" }}>{shortAddr(userAddress)}</button>
         </div>
         <div className={styles.headerRight}>
-          <button type="button" disabled={connecting} onClick={() => void ensureWallet()} style={{ padding: "5px 12px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.25)", background: connected ? "rgba(0,200,130,0.18)" : "rgba(39,95,255,0.55)", fontSize: 11, fontWeight: 500, color: "#fff", cursor: "pointer" }}>{shortAddr(userAddress)}</button>
           <div className={styles.radioPill}>
-            <span className={styles.radioLabel}>Radio</span>
+            <span className={styles.radioLabel}>Farcaster Radio</span>
             <div className={styles.radioTitleWrap}><span className={styles.radioTitleInner}>{currentTrackMeta.title}</span></div>
             <button type="button" className={styles.iconButtonSmall} onClick={handlePrevTrack}>‹</button>
             <button type="button" className={styles.iconButtonSmall} onClick={handlePlayPause}>{isPlaying ? "❚❚" : "▶"}</button>
@@ -515,7 +515,7 @@ export default function Home() {
       <main className={styles.main}>
         {activeTab === "info" && (
           <>
-            <section style={{ textAlign: "center", padding: "10px 0" }}>
+            <section style={{ textAlign: "center", padding: "10px 0", display: "flex", justifyContent: "center" }}>
               <Image src={GIFS[gifIndex]} alt="FCWEED" width={280} height={100} style={{ borderRadius: 14, objectFit: "cover" }} />
             </section>
             <section className={styles.infoCard}>
@@ -535,6 +535,8 @@ export default function Home() {
                 <li>Each Land allows you to stake <b style={{ color: "#38e0a3" }}>+3 extra Plant Buds</b>.</li>
                 <li>Each Land grants a <b style={{ color: "#38e0a3" }}>+2.5% token boost</b> to all yield earned.</li>
                 <li>The more Land you stack — the stronger your multiplier will be.</li>
+                <li style={{ color: "#fbbf24" }}><b>NEW: Super Land</b> — Burn 1 Land + 2M FCWEED to upgrade!</li>
+                <li>Each Super Land grants <b style={{ color: "#fbbf24" }}>+12% token boost</b> and <b style={{ color: "#fbbf24" }}>+3 plant capacity</b>.</li>
               </ul>
               <h2 className={styles.heading}>Use of Funds</h2>
               <ul className={styles.bulletList}>
@@ -601,10 +603,13 @@ export default function Home() {
 
         {activeTab === "stake" && (
           <section className={styles.infoCard} style={{ textAlign: "center", padding: 20 }}>
-            <h2 style={{ fontSize: 18, margin: "0 0 16px", color: "#7cb3ff" }}>Staking</h2>
+            <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#7cb3ff" }}>Staking</h2>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+              <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <button type="button" className={styles.btnPrimary} onClick={() => setOldStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>📦 Old Staking</button>
-              <button type="button" className={styles.btnPrimary} onClick={() => setNewStakingOpen(true)} style={{ width: "100%", padding: 14 }}>⚡ New Staking (Super Land)</button>
+              <button type="button" className={styles.btnPrimary} onClick={() => setNewStakingOpen(true)} style={{ width: "100%", padding: 14 }}>⚡ New Staking</button>
             </div>
             <p style={{ marginTop: 12, fontSize: 11, color: "#f87171" }}>⚠️ Migrate to New Staking for Super Land support</p>
           </section>
@@ -654,9 +659,10 @@ export default function Home() {
         <div className={styles.modalBackdrop}>
           <div className={styles.modal} style={{ maxWidth: 500, width: "95%", maxHeight: "85vh", overflowY: "auto" }}>
             <header className={styles.modalHeader}>
-              <h2 className={styles.modalTitle}>Old Staking (Legacy)</h2>
+              <h2 className={styles.modalTitle}>Old Staking</h2>
               <button type="button" className={styles.modalClose} onClick={() => setOldStakingOpen(false)}>✕</button>
             </header>
+            <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
               <div className={styles.statCard}><span className={styles.statLabel}>Plants</span><span className={styles.statValue}>{oldStakingStats?.plantsStaked || 0}</span></div>
               <div className={styles.statCard}><span className={styles.statLabel}>Lands</span><span className={styles.statValue}>{oldStakingStats?.landsStaked || 0}</span></div>
@@ -706,10 +712,11 @@ export default function Home() {
               <h2 className={styles.modalTitle}>New Staking</h2>
               <button type="button" className={styles.modalClose} onClick={() => setNewStakingOpen(false)}>✕</button>
             </header>
+            <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
               <div className={styles.statCard}><span className={styles.statLabel}>Plants</span><span className={styles.statValue}>{newStakingStats?.plantsStaked || 0}</span></div>
               <div className={styles.statCard}><span className={styles.statLabel}>Lands</span><span className={styles.statValue}>{newStakingStats?.landsStaked || 0}</span></div>
-              <div className={styles.statCard}><span className={styles.statLabel}>Super</span><span className={styles.statValue}>{newStakingStats?.superLandsStaked || 0}</span></div>
+              <div className={styles.statCard}><span className={styles.statLabel}>Super Lands</span><span className={styles.statValue}>{newStakingStats?.superLandsStaked || 0}</span></div>
               <div className={styles.statCard}><span className={styles.statLabel}>Capacity</span><span className={styles.statValue}>{newStakingStats ? newStakingStats.capacityUsed + "/" + newStakingStats.totalSlots : "0/1"}</span></div>
               <div className={styles.statCard}><span className={styles.statLabel}>Boost</span><span className={styles.statValue}>+{newStakingStats ? (newStakingStats.totalBoostPct - 100).toFixed(1) : 0}%</span></div>
               <div className={styles.statCard}><span className={styles.statLabel}>Daily</span><span className={styles.statValue}>{newStakingStats?.dailyRewards || "0"}</span></div>
@@ -724,7 +731,7 @@ export default function Home() {
                   </div>
                   <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
                     {newTotalAvailable === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No NFTs</span> : (
-                      <>{availableSuperLands.map((id) => <NftCard key={"nasl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super" checked={selectedNewAvailSuperLands.includes(id)} onChange={() => toggleId(id, selectedNewAvailSuperLands, setSelectedNewAvailSuperLands)} />)}{availableLands.map((id) => <NftCard key={"nal-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedNewAvailLands.includes(id)} onChange={() => toggleId(id, selectedNewAvailLands, setSelectedNewAvailLands)} />)}{availablePlants.map((id) => <NftCard key={"nap-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedNewAvailPlants.includes(id)} onChange={() => toggleId(id, selectedNewAvailPlants, setSelectedNewAvailPlants)} />)}</>
+                      <>{availableSuperLands.map((id) => <NftCard key={"nasl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedNewAvailSuperLands.includes(id)} onChange={() => toggleId(id, selectedNewAvailSuperLands, setSelectedNewAvailSuperLands)} />)}{availableLands.map((id) => <NftCard key={"nal-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedNewAvailLands.includes(id)} onChange={() => toggleId(id, selectedNewAvailLands, setSelectedNewAvailLands)} />)}{availablePlants.map((id) => <NftCard key={"nap-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedNewAvailPlants.includes(id)} onChange={() => toggleId(id, selectedNewAvailPlants, setSelectedNewAvailPlants)} />)}</>
                     )}
                   </div>
                 </div>
@@ -735,7 +742,7 @@ export default function Home() {
                   </div>
                   <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
                     {newTotalStaked === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No staked NFTs</span> : (
-                      <>{newStakedSuperLands.map((id) => <NftCard key={"nssl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super" checked={selectedNewStakedSuperLands.includes(id)} onChange={() => toggleId(id, selectedNewStakedSuperLands, setSelectedNewStakedSuperLands)} />)}{newStakedLands.map((id) => <NftCard key={"nsl-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedNewStakedLands.includes(id)} onChange={() => toggleId(id, selectedNewStakedLands, setSelectedNewStakedLands)} />)}{newStakedPlants.map((id) => <NftCard key={"nsp-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedNewStakedPlants.includes(id)} onChange={() => toggleId(id, selectedNewStakedPlants, setSelectedNewStakedPlants)} />)}</>
+                      <>{newStakedSuperLands.map((id) => <NftCard key={"nssl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedNewStakedSuperLands.includes(id)} onChange={() => toggleId(id, selectedNewStakedSuperLands, setSelectedNewStakedSuperLands)} />)}{newStakedLands.map((id) => <NftCard key={"nsl-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedNewStakedLands.includes(id)} onChange={() => toggleId(id, selectedNewStakedLands, setSelectedNewStakedLands)} />)}{newStakedPlants.map((id) => <NftCard key={"nsp-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedNewStakedPlants.includes(id)} onChange={() => toggleId(id, selectedNewStakedPlants, setSelectedNewStakedPlants)} />)}</>
                     )}
                   </div>
                 </div>
