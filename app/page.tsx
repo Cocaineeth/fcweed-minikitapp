@@ -291,8 +291,10 @@ export default function Home() {
   }
 
   const refreshOldStakingRef = useRef(false);
-  async function refreshOldStaking() {
+  const oldStakingLoadedRef = useRef(false);
+  async function refreshOldStaking(forceRefresh = false) {
     if (!oldStakingOpen || refreshOldStakingRef.current) return;
+    if (oldStakingLoadedRef.current && !forceRefresh) return;
     refreshOldStakingRef.current = true;
     let addr = userAddress;
     if (!addr) { const ctx = await ensureWallet(); if (!ctx) { refreshOldStakingRef.current = false; return; } addr = ctx.userAddress; }
@@ -303,7 +305,7 @@ export default function Home() {
         staking.users(addr), staking.pending(addr), staking.plantsOf(addr), staking.landsOf(addr), staking.landBoostBps(), staking.claimEnabled(), staking.landStakingEnabled(),
       ]);
       const plantsStaked = Number(user.plants), landsStaked = Number(user.lands);
-      if (ownedCacheRef.current.addr !== addr) {
+      if (ownedCacheRef.current.addr !== addr || forceRefresh) {
         const [pOwned, lOwned, slOwned] = await Promise.all([loadOwnedTokens(PLANT_ADDRESS, addr, 500), loadOwnedTokens(LAND_ADDRESS, addr, 200), loadOwnedTokens(SUPER_LAND_ADDRESS, addr, 99)]);
         ownedCacheRef.current = { addr, plants: pOwned, lands: lOwned, superLands: slOwned };
       }
@@ -315,13 +317,16 @@ export default function Home() {
       setAvailableSuperLands(ownedCacheRef.current.superLands);
       setOldLandStakingEnabled(landEnabled);
       setOldStakingStats({ plantsStaked, landsStaked, totalSlots: 1 + landsStaked * 3, capacityUsed: plantsStaked, landBoostPct: (landsStaked * Number(landBps)) / 100, pendingFormatted: ethers.utils.formatUnits(pendingRaw, 18), pendingRaw, claimEnabled });
+      oldStakingLoadedRef.current = true;
     } catch (err) { console.error("Old staking refresh failed:", err); }
     finally { refreshOldStakingRef.current = false; setLoadingOldStaking(false); }
   }
 
   const refreshNewStakingRef = useRef(false);
-  async function refreshNewStaking() {
+  const newStakingLoadedRef = useRef(false);
+  async function refreshNewStaking(forceRefresh = false) {
     if (!newStakingOpen || refreshNewStakingRef.current) return;
+    if (newStakingLoadedRef.current && !forceRefresh) return;
     refreshNewStakingRef.current = true;
     let addr = userAddress;
     if (!addr) { const ctx = await ensureWallet(); if (!ctx) { refreshNewStakingRef.current = false; return; } addr = ctx.userAddress; }
@@ -337,7 +342,7 @@ export default function Home() {
       const dailyBase = tokensPerDay.mul(plantsStaked);
       const dailyWithBoost = dailyBase.mul(totalBoostBps).div(10000);
       const dailyFormatted = parseFloat(ethers.utils.formatUnits(dailyWithBoost, 18));
-      if (ownedCacheRef.current.addr !== addr) {
+      if (ownedCacheRef.current.addr !== addr || forceRefresh) {
         const [pOwned, lOwned, slOwned] = await Promise.all([loadOwnedTokens(PLANT_ADDRESS, addr, 500), loadOwnedTokens(LAND_ADDRESS, addr, 200), loadOwnedTokens(SUPER_LAND_ADDRESS, addr, 99)]);
         ownedCacheRef.current = { addr, plants: pOwned, lands: lOwned, superLands: slOwned };
       }
@@ -350,12 +355,13 @@ export default function Home() {
       setAvailableSuperLands(ownedCacheRef.current.superLands.filter((id) => !new Set(stakedSuperLandNums).has(id)));
       setNewLandStakingEnabled(landEnabled); setNewSuperLandStakingEnabled(superLandEnabled);
       setNewStakingStats({ plantsStaked, landsStaked, superLandsStaked, totalSlots, capacityUsed: plantsStaked, totalBoostPct: boostPct, pendingFormatted: ethers.utils.formatUnits(pendingRaw, 18), pendingRaw, dailyRewards: dailyFormatted >= 1_000_000 ? (dailyFormatted / 1_000_000).toFixed(2) + "M" : dailyFormatted >= 1000 ? (dailyFormatted / 1000).toFixed(1) + "K" : dailyFormatted.toFixed(0), claimEnabled, tokensPerSecond });
+      newStakingLoadedRef.current = true;
     } catch (err) { console.error("New staking refresh failed:", err); }
     finally { refreshNewStakingRef.current = false; setLoadingNewStaking(false); }
   }
 
-  useEffect(() => { if (oldStakingOpen) { refreshOldStaking(); const i = setInterval(refreshOldStaking, 30000); return () => clearInterval(i); } }, [oldStakingOpen]);
-  useEffect(() => { if (newStakingOpen) { refreshNewStaking(); const i = setInterval(refreshNewStaking, 30000); return () => clearInterval(i); } }, [newStakingOpen]);
+  useEffect(() => { if (oldStakingOpen) { refreshOldStaking(); const i = setInterval(() => refreshOldStaking(true), 60000); return () => { clearInterval(i); oldStakingLoadedRef.current = false; }; } }, [oldStakingOpen]);
+  useEffect(() => { if (newStakingOpen) { refreshNewStaking(); const i = setInterval(() => refreshNewStaking(true), 60000); return () => { clearInterval(i); newStakingLoadedRef.current = false; }; } }, [newStakingOpen]);
 
   async function refreshCrimeLadder() {
     setLadderLoading(true);
@@ -418,7 +424,8 @@ export default function Home() {
       if (selectedOldAvailLands.length > 0 && oldLandStakingEnabled) { await ensureCollectionApproval(LAND_ADDRESS, OLD_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("stakeLands", [selectedOldAvailLands.map((id) => ethers.BigNumber.from(id))]))); }
       setSelectedOldAvailPlants([]); setSelectedOldAvailLands([]);
       ownedCacheRef.current = { addr: null, plants: [], lands: [], superLands: [] };
-      await refreshOldStaking();
+      oldStakingLoadedRef.current = false;
+      await refreshOldStaking(true);
     } catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
@@ -431,13 +438,14 @@ export default function Home() {
       if (selectedOldStakedLands.length > 0) await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("unstakeLands", [selectedOldStakedLands.map((id) => ethers.BigNumber.from(id))])));
       setSelectedOldStakedPlants([]); setSelectedOldStakedLands([]);
       ownedCacheRef.current = { addr: null, plants: [], lands: [], superLands: [] };
-      await refreshOldStaking();
+      oldStakingLoadedRef.current = false;
+      await refreshOldStaking(true);
     } catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
   async function handleOldClaim() {
     if (!oldStakingStats || parseFloat(oldStakingStats.pendingFormatted) <= 0) { setMintStatus("No rewards."); return; }
-    try { setActionLoading(true); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("claim", []))); await refreshOldStaking(); }
+    try { setActionLoading(true); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, oldStakingInterface.encodeFunctionData("claim", []))); oldStakingLoadedRef.current = false; await refreshOldStaking(true); }
     catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
@@ -451,7 +459,8 @@ export default function Home() {
       if (selectedNewAvailSuperLands.length > 0 && newSuperLandStakingEnabled) { await ensureCollectionApproval(SUPER_LAND_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("stakeSuperLands", [selectedNewAvailSuperLands.map((id) => ethers.BigNumber.from(id))]))); }
       setSelectedNewAvailPlants([]); setSelectedNewAvailLands([]); setSelectedNewAvailSuperLands([]);
       ownedCacheRef.current = { addr: null, plants: [], lands: [], superLands: [] };
-      await refreshNewStaking(); await refreshCrimeLadder();
+      newStakingLoadedRef.current = false;
+      await refreshNewStaking(true); await refreshCrimeLadder();
     } catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
@@ -465,13 +474,14 @@ export default function Home() {
       if (selectedNewStakedSuperLands.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("unstakeSuperLands", [selectedNewStakedSuperLands.map((id) => ethers.BigNumber.from(id))])));
       setSelectedNewStakedPlants([]); setSelectedNewStakedLands([]); setSelectedNewStakedSuperLands([]);
       ownedCacheRef.current = { addr: null, plants: [], lands: [], superLands: [] };
-      await refreshNewStaking(); await refreshCrimeLadder();
+      newStakingLoadedRef.current = false;
+      await refreshNewStaking(true); await refreshCrimeLadder();
     } catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
   async function handleNewClaim() {
     if (!newStakingStats || parseFloat(newStakingStats.pendingFormatted) <= 0) { setMintStatus("No rewards."); return; }
-    try { setActionLoading(true); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("claim", []))); await refreshNewStaking(); }
+    try { setActionLoading(true); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, newStakingInterface.encodeFunctionData("claim", []))); newStakingLoadedRef.current = false; await refreshNewStaking(true); }
     catch (err) { console.error(err); } finally { setActionLoading(false); }
   }
 
@@ -770,7 +780,7 @@ export default function Home() {
                 <li>Burn <b>1 × Land NFT</b></li>
                 <li>Burn <b>2,000,000 $FCWEED</b></li>
               </ul>
-              <p style={{ fontSize: 10, opacity: 0.8 }}>Super Land gives +12% boost!</p>
+              <p style={{ fontSize: 10, opacity: 0.8 }}>Super Land gives +12% boost and +3 plant capacity!</p>
             </div>
             {availableLands.length > 0 ? (
               <div style={{ marginTop: 12 }}>
