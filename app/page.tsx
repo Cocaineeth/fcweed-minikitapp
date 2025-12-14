@@ -69,7 +69,7 @@ export default function Home() {
   const [miniAppEthProvider, setMiniAppEthProvider] = useState<any | null>(null);
   const [readProvider] = useState(() => new ethers.providers.JsonRpcProvider(PUBLIC_BASE_RPC));
 
-  const [activeTab, setActiveTab] = useState<"info" | "mint" | "stake" | "crates" | "referrals">("info");
+  const [activeTab, setActiveTab] = useState<"info" | "mint" | "stake" | "crates" | "referrals" | "shop">("info");
   const [mintModalOpen, setMintModalOpen] = useState(false);
   const [stakeModalOpen, setStakeModalOpen] = useState(false);
   const [oldStakingOpen, setOldStakingOpen] = useState(false);
@@ -682,6 +682,7 @@ export default function Home() {
               <ul className={styles.bulletList}>
                 <li style={{ color: "#fbbf24" }}>🎁 Referrals — Earn rewards for inviting friends</li>
                 <li style={{ color: "#fbbf24" }}>📦 Crate Openings — Mystery rewards and rare drops</li>
+                <li style={{ color: "#fbbf24" }}>🛒 Item Shop — Buy boosts and exclusive items</li>
               </ul>
             </section>
           </>
@@ -748,6 +749,18 @@ export default function Home() {
             </div>
           </section>
         )}
+
+        {activeTab === "shop" && (
+          <section className={styles.infoCard} style={{ position: "relative", textAlign: "center", padding: 40, minHeight: 300 }}>
+            <div style={{ position: "absolute", inset: 0, background: "rgba(5,8,18,0.85)", backdropFilter: "blur(8px)", borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
+              <div>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🛒</div>
+                <h2 style={{ fontSize: 20, color: "#fbbf24" }}>Coming Soon</h2>
+                <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 8 }}>Buy boosts and exclusive items</p>
+              </div>
+            </div>
+          </section>
+        )}
       </main>
 
       <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "linear-gradient(to top, #050812, #0a1128)", borderTop: "1px solid #1b2340", display: "flex", justifyContent: "space-around", padding: "8px 4px", zIndex: 50 }}>
@@ -756,6 +769,7 @@ export default function Home() {
           { key: "mint", icon: "🌱", label: "MINT" },
           { key: "stake", icon: "⚡", label: "STAKE" },
           { key: "crates", icon: "📦", label: "CRATES" },
+          { key: "shop", icon: "🛒", label: "SHOP" },
           { key: "referrals", icon: "🎁", label: "REFER" },
         ].map((tab) => (
           <button key={tab.key} type="button" onClick={() => setActiveTab(tab.key as any)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 2px", border: "none", background: activeTab === tab.key ? "rgba(59,130,246,0.2)" : "transparent", borderRadius: 8, cursor: "pointer" }}>
