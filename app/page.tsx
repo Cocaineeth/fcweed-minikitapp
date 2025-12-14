@@ -106,6 +106,8 @@ export default function Home() {
   const [selectedNewStakedLands, setSelectedNewStakedLands] = useState<number[]>([]);
   const [selectedNewStakedSuperLands, setSelectedNewStakedSuperLands] = useState<number[]>([]);
   const [selectedLandForUpgrade, setSelectedLandForUpgrade] = useState<number | null>(null);
+  const [upgradeLands, setUpgradeLands] = useState<number[]>([]);
+  const [loadingUpgrade, setLoadingUpgrade] = useState(false);
 
   const [plantImages] = useState<Record<number, string>>({});
   const [landImages] = useState<Record<number, string>>({});
@@ -359,6 +361,24 @@ export default function Home() {
 
   useEffect(() => { if (oldStakingOpen) { refreshOldStaking(); } }, [oldStakingOpen]);
   useEffect(() => { if (newStakingOpen) { refreshNewStaking(); } }, [newStakingOpen]);
+
+  useEffect(() => {
+    if (!upgradeModalOpen) return;
+    (async () => {
+      const ctx = await ensureWallet();
+      if (!ctx) return;
+      setLoadingUpgrade(true);
+      try {
+        const lands = await loadOwnedTokens(LAND_ADDRESS, ctx.userAddress, 200);
+        setUpgradeLands(lands);
+      } catch (e) {
+        console.error("Failed to load lands for upgrade:", e);
+        setUpgradeLands([]);
+      } finally {
+        setLoadingUpgrade(false);
+      }
+    })();
+  }, [upgradeModalOpen]);
 
   async function refreshCrimeLadder() {
     setLadderLoading(true);
@@ -778,7 +798,7 @@ export default function Home() {
           <div className={styles.modal} style={{ maxWidth: 380, width: "90%", padding: 16 }}>
             <header className={styles.modalHeader}>
               <h2 className={styles.modalTitle}>🔥 Upgrade to Super Land</h2>
-              <button type="button" className={styles.modalClose} onClick={() => { setUpgradeModalOpen(false); setSelectedLandForUpgrade(null); }}>✕</button>
+              <button type="button" className={styles.modalClose} onClick={() => { setUpgradeModalOpen(false); setSelectedLandForUpgrade(null); setMintStatus(""); }}>✕</button>
             </header>
             <div style={{ marginTop: 12, fontSize: 12, lineHeight: 1.5, color: "#c0c9f4" }}>
               <p style={{ marginBottom: 10 }}>To mint a <b style={{ color: "#fbbf24" }}>Super Land NFT</b> and reap its benefits:</p>
@@ -788,18 +808,23 @@ export default function Home() {
               </ul>
               <p style={{ fontSize: 10, opacity: 0.8 }}>Super Land gives +12% boost!</p>
             </div>
-            {availableLands.length > 0 ? (
+            {loadingUpgrade ? (
+              <p style={{ marginTop: 12, fontSize: 11, color: "#9ca3af", textAlign: "center" }}>Loading your Land NFTs...</p>
+            ) : upgradeLands.length > 0 ? (
               <div style={{ marginTop: 12 }}>
-                <label style={{ fontSize: 11, marginBottom: 6, display: "block" }}>Select Land:</label>
+                <label style={{ fontSize: 11, marginBottom: 6, display: "block" }}>Select Land to burn:</label>
                 <select value={selectedLandForUpgrade || ""} onChange={(e) => setSelectedLandForUpgrade(e.target.value ? Number(e.target.value) : null)} style={{ width: "100%", padding: 8, borderRadius: 6, background: "#0a1128", border: "1px solid #1f2a4a", color: "#fff", fontSize: 12 }}>
-                  <option value="">-- Select --</option>
-                  {availableLands.map((id) => <option key={id} value={id}>Land #{id}</option>)}
+                  <option value="">-- Select Land NFT --</option>
+                  {upgradeLands.map((id) => <option key={id} value={id}>Land #{id}</option>)}
                 </select>
               </div>
-            ) : <p style={{ marginTop: 12, fontSize: 11, color: "#f87171" }}>You don&apos;t own any Land NFTs to upgrade.</p>}
+            ) : (
+              <p style={{ marginTop: 12, fontSize: 11, color: "#f87171" }}>You don&apos;t own any Land NFTs to upgrade.</p>
+            )}
+            {mintStatus && <p style={{ marginTop: 8, fontSize: 10, color: mintStatus.includes("✅") ? "#34d399" : "#fbbf24" }}>{mintStatus}</p>}
             <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
-              <button type="button" className={styles.btnPrimary} disabled={!selectedLandForUpgrade || actionLoading} onClick={handleUpgradeLand} style={{ flex: 1, background: "linear-gradient(to right, #f59e0b, #fbbf24)", color: "#000" }}>{actionLoading ? "Processing…" : "Continue"}</button>
-              <button type="button" onClick={() => { setUpgradeModalOpen(false); setSelectedLandForUpgrade(null); }} style={{ flex: 1, padding: 8, borderRadius: 999, border: "1px solid #374151", background: "transparent", color: "#9ca3af", cursor: "pointer" }}>Cancel</button>
+              <button type="button" className={styles.btnPrimary} disabled={!selectedLandForUpgrade || actionLoading || loadingUpgrade} onClick={handleUpgradeLand} style={{ flex: 1, padding: 12, background: selectedLandForUpgrade ? "linear-gradient(to right, #f59e0b, #fbbf24)" : "#374151", color: selectedLandForUpgrade ? "#000" : "#9ca3af", cursor: selectedLandForUpgrade ? "pointer" : "not-allowed" }}>{actionLoading ? "Processing…" : "Continue"}</button>
+              <button type="button" onClick={() => { setUpgradeModalOpen(false); setSelectedLandForUpgrade(null); setMintStatus(""); }} style={{ flex: 1, padding: 12, borderRadius: 999, border: "1px solid #374151", background: "transparent", color: "#9ca3af", cursor: "pointer" }}>Cancel</button>
             </div>
           </div>
         </div>
