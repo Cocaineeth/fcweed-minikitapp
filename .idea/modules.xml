@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/fcweed-minikitapp.iml" filepath="$PROJECT_DIR$/.idea/fcweed-minikitapp.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/update.iml" filepath="$PROJECT_DIR$/.idea/update.iml" />
     </modules>
   </component>
 </project>
