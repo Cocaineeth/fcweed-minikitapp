@@ -1990,8 +1990,22 @@ export default function Home()
                 // Wait for approval to complete before proceeding
                 setMintStatus("Waiting for approval confirmation...");
                 console.log("[Crate] Waiting for approval tx:", approveTx.hash);
-                const approvalReceipt = await waitForTx(approveTx);
-                console.log("[Crate] Approval confirmed:", approvalReceipt?.transactionHash);
+
+                // Poll for approval receipt using readProvider
+                if (approveTx.hash) {
+                    for (let i = 0; i < 30; i++) {
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        try {
+                            const approvalReceipt = await readProvider.getTransactionReceipt(approveTx.hash);
+                            if (approvalReceipt && approvalReceipt.confirmations > 0) {
+                                console.log("[Crate] Approval confirmed:", approvalReceipt.transactionHash);
+                                break;
+                            }
+                        } catch {
+                            console.log("[Crate] Polling for approval receipt...", i);
+                        }
+                    }
+                }
 
                 // Small delay to ensure blockchain state is updated
                 await new Promise(resolve => setTimeout(resolve, 1000));
@@ -2051,28 +2065,106 @@ export default function Home()
             }
 
             setMintStatus("Waiting for crate to open...");
-            const receipt = await waitForTx(tx);
+
+            // Wait for transaction and get receipt with logs
+            // Always use readProvider to ensure we get the full receipt
+            let receipt: ethers.providers.TransactionReceipt | null = null;
+
+            if (tx.hash) {
+                console.log("[Crate] Waiting for tx:", tx.hash);
+                // Poll for receipt using readProvider to ensure we get logs
+                for (let i = 0; i < 30; i++) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    try {
+                        receipt = await readProvider.getTransactionReceipt(tx.hash);
+                        if (receipt && receipt.confirmations > 0) {
+                            console.log("[Crate] Got receipt with", receipt.logs?.length, "logs");
+                            break;
+                        }
+                    } catch (err) {
+                        console.log("[Crate] Polling for receipt...", i);
+                    }
+                }
+            }
 
             // Parse CrateOpened event from logs
             let rewardIndex = 0;
             let rewardName = "Dust";
             let amount = ethers.BigNumber.from(100);
             let nftTokenId = 0;
+            let eventFound = false;
 
-            if (receipt && receipt.logs) {
+            // Create interface specifically for parsing the event
+            const eventInterface = new ethers.utils.Interface([
+                "event CrateOpened(address indexed player, uint256 indexed rewardIndex, string rewardName, uint8 category, uint256 amount, uint256 nftTokenId, uint256 timestamp)"
+            ]);
+
+            console.log("[Crate] Receipt:", receipt);
+            console.log("[Crate] Logs count:", receipt?.logs?.length);
+
+            if (receipt && receipt.logs && receipt.logs.length > 0) {
                 for (const log of receipt.logs) {
+                    console.log("[Crate] Processing log:", log.address, log.topics?.[0]);
                     try {
-                        const parsed = vaultInterface.parseLog(log);
-                        if (parsed.name === "CrateOpened") {
-                            rewardIndex = parsed.args.rewardIndex.toNumber();
-                            rewardName = parsed.args.rewardName;
-                            amount = parsed.args.amount;
-                            nftTokenId = parsed.args.nftTokenId.toNumber();
-                            break;
+                        // Only try to parse logs from the CrateVault contract
+                        if (log.address.toLowerCase() === CRATE_VAULT_ADDRESS.toLowerCase()) {
+                            const parsed = eventInterface.parseLog(log);
+                            console.log("[Crate] Parsed event:", parsed);
+                            if (parsed.name === "CrateOpened") {
+                                rewardIndex = parsed.args.rewardIndex.toNumber();
+                                rewardName = parsed.args.rewardName;
+                                amount = parsed.args.amount;
+                                nftTokenId = parsed.args.nftTokenId.toNumber();
+                                eventFound = true;
+                                console.log("[Crate] Found CrateOpened event:", { rewardIndex, rewardName, amount: amount.toString(), nftTokenId });
+                                break;
+                            }
+                        }
+                    } catch (parseErr) {
+                        // Not our event, continue
+                        console.log("[Crate] Could not parse log:", parseErr);
+                    }
+                }
+            }
+
+            // If we didn't find the event, show an error but don't fake a reward
+            if (!eventFound) {
+                console.error("[Crate] Could not find CrateOpened event in receipt!");
+                // Try to refetch the receipt one more time
+                if (tx.hash) {
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    try {
+                        const retryReceipt = await readProvider.getTransactionReceipt(tx.hash);
+                        if (retryReceipt && retryReceipt.logs) {
+                            for (const log of retryReceipt.logs) {
+                                try {
+                                    if (log.address.toLowerCase() === CRATE_VAULT_ADDRESS.toLowerCase()) {
+                                        const parsed = eventInterface.parseLog(log);
+                                        if (parsed.name === "CrateOpened") {
+                                            rewardIndex = parsed.args.rewardIndex.toNumber();
+                                            rewardName = parsed.args.rewardName;
+                                            amount = parsed.args.amount;
+                                            nftTokenId = parsed.args.nftTokenId.toNumber();
+                                            eventFound = true;
+                                            console.log("[Crate] Found CrateOpened event on retry:", { rewardIndex, rewardName, amount: amount.toString(), nftTokenId });
+                                            break;
+                                        }
+                                    }
+                                } catch {}
+                            }
                         }
                     } catch {}
                 }
             }
+
+            if (!eventFound) {
+                setCrateError("Could not determine reward. Check your wallet for the transaction.");
+                setCrateLoading(false);
+                setMintStatus("");
+                return;
+            }
+
+            console.log("[Crate] Final reward:", { rewardIndex, rewardName, amount: amount.toString() });
 
             setCrateResultIdx(rewardIndex);
             setCrateResultData({ rewardIndex, rewardName, amount, nftTokenId });
