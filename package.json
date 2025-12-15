@@ -11,6 +11,7 @@
   "dependencies": {
     "@coinbase/onchainkit": "^1.1.2",
     "@farcaster/miniapp-sdk": "^0.2.1",
+    "@farcaster/quick-auth": "^0.0.8",
     "ethers": "^5.8.0",
     "next": "^16.0.10",
     "react": "19.2.1",
