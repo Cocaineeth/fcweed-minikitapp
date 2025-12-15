@@ -60,6 +60,33 @@ const METADATA_MODE: "local-only" | "hybrid" | "remote-all" = "hybrid";
 const CRATE_VAULT_ADDRESS = "0x63e0F8Bf2670f54b7DB51254cED9B65b2B748B0C";
 const CRATE_COST = ethers.utils.parseUnits("200000", 18); // 200,000 FCWEED
 
+const CRATE_VAULT_ABI = [
+    "function openCrate() external returns (uint256, string memory, uint256, uint256)",
+    "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent, uint256 lastOpenedAt)",
+    "function getUserDustBalance(address user) external view returns (uint256)",
+    "function getUserCratesOpened(address user) external view returns (uint256)",
+    "function getGlobalStats() external view returns (uint256 totalCratesOpened, uint256 totalFcweedBurned, uint256 totalFcweedRewarded, uint256 totalUsdcRewarded, uint256 totalDustRewarded, uint256 totalNftsRewarded, uint256 uniqueUsers)",
+    "function getVaultInventory() external view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 shopItems)",
+    "function getAllRewards() external view returns (tuple(string name, uint8 category, uint256 amount, uint16 probability, bool enabled)[])",
+    "function crateCost() external view returns (uint256)",
+    "function dustConversionEnabled() external view returns (bool)",
+    "function dustToFcweedRate() external view returns (uint256)",
+    "function dustToFcweedAmount() external view returns (uint256)",
+    "function convertDustToFcweed(uint256 dustAmount) external",
+    "event CrateOpened(address indexed player, uint256 indexed rewardIndex, string rewardName, uint8 category, uint256 amount, uint256 nftTokenId, uint256 timestamp)",
+];
+
+// Category enum matching contract
+const RewardCategory = {
+    FCWEED: 0,
+    USDC: 1,
+    DUST: 2,
+    NFT_PLANT: 3,
+    NFT_LAND: 4,
+    NFT_SUPER_LAND: 5,
+    SHOP_ITEM: 6,
+};
+
 const CRATE_REWARDS = [
   { id: 0, name: 'Dust', amount: '100', token: 'DUST', color: '#6B7280' },
   { id: 1, name: 'Dust Pile', amount: '250', token: 'DUST', color: '#9CA3AF' },
@@ -316,13 +343,19 @@ export default function Home()
     // Crate system states
     const [crateSpinning, setCrateSpinning] = useState(false);
     const [crateResultIdx, setCrateResultIdx] = useState<number | null>(null);
+    const [crateResultData, setCrateResultData] = useState<{ rewardIndex: number; rewardName: string; amount: ethers.BigNumber; nftTokenId: number } | null>(null);
     const [crateShowWin, setCrateShowWin] = useState(false);
     const [crateConfirmOpen, setCrateConfirmOpen] = useState(false);
     const [crateReelOpen, setCrateReelOpen] = useState(false);
-    const [crateUserStats, setCrateUserStats] = useState({ opened: 0, dust: 0, fcweed: 0, usdc: 0, nfts: 0 });
+    const [crateUserStats, setCrateUserStats] = useState({ opened: 0, dust: 0, fcweed: 0, usdc: 0, nfts: 0, totalSpent: 0 });
+    const [crateGlobalStats, setCrateGlobalStats] = useState({ totalOpened: 0, totalBurned: "0", uniqueUsers: 0 });
     const [fcweedBalance, setFcweedBalance] = useState("0");
+    const [fcweedBalanceRaw, setFcweedBalanceRaw] = useState(ethers.BigNumber.from(0));
     const [vaultNfts, setVaultNfts] = useState({ plants: 0, lands: 0, superLands: 0 });
     const [loadingVault, setLoadingVault] = useState(false);
+    const [crateLoading, setCrateLoading] = useState(false);
+    const [crateError, setCrateError] = useState("");
+    const [dustConversionEnabled, setDustConversionEnabled] = useState(false);
     const crateReelRef = useRef<HTMLDivElement>(null);
     const [crateReelItems, setCrateReelItems] = useState<CrateReward[]>([]);
 
@@ -1804,91 +1837,205 @@ export default function Home()
 
     // ============ CRATE SYSTEM LOGIC ============
 
-    // Load FCWEED balance and vault NFTs when connected
+    // Load FCWEED balance when connected
     useEffect(() => {
         if (!connected || !userAddress) return;
         (async () => {
             try {
                 const c = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
                 const b = await c.balanceOf(userAddress);
+                setFcweedBalanceRaw(b);
                 const f = parseFloat(ethers.utils.formatUnits(b, 18));
                 setFcweedBalance(f >= 1e6 ? (f / 1e6).toFixed(2) + "M" : f >= 1e3 ? (f / 1e3).toFixed(0) + "K" : f.toFixed(0));
             } catch {}
         })();
     }, [connected, userAddress, readProvider]);
 
-    // Load vault NFT counts
+    // Load vault inventory, user stats, and global stats
     useEffect(() => {
         if (activeTab !== "crates") return;
         setLoadingVault(true);
         (async () => {
             try {
-                const [plantBal, landBal, superLandBal] = await Promise.all([
-                    new ethers.Contract(PLANT_ADDRESS, ERC721_VIEW_ABI, readProvider).balanceOf(CRATE_VAULT_ADDRESS),
-                    new ethers.Contract(LAND_ADDRESS, ERC721_VIEW_ABI, readProvider).balanceOf(CRATE_VAULT_ADDRESS),
-                    new ethers.Contract(SUPER_LAND_ADDRESS, ERC721_VIEW_ABI, readProvider).balanceOf(CRATE_VAULT_ADDRESS),
-                ]);
+                const vaultContract = new ethers.Contract(CRATE_VAULT_ADDRESS, CRATE_VAULT_ABI, readProvider);
+
+                // Get vault inventory
+                const [plants, lands, superLands] = await vaultContract.getVaultInventory();
                 setVaultNfts({
-                    plants: plantBal.toNumber(),
-                    lands: landBal.toNumber(),
-                    superLands: superLandBal.toNumber(),
+                    plants: plants.toNumber(),
+                    lands: lands.toNumber(),
+                    superLands: superLands.toNumber(),
                 });
+
+                // Get global stats
+                const [totalOpened, totalBurned, , , , , uniqueUsers] = await vaultContract.getGlobalStats();
+                const burnedFormatted = parseFloat(ethers.utils.formatUnits(totalBurned, 18));
+                setCrateGlobalStats({
+                    totalOpened: totalOpened.toNumber(),
+                    totalBurned: burnedFormatted >= 1e6 ? (burnedFormatted / 1e6).toFixed(1) + "M" : burnedFormatted >= 1e3 ? (burnedFormatted / 1e3).toFixed(0) + "K" : burnedFormatted.toFixed(0),
+                    uniqueUsers: uniqueUsers.toNumber(),
+                });
+
+                // Get dust conversion status
+                const dustEnabled = await vaultContract.dustConversionEnabled();
+                setDustConversionEnabled(dustEnabled);
+
+                // Get user stats if connected
+                if (userAddress) {
+                    const [dustBalance, cratesOpened, fcweedWon, usdcWon, nftsWon, totalSpent] = await vaultContract.getUserStats(userAddress);
+                    setCrateUserStats({
+                        opened: cratesOpened.toNumber(),
+                        dust: dustBalance.toNumber(),
+                        fcweed: parseFloat(ethers.utils.formatUnits(fcweedWon, 18)),
+                        usdc: parseFloat(ethers.utils.formatUnits(usdcWon, 6)),
+                        nfts: nftsWon.toNumber(),
+                        totalSpent: parseFloat(ethers.utils.formatUnits(totalSpent, 18)),
+                    });
+                }
             } catch (err) {
-                console.error("Failed to load vault NFTs:", err);
+                console.error("Failed to load crate data:", err);
             } finally {
                 setLoadingVault(false);
             }
         })();
-    }, [activeTab, readProvider]);
-
-    // Crate roll function
-    const crateRoll = () => {
-        let r = Math.random() * 10000, c = 0;
-        for (let i = 0; i < CRATE_PROBS.length; i++) {
-            c += CRATE_PROBS[i];
-            if (r < c) return i;
-        }
-        return 0;
-    };
+    }, [activeTab, readProvider, userAddress]);
 
     const crateIcon = (t: string) => t === 'DUST' ? '💨' : t === 'FCWEED' ? '🌿' : t === 'USDC' ? '💵' : '🏆';
 
     const onCrateOpen = () => {
         if (!connected) { ensureWallet(); return; }
+        setCrateError("");
+
+        // Check balance
+        if (fcweedBalanceRaw.lt(CRATE_COST)) {
+            setCrateError("Insufficient FCWEED balance");
+            return;
+        }
+
         setCrateConfirmOpen(true);
     };
 
-    const onCrateConfirm = () => {
+    const onCrateConfirm = async () => {
         setCrateConfirmOpen(false);
-        const res = crateRoll();
-        setCrateResultIdx(res);
-        const s = [...CRATE_REWARDS].sort(() => Math.random() - 0.5);
-        const items: CrateReward[] = [];
-        for (let i = 0; i < 6; i++) items.push(...s);
-        items.push(CRATE_REWARDS[res]);
-        setCrateReelItems(items);
-        setCrateReelOpen(true);
-        setTimeout(() => setCrateSpinning(true), 100);
+        setCrateLoading(true);
+        setCrateError("");
+
+        try {
+            const ctx = await ensureWallet();
+            if (!ctx) {
+                setCrateLoading(false);
+                return;
+            }
+
+            // First approve FCWEED spending
+            const fcweedContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+            const allowance = await fcweedContract.allowance(ctx.userAddress, CRATE_VAULT_ADDRESS);
+
+            if (allowance.lt(CRATE_COST)) {
+                setMintStatus("Approving FCWEED...");
+                const approveTx = await sendContractTx(
+                    FCWEED_ADDRESS,
+                    erc20Interface.encodeFunctionData("approve", [CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256])
+                );
+                if (!approveTx) {
+                    setCrateError("Approval rejected");
+                    setCrateLoading(false);
+                    return;
+                }
+                await waitForTx(approveTx);
+            }
+
+            // Call openCrate on the vault contract
+            setMintStatus("Opening crate...");
+            const vaultInterface = new ethers.utils.Interface(CRATE_VAULT_ABI);
+            const tx = await sendContractTx(
+                CRATE_VAULT_ADDRESS,
+                vaultInterface.encodeFunctionData("openCrate", [])
+            );
+
+            if (!tx) {
+                setCrateError("Transaction rejected");
+                setCrateLoading(false);
+                return;
+            }
+
+            const receipt = await waitForTx(tx);
+
+            // Parse CrateOpened event from logs
+            let rewardIndex = 0;
+            let rewardName = "Dust";
+            let amount = ethers.BigNumber.from(100);
+            let nftTokenId = 0;
+
+            if (receipt && receipt.logs) {
+                for (const log of receipt.logs) {
+                    try {
+                        const parsed = vaultInterface.parseLog(log);
+                        if (parsed.name === "CrateOpened") {
+                            rewardIndex = parsed.args.rewardIndex.toNumber();
+                            rewardName = parsed.args.rewardName;
+                            amount = parsed.args.amount;
+                            nftTokenId = parsed.args.nftTokenId.toNumber();
+                            break;
+                        }
+                    } catch {}
+                }
+            }
+
+            setCrateResultIdx(rewardIndex);
+            setCrateResultData({ rewardIndex, rewardName, amount, nftTokenId });
+
+            // Build reel items with the winning item at the end
+            const s = [...CRATE_REWARDS].sort(() => Math.random() - 0.5);
+            const items: CrateReward[] = [];
+            for (let i = 0; i < 6; i++) items.push(...s);
+            items.push(CRATE_REWARDS[rewardIndex] || CRATE_REWARDS[0]);
+            setCrateReelItems(items);
+
+            setCrateReelOpen(true);
+            setTimeout(() => setCrateSpinning(true), 100);
+
+            // Refresh balance
+            const c = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+            const b = await c.balanceOf(ctx.userAddress);
+            setFcweedBalanceRaw(b);
+            const f = parseFloat(ethers.utils.formatUnits(b, 18));
+            setFcweedBalance(f >= 1e6 ? (f / 1e6).toFixed(2) + "M" : f >= 1e3 ? (f / 1e3).toFixed(0) + "K" : f.toFixed(0));
+
+        } catch (err: any) {
+            console.error("Crate open failed:", err);
+            setCrateError(err.message || "Failed to open crate");
+        } finally {
+            setCrateLoading(false);
+            setMintStatus("");
+        }
     };
 
     const onCrateSpinDone = () => {
         setCrateSpinning(false);
         setTimeout(() => setCrateShowWin(true), 300);
-        const r = CRATE_REWARDS[crateResultIdx!];
-        setCrateUserStats(p => {
-            const u = { ...p, opened: p.opened + 1 };
-            if (r.token === 'DUST') u.dust += parseInt(r.amount.replace(/,/g, ''));
-            else if (r.token === 'FCWEED') u.fcweed += parseInt(r.amount.replace(/[KM,]/g, '')) * (r.amount.includes('M') ? 1e6 : r.amount.includes('K') ? 1e3 : 1);
-            else if (r.token === 'USDC') u.usdc += parseInt(r.amount.replace('$', ''));
-            else if (r.isNFT) u.nfts += 1;
-            return u;
-        });
+
+        // Update local stats from result data
+        if (crateResultData) {
+            const r = CRATE_REWARDS[crateResultData.rewardIndex];
+            if (r) {
+                setCrateUserStats(p => {
+                    const u = { ...p, opened: p.opened + 1 };
+                    if (r.token === 'DUST') u.dust += crateResultData.amount.toNumber();
+                    else if (r.token === 'FCWEED') u.fcweed += parseFloat(ethers.utils.formatUnits(crateResultData.amount, 18));
+                    else if (r.token === 'USDC') u.usdc += parseFloat(ethers.utils.formatUnits(crateResultData.amount, 6));
+                    else if (r.isNFT) u.nfts += 1;
+                    return u;
+                });
+            }
+        }
     };
 
     const onCrateClose = () => {
         setCrateShowWin(false);
         setCrateReelOpen(false);
         setCrateResultIdx(null);
+        setCrateResultData(null);
     };
 
     // Crate reel animation
@@ -2094,6 +2241,22 @@ export default function Home()
                         <section className={styles.infoCard} style={{ padding: '14px 10px' }}>
                             <h2 style={{ fontSize: 15, margin: '0 0 10px', color: '#7cb3ff', textAlign: 'center' }}>Open Crate for Mystery Rewards</h2>
 
+                            {/* Global Stats */}
+                            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 10 }}>
+                                <div style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 9, textAlign: 'center' }}>
+                                    <div style={{ color: '#a78bfa', fontWeight: 700 }}>{crateGlobalStats.totalOpened.toLocaleString()}</div>
+                                    <div style={{ color: '#6b7280', fontSize: 7 }}>Total Opened</div>
+                                </div>
+                                <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 9, textAlign: 'center' }}>
+                                    <div style={{ color: '#f87171', fontWeight: 700 }}>{crateGlobalStats.totalBurned}</div>
+                                    <div style={{ color: '#6b7280', fontSize: 7 }}>$FCWEED Burned</div>
+                                </div>
+                                <div style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 9, textAlign: 'center' }}>
+                                    <div style={{ color: '#60a5fa', fontWeight: 700 }}>{crateGlobalStats.uniqueUsers}</div>
+                                    <div style={{ color: '#6b7280', fontSize: 7 }}>Players</div>
+                                </div>
+                            </div>
+
                             {connected && (
                                 <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
                                     <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 10 }}>
@@ -2138,13 +2301,37 @@ export default function Home()
 
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                                 <div className="c-float" style={{ width: 100, height: 100, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 56 }}>📦</div>
-                                <button type="button" onClick={onCrateOpen} className={`${styles.btnPrimary} c-glow`} style={{ width: '100%', maxWidth: 260, padding: '12px 20px', fontSize: 13, fontWeight: 700, background: 'linear-gradient(135deg, #059669, #10b981)', borderRadius: 10 }}>🎰 OPEN CRATE</button>
+                                <button
+                                    type="button"
+                                    onClick={onCrateOpen}
+                                    disabled={crateLoading}
+                                    className={`${styles.btnPrimary} c-glow`}
+                                    style={{
+                                        width: '100%',
+                                        maxWidth: 260,
+                                        padding: '12px 20px',
+                                        fontSize: 13,
+                                        fontWeight: 700,
+                                        background: crateLoading ? '#374151' : 'linear-gradient(135deg, #059669, #10b981)',
+                                        borderRadius: 10,
+                                        opacity: crateLoading ? 0.7 : 1,
+                                    }}
+                                >
+                                    {crateLoading ? '⏳ Processing...' : '🎰 OPEN CRATE'}
+                                </button>
                                 <div style={{ marginTop: 6, fontSize: 10, color: '#9ca3af' }}>Cost: <span style={{ color: '#fbbf24', fontWeight: 600 }}>200,000 $FCWEED</span></div>
+                                {crateError && <div style={{ marginTop: 6, fontSize: 10, color: '#f87171' }}>{crateError}</div>}
                             </div>
 
-                            {crateUserStats.dust >= 1000 && (
+                            {crateUserStats.dust >= 1000 && dustConversionEnabled && (
                                 <div style={{ marginTop: 10, padding: 8, background: 'rgba(16,185,129,0.1)', borderRadius: 6, border: '1px solid rgba(16,185,129,0.2)', textAlign: 'center', fontSize: 9 }}>
                                     <span style={{ color: '#34d399' }}>💨 {crateUserStats.dust.toLocaleString()} Dust = <b>{(Math.floor(crateUserStats.dust / 1000) * 60000).toLocaleString()}</b> $FCWEED</span>
+                                </div>
+                            )}
+
+                            {crateUserStats.dust > 0 && !dustConversionEnabled && (
+                                <div style={{ marginTop: 10, padding: 8, background: 'rgba(107,114,128,0.1)', borderRadius: 6, border: '1px solid rgba(107,114,128,0.2)', textAlign: 'center', fontSize: 9 }}>
+                                    <span style={{ color: '#9ca3af' }}>💨 {crateUserStats.dust.toLocaleString()} Dust collected (conversion coming soon)</span>
                                 </div>
                             )}
                         </section>
