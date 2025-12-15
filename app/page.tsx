@@ -56,9 +56,8 @@ import {
 
 const METADATA_MODE: "local-only" | "hybrid" | "remote-all" = "hybrid";
 
-// Crate system constants
 const CRATE_VAULT_ADDRESS = "0x63e0F8Bf2670f54b7DB51254cED9B65b2B748B0C";
-const CRATE_COST = ethers.utils.parseUnits("200000", 18); // 200,000 FCWEED
+const CRATE_COST = ethers.utils.parseUnits("200000", 18);
 
 const CRATE_VAULT_ABI = [
     "function openCrate() external",
@@ -76,7 +75,6 @@ const CRATE_VAULT_ABI = [
     "event CrateOpened(address indexed player, uint256 indexed rewardIndex, string rewardName, uint8 category, uint256 amount, uint256 nftTokenId, uint256 timestamp)",
 ];
 
-// Category enum matching contract
 const RewardCategory = {
     FCWEED: 0,
     USDC: 1,
@@ -129,7 +127,7 @@ type NewStakingStats = {
     superLandsStaked: number;
     totalSlots: number;
     capacityUsed: number;
-    totalBoostPct: number; // NOTE: you store 100.0-based here (see below)
+    totalBoostPct: number;
     pendingFormatted: string;
     pendingRaw: ethers.BigNumber;
     dailyRewards: string;
@@ -168,14 +166,13 @@ function isSuper(nftAddress: string, id: number): boolean
     return false;
 }
 
-// Detect if running inside Farcaster mobile app
 function detectMiniAppEnvironment(): { isMiniApp: boolean; isMobile: boolean } {
     if (typeof window === "undefined") return { isMiniApp: false, isMobile: false };
 
     const userAgent = navigator.userAgent || "";
     const isMobile = /iPhone|iPad|iPod|Android/i.test(userAgent);
 
-    // Multiple detection methods for Farcaster mini app
+
     const inIframe = window.parent !== window;
     const hasFarcasterContext = !!(window as any).farcaster || !!(window as any).__FARCASTER__;
     const hasWarpcastUA = userAgent.toLowerCase().includes("warpcast");
@@ -184,7 +181,7 @@ function detectMiniAppEnvironment(): { isMiniApp: boolean; isMobile: boolean } {
                         document.referrer.includes("warpcast") ||
                         document.referrer.includes("farcaster");
 
-    // Check if SDK is available and has wallet
+
     let sdkAvailable = false;
     try {
         sdkAvailable = !!(sdk && sdk.wallet);
@@ -215,8 +212,8 @@ async function waitForTx(
 {
     if (!tx) return;
 
-    // For mini app transactions, we may not be able to call wait()
-    // Instead, poll the chain for confirmation
+
+
     if (readProvider && tx.hash) {
         const startTime = Date.now();
         while (Date.now() - startTime < maxWaitMs) {
@@ -226,7 +223,7 @@ async function waitForTx(
                     return receipt;
                 }
             } catch {
-                // Ignore and retry
+
             }
             await new Promise(resolve => setTimeout(resolve, 2000));
         }
@@ -234,7 +231,7 @@ async function waitForTx(
         return;
     }
 
-    // Fallback to standard wait
+
     try {
         await tx.wait();
     } catch (e: any) {
@@ -341,7 +338,7 @@ export default function Home()
     const [realTimePending, setRealTimePending] = useState<string>("0.00");
     const [oldRealTimePending, setOldRealTimePending] = useState<string>("0.00");
 
-    // Crate system states
+
     const [crateSpinning, setCrateSpinning] = useState(false);
     const [crateResultIdx, setCrateResultIdx] = useState<number | null>(null);
     const [crateResultData, setCrateResultData] = useState<{ rewardIndex: number; rewardName: string; amount: ethers.BigNumber; nftTokenId: number } | null>(null);
@@ -364,7 +361,7 @@ export default function Home()
     const lastCrateOpenBlock = useRef(0);
     const processedCrateTxHashes = useRef<Set<string>>(new Set());
 
-    // const ladder = useLeaderboard({ readProvider, userAddress, usingMiniApp, topN: 10, });
+
 
     const currentTrackMeta = PLAYLIST[currentTrack];
 
@@ -406,10 +403,10 @@ export default function Home()
     const handlePlayPause = () => {
         setIsPlaying((prev) => {
             if (prev) {
-                // User is pausing - set manual pause
+
                 setManualPause(true);
             } else {
-                // User is playing - clear manual pause
+
                 setManualPause(false);
             }
             return !prev;
@@ -425,18 +422,18 @@ export default function Home()
             setMiniAppReady();
         }
 
-        // Initialize Farcaster SDK and auto-connect if in mini app
+
         (async () => {
             try {
                 console.log("[Init] Initializing Farcaster SDK...");
                 await sdk.actions.ready();
                 console.log("[Init] SDK ready");
 
-                // Auto-connect wallet if in Farcaster mini app
+
                 const { isMiniApp } = detectMiniAppEnvironment();
                 if (isMiniApp && !userAddress) {
                     console.log("[Init] Auto-connecting wallet in mini app...");
-                    // Small delay to ensure SDK is fully initialized
+
                     setTimeout(() => {
                         ensureWallet().catch(err => {
                             console.warn("[Init] Auto-connect failed:", err);
@@ -471,12 +468,12 @@ export default function Home()
 
             console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, userAgent: navigator.userAgent });
 
-            // Try Farcaster MiniApp SDK first (works for both mobile and desktop frames)
+
             if (detectedMiniApp || isMobile) {
                 try {
                     console.log("[Wallet] Attempting Farcaster SDK wallet connection...");
 
-                    // Make sure SDK is ready
+
                     try {
                         await sdk.actions.ready();
                         console.log("[Wallet] SDK ready confirmed");
@@ -484,15 +481,15 @@ export default function Home()
                         console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
                     }
 
-                    // Try multiple methods to get the ethereum provider
+
                     try {
-                        // Method 1: Direct wallet.getEthereumProvider()
+
                         ethProv = await sdk.wallet.getEthereumProvider();
                         console.log("[Wallet] Got provider via getEthereumProvider()");
                     } catch (err1) {
                         console.warn("[Wallet] getEthereumProvider failed:", err1);
 
-                        // Method 2: Check if ethProvider is directly available
+
                         if ((sdk.wallet as any).ethProvider) {
                             ethProv = (sdk.wallet as any).ethProvider;
                             console.log("[Wallet] Got provider via ethProvider property");
@@ -509,23 +506,23 @@ export default function Home()
                 }
             }
 
-            // If we got a Farcaster provider, use it
+
             if (ethProv) {
                 setUsingMiniApp(true);
                 setMiniAppEthProvider(ethProv);
 
-                // Request accounts via the provider - this triggers the wallet connect prompt
+
                 try {
                     console.log("[Wallet] Requesting accounts from Farcaster provider...");
                     const accounts = await ethProv.request({ method: "eth_requestAccounts" });
                     console.log("[Wallet] Got accounts:", accounts);
                 } catch (err: any) {
                     console.warn("[Wallet] eth_requestAccounts failed:", err);
-                    // If user rejected, throw to show error
+
                     if (err?.code === 4001) {
                         throw new Error("Wallet connection rejected. Please approve the connection request.");
                     }
-                    // Otherwise continue - we might still be able to get the address
+
                 }
 
                 p = new ethers.providers.Web3Provider(ethProv as any, "any");
@@ -537,7 +534,7 @@ export default function Home()
                 } catch (err) {
                     console.error("[Wallet] Failed to get address from Farcaster provider:", err);
 
-                    // Try getting accounts directly from provider
+
                     try {
                         const accounts = await ethProv.request({ method: "eth_accounts" });
                         if (accounts && accounts.length > 0) {
@@ -553,11 +550,11 @@ export default function Home()
 
                 console.log("[Wallet] Connected via Farcaster:", addr);
             } else {
-                // Fallback to browser wallet (MetaMask, etc.)
+
                 setUsingMiniApp(false);
                 const anyWindow = window as any;
 
-                // Check for various wallet providers
+
                 const browserProvider = anyWindow.ethereum || anyWindow.web3?.currentProvider;
 
                 if (!browserProvider) {
@@ -590,7 +587,7 @@ export default function Home()
                 console.log("[Wallet] Connected via browser wallet:", addr);
             }
 
-            // Check and switch to Base chain
+
             let currentChainId: number;
             try {
                 const net = await p.getNetwork();
@@ -610,14 +607,14 @@ export default function Home()
                             method: "wallet_switchEthereumChain",
                             params: [{ chainId: "0x2105" }],
                         });
-                        // Re-create provider after chain switch
+
                         p = new ethers.providers.Web3Provider(switchProvider as any, "any");
                         s = p.getSigner();
                         console.log("[Wallet] Switched to Base");
                     } catch (switchErr: any) {
                         console.warn("[Wallet] Chain switch failed:", switchErr);
 
-                        // Try to add the chain if it doesn't exist (error 4902)
+
                         if (switchErr.code === 4902 && !isMini) {
                             try {
                                 await switchProvider.request({
@@ -661,7 +658,7 @@ export default function Home()
         from: string,
         to: string,
         data: string,
-        gasLimit: string = "0x7A120" // 500,000 gas default
+        gasLimit: string = "0x7A120"
     ): Promise<ethers.providers.TransactionResponse> {
         if (!miniAppEthProvider) {
             throw new Error("Mini app provider not available");
@@ -683,7 +680,7 @@ export default function Home()
         let txHash: string | null = null;
 
         try {
-            // Try wallet_sendCalls first (EIP-5792)
+
             result = await req({
                 method: "wallet_sendCalls",
                 params: [
@@ -705,7 +702,7 @@ export default function Home()
 
             console.log("[TX] wallet_sendCalls result:", result);
 
-            // Extract hash from various response formats
+
             txHash =
                 result?.txHashes?.[0] ||
                 result?.txHash ||
@@ -716,7 +713,7 @@ export default function Home()
         } catch (sendCallsError: any) {
             console.warn("[TX] wallet_sendCalls failed, trying eth_sendTransaction:", sendCallsError);
 
-            // Fallback to eth_sendTransaction
+
             try {
                 result = await req({
                     method: "eth_sendTransaction",
@@ -732,7 +729,7 @@ export default function Home()
 
                 console.log("[TX] eth_sendTransaction result:", result);
 
-                // eth_sendTransaction returns the hash directly
+
                 if (typeof result === "string" && result.startsWith("0x")) {
                     txHash = result;
                 } else {
@@ -746,23 +743,23 @@ export default function Home()
 
         console.log("[TX] Extracted txHash:", txHash);
 
-        // If we still don't have a valid hash, return a marker that indicates
-        // we need to search for the transaction by events
+
+
         if (!txHash || typeof txHash !== "string" || !txHash.startsWith("0x") || txHash.length < 66) {
             console.warn("[TX] No valid tx hash, will search by events. Result was:", result);
             return {
-                hash: "0x" + "0".repeat(64), // Marker for "search by events"
+                hash: "0x" + "0".repeat(64),
                 wait: async () => null,
             } as any;
         }
 
         console.log("[TX] Transaction hash:", txHash);
 
-        // Return a transaction-like object that can be awaited
+
         const fakeTx: any = {
             hash: txHash,
             wait: async () => {
-                // Poll for receipt using readProvider
+
                 for (let i = 0; i < 45; i++) {
                     await new Promise(resolve => setTimeout(resolve, 2000));
                     try {
@@ -772,7 +769,7 @@ export default function Home()
                             return receipt;
                         }
                     } catch {
-                        // Continue polling
+
                     }
                 }
                 console.warn("[TX] Wait timeout, proceeding:", txHash);
@@ -806,7 +803,7 @@ export default function Home()
         } catch (err: any) {
             console.error("[TX] sendContractTx failed:", err);
 
-            // Provide helpful error messages
+
             const errMsg = err?.message || err?.reason || String(err);
             if (errMsg.includes("rejected") || errMsg.includes("denied") || err?.code === 4001) {
                 setMintStatus("Transaction rejected. Please approve in your wallet.");
@@ -893,7 +890,7 @@ export default function Home()
                             return false;
                         }
                     } catch {
-                        //
+
                         if (i === 19) {
                             setMintStatus("Could not confirm USDC approval, please try again.");
                             return false;
@@ -1050,7 +1047,7 @@ export default function Home()
                             img = meta.image ? toHttpFromMaybeIpfs(meta.image) : undefined;
                         }
                     } catch {
-                        //
+
                     }
 
                     if (!img) {
@@ -1090,7 +1087,7 @@ export default function Home()
 
         try {
             console.log("[NFT] Fetching owned tokens from API...");
-            const state = await loadOwnedTokens(addr); // backend
+            const state = await loadOwnedTokens(addr);
             console.log("[NFT] Got owned state:", {
                 plants: state.plants?.length || 0,
                 lands: state.lands?.length || 0,
@@ -1101,7 +1098,7 @@ export default function Home()
             return state;
         } catch (err) {
             console.error("[NFT] Failed to load owned tokens:", err);
-            // Return empty state on error instead of throwing
+
             return {
                 wallet: addr,
                 plants: [],
@@ -1139,7 +1136,7 @@ export default function Home()
 
             console.log("[OldStaking] Loading data for address:", addr);
 
-            // Query staked NFTs directly from the OLD staking contract
+
             const oldStakingContract = new ethers.Contract(OLD_STAKING_ADDRESS, STAKING_ABI, readProvider);
 
             let stakedPlantNums: number[] = [];
@@ -1157,7 +1154,7 @@ export default function Home()
                 console.error("[OldStaking] Failed to query staked NFTs from contract:", err);
             }
 
-            // Get available (unstaked) NFTs - try API first, then fallback to chain
+
             let availPlants: number[] = [];
             let availLands: number[] = [];
             let availSuperLands: number[] = [];
@@ -1168,7 +1165,7 @@ export default function Home()
                 const lands = ownedState?.lands || [];
                 const superLands = ownedState?.superLands || [];
 
-                // These are NFTs in the wallet (not staked)
+
                 availPlants = plants.map((t: any) => Number(t.tokenId));
                 availLands = lands.map((t: any) => Number(t.tokenId));
                 availSuperLands = superLands.map((t: any) => Number(t.tokenId));
@@ -1178,7 +1175,7 @@ export default function Home()
                 console.error("[OldStaking] Failed to load owned tokens from API:", err);
             }
 
-            // If API returned empty, try querying blockchain directly
+
             if (availPlants.length === 0 && availLands.length === 0 && availSuperLands.length === 0) {
                 console.log("[OldStaking] API returned empty, trying blockchain query...");
                 const chainNFTs = await queryAvailableNFTsFromChain(addr);
@@ -1195,7 +1192,7 @@ export default function Home()
                 availSuperLands: availSuperLands.length
             });
 
-            // ---- multicall old staking
+
             const iface = new ethers.utils.Interface(STAKING_ABI);
 
             const calls =
@@ -1226,11 +1223,11 @@ export default function Home()
             setOldStakedPlants(stakedPlantNums);
             setOldStakedLands(stakedLandNums);
 
-            // Set old available NFTs for old staking modal
+
             setOldAvailablePlants(availPlants);
             setOldAvailableLands(availLands);
 
-            // Also set shared available state
+
             setAvailablePlants(availPlants);
             setAvailableLands(availLands);
             setAvailableSuperLands(availSuperLands);
@@ -1272,7 +1269,7 @@ export default function Home()
 
     const refreshNewStakingRef = useRef(false);
 
-    // Query NFTs directly from blockchain (fallback if API fails)
+
     async function queryAvailableNFTsFromChain(addr: string): Promise<{
         plants: number[];
         lands: number[];
@@ -1289,7 +1286,7 @@ export default function Home()
         const superLands: number[] = [];
 
         try {
-            // Get balances
+
             const [plantBal, landBal, superLandBal] = await Promise.all([
                 plantContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
                 landContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
@@ -1302,10 +1299,10 @@ export default function Home()
                 superLands: superLandBal.toNumber()
             });
 
-            // For each NFT type, try to get token IDs using tokenOfOwnerByIndex if available
-            // Otherwise we'll need to scan Transfer events or use a different method
 
-            // Try ERC721Enumerable tokenOfOwnerByIndex
+
+
+
             const erc721EnumAbi = [
                 "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)"
             ];
@@ -1314,7 +1311,7 @@ export default function Home()
             const landEnum = new ethers.Contract(LAND_ADDRESS, erc721EnumAbi, readProvider);
             const superLandEnum = new ethers.Contract(SUPER_LAND_ADDRESS, erc721EnumAbi, readProvider);
 
-            // Query plant token IDs
+
             const plantPromises = [];
             for (let i = 0; i < Math.min(plantBal.toNumber(), 100); i++) {
                 plantPromises.push(
@@ -1326,7 +1323,7 @@ export default function Home()
             const plantResults = await Promise.all(plantPromises);
             plants.push(...plantResults.filter((id): id is number => id !== null));
 
-            // Query land token IDs
+
             const landPromises = [];
             for (let i = 0; i < Math.min(landBal.toNumber(), 100); i++) {
                 landPromises.push(
@@ -1338,7 +1335,7 @@ export default function Home()
             const landResults = await Promise.all(landPromises);
             lands.push(...landResults.filter((id): id is number => id !== null));
 
-            // Query super land token IDs
+
             const superLandPromises = [];
             for (let i = 0; i < Math.min(superLandBal.toNumber(), 100); i++) {
                 superLandPromises.push(
@@ -1382,7 +1379,7 @@ export default function Home()
 
             console.log("[NewStaking] Loading data for address:", addr);
 
-            // Query staked NFTs directly from the NEW staking contract
+
             const newStakingContract = new ethers.Contract(NEW_STAKING_ADDRESS, STAKING_ABI, readProvider);
 
             let stakedPlantNums: number[] = [];
@@ -1407,7 +1404,7 @@ export default function Home()
                 console.error("[NewStaking] Failed to query staked NFTs from contract:", err);
             }
 
-            // Get available (unstaked) NFTs - try API first, then fallback to chain
+
             let availPlants: number[] = [];
             let availLands: number[] = [];
             let availSuperLands: number[] = [];
@@ -1418,7 +1415,7 @@ export default function Home()
                 const lands = ownedState?.lands || [];
                 const superLands = ownedState?.superLands || [];
 
-                // These are NFTs in the wallet (not staked)
+
                 availPlants = plants.map((t: any) => Number(t.tokenId));
                 availLands = lands.map((t: any) => Number(t.tokenId));
                 availSuperLands = superLands.map((t: any) => Number(t.tokenId));
@@ -1432,7 +1429,7 @@ export default function Home()
                 console.error("[NewStaking] Failed to load owned tokens from API:", err);
             }
 
-            // If API returned empty, try querying blockchain directly
+
             if (availPlants.length === 0 && availLands.length === 0 && availSuperLands.length === 0) {
                 console.log("[NewStaking] API returned empty, trying blockchain query...");
                 const chainNFTs = await queryAvailableNFTsFromChain(addr);
@@ -1450,7 +1447,7 @@ export default function Home()
                 availSuperLands: availSuperLands.length
             });
 
-            // ---- multicall new staking
+
             const iface = new ethers.utils.Interface(STAKING_ABI);
 
             const calls =
@@ -1547,7 +1544,7 @@ export default function Home()
 
     useEffect(() => {
         if (oldStakingOpen) {
-            // Clear cache when address changes to force fresh data
+
             ownedCacheRef.current = { addr: null, state: null };
             refreshOldStakingRef.current = false;
             refreshOldStaking();
@@ -1556,14 +1553,14 @@ export default function Home()
 
     useEffect(() => {
         if (newStakingOpen) {
-            // Clear cache when address changes to force fresh data
+
             ownedCacheRef.current = { addr: null, state: null };
             refreshNewStakingRef.current = false;
             refreshNewStaking();
         }
     }, [newStakingOpen, userAddress]);
 
-    // Real-time pending rewards update for NEW staking
+
     useEffect(() => {
         if (!newStakingOpen || !newStakingStats) return;
 
@@ -1573,9 +1570,9 @@ export default function Home()
         console.log("[Pending] Starting real-time update, tokensPerSecond:", tokensPerSecond.toString());
 
         let currentPending = pendingRaw;
-        const boostMultiplier = totalBoostPct / 100; // e.g., 112% -> 1.12
+        const boostMultiplier = totalBoostPct / 100;
 
-        // Calculate tokens per second with boost
+
         const effectiveTokensPerSecond = tokensPerSecond.mul(plantsStaked).mul(Math.floor(boostMultiplier * 100)).div(100);
 
         const interval = setInterval(() => {
@@ -1594,7 +1591,7 @@ export default function Home()
             setRealTimePending(display);
         }, 1000);
 
-        // Set initial value
+
         const initialFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
         let initialDisplay: string;
         if (initialFormatted >= 1_000_000) {
@@ -1609,7 +1606,7 @@ export default function Home()
         return () => clearInterval(interval);
     }, [newStakingOpen, newStakingStats]);
 
-    // Real-time pending rewards update for OLD staking
+
     useEffect(() => {
         if (!oldStakingOpen || !oldStakingStats) return;
 
@@ -1619,9 +1616,9 @@ export default function Home()
         console.log("[OldPending] Starting real-time update");
 
         let currentPending = pendingRaw;
-        const boostMultiplier = 1 + (landBoostPct / 100); // e.g., 12% -> 1.12
+        const boostMultiplier = 1 + (landBoostPct / 100);
 
-        // Calculate tokens per second with boost
+
         const effectiveTokensPerSecond = tokensPerSecond.mul(plantsStaked).mul(Math.floor(boostMultiplier * 100)).div(100);
 
         const interval = setInterval(() => {
@@ -1640,7 +1637,7 @@ export default function Home()
             setOldRealTimePending(display);
         }, 1000);
 
-        // Set initial value
+
         const initialFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
         let initialDisplay: string;
         if (initialFormatted >= 1_000_000) {
@@ -1676,10 +1673,10 @@ export default function Home()
             setLoadingUpgrade(true);
 
             try {
-                // Reuse cached backend state
+
                 const owned = await getOwnedState(ctx.userAddress);
 
-                // Only UNSTAKED Land can be burned
+
                 const lands = owned.lands
                                    .filter((t: any) => !t.staked)
                                    .map((t: any) => Number(t.tokenId));
@@ -1710,13 +1707,13 @@ export default function Home()
             const stakingLands = [...selectedOldAvailLands];
             if (stakingPlants.length > 0) { await ensureCollectionApproval(PLANT_ADDRESS, OLD_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, stakingInterface.encodeFunctionData("stakePlants", [stakingPlants.map((id) => ethers.BigNumber.from(id))]))); }
             if (stakingLands.length > 0 && oldLandStakingEnabled) { await ensureCollectionApproval(LAND_ADDRESS, OLD_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, stakingInterface.encodeFunctionData("stakeLands", [stakingLands.map((id) => ethers.BigNumber.from(id))]))); }
-            // Optimistic UI update
+
             setOldAvailablePlants(prev => prev.filter(id => !stakingPlants.includes(id)));
             setOldAvailableLands(prev => prev.filter(id => !stakingLands.includes(id)));
             setOldStakedPlants(prev => [...prev, ...stakingPlants]);
             setOldStakedLands(prev => [...prev, ...stakingLands]);
             setSelectedOldAvailPlants([]); setSelectedOldAvailLands([]);
-            // Background refresh for accurate data
+
             setTimeout(() => { refreshOldStakingRef.current = false; refreshOldStaking(); }, 2000);
             ownedCacheRef.current = { addr: null, state: null };
         } catch (err) { console.error(err); refreshOldStakingRef.current = false; refreshOldStaking(); } finally { setActionLoading(false); }
@@ -1731,13 +1728,13 @@ export default function Home()
             const unstakingLands = [...selectedOldStakedLands];
             if (unstakingPlants.length > 0) await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, stakingInterface.encodeFunctionData("unstakePlants", [unstakingPlants.map((id) => ethers.BigNumber.from(id))])));
             if (unstakingLands.length > 0) await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, stakingInterface.encodeFunctionData("unstakeLands", [unstakingLands.map((id) => ethers.BigNumber.from(id))])));
-            // Optimistic UI update
+
             setOldStakedPlants(prev => prev.filter(id => !unstakingPlants.includes(id)));
             setOldStakedLands(prev => prev.filter(id => !unstakingLands.includes(id)));
             setOldAvailablePlants(prev => [...prev, ...unstakingPlants]);
             setOldAvailableLands(prev => [...prev, ...unstakingLands]);
             setSelectedOldStakedPlants([]); setSelectedOldStakedLands([]);
-            // Background refresh for accurate data
+
             setTimeout(() => { refreshOldStakingRef.current = false; refreshOldStaking(); }, 2000);
             ownedCacheRef.current = { addr: null, state: null };
         } catch (err) { console.error(err); refreshOldStakingRef.current = false; refreshOldStaking(); } finally { setActionLoading(false); }
@@ -1751,10 +1748,10 @@ export default function Home()
                 OLD_STAKING_ADDRESS,
                 stakingInterface.encodeFunctionData("claim", [])
             ));
-            // Immediately reset pending to 0
+
             setOldRealTimePending("0.00");
             setOldStakingStats(prev => prev ? { ...prev, pendingRaw: ethers.BigNumber.from(0), pendingFormatted: "0" } : null);
-            // Background refresh
+
             setTimeout(() => { refreshOldStakingRef.current = false; refreshOldStaking(); }, 2000);
             ownedCacheRef.current = { addr: null, state: null };
         } catch (err) { console.error(err); } finally { setActionLoading(false); }
@@ -1771,7 +1768,7 @@ export default function Home()
             if (stakingPlants.length > 0) { await ensureCollectionApproval(PLANT_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("stakePlants", [stakingPlants.map((id) => ethers.BigNumber.from(id))]))); }
             if (stakingLands.length > 0 && newLandStakingEnabled) { await ensureCollectionApproval(LAND_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("stakeLands", [stakingLands.map((id) => ethers.BigNumber.from(id))]))); }
             if (stakingSuperLands.length > 0 && newSuperLandStakingEnabled) { await ensureCollectionApproval(SUPER_LAND_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("stakeSuperLands", [stakingSuperLands.map((id) => ethers.BigNumber.from(id))]))); }
-            // Optimistic UI update
+
             setNewAvailablePlants(prev => prev.filter(id => !stakingPlants.includes(id)));
             setNewAvailableLands(prev => prev.filter(id => !stakingLands.includes(id)));
             setNewAvailableSuperLands(prev => prev.filter(id => !stakingSuperLands.includes(id)));
@@ -1779,7 +1776,7 @@ export default function Home()
             setNewStakedLands(prev => [...prev, ...stakingLands]);
             setNewStakedSuperLands(prev => [...prev, ...stakingSuperLands]);
             setSelectedNewAvailPlants([]); setSelectedNewAvailLands([]); setSelectedNewAvailSuperLands([]);
-            // Background refresh
+
             setTimeout(() => { refreshNewStakingRef.current = false; refreshNewStaking(); }, 2000);
             ownedCacheRef.current = { addr: null, state: null };
         } catch (err) { console.error(err); refreshNewStakingRef.current = false; refreshNewStaking(); } finally { setActionLoading(false); }
@@ -1796,7 +1793,7 @@ export default function Home()
             if (unstakingPlants.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("unstakePlants", [unstakingPlants.map((id) => ethers.BigNumber.from(id))])));
             if (unstakingLands.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("unstakeLands", [unstakingLands.map((id) => ethers.BigNumber.from(id))])));
             if (unstakingSuperLands.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("unstakeSuperLands", [unstakingSuperLands.map((id) => ethers.BigNumber.from(id))])));
-            // Optimistic UI update
+
             setNewStakedPlants(prev => prev.filter(id => !unstakingPlants.includes(id)));
             setNewStakedLands(prev => prev.filter(id => !unstakingLands.includes(id)));
             setNewStakedSuperLands(prev => prev.filter(id => !unstakingSuperLands.includes(id)));
@@ -1804,7 +1801,7 @@ export default function Home()
             setNewAvailableLands(prev => [...prev, ...unstakingLands]);
             setNewAvailableSuperLands(prev => [...prev, ...unstakingSuperLands]);
             setSelectedNewStakedPlants([]); setSelectedNewStakedLands([]); setSelectedNewStakedSuperLands([]);
-            // Background refresh
+
             setTimeout(() => { refreshNewStakingRef.current = false; refreshNewStaking(); }, 2000);
             ownedCacheRef.current = { addr: null, state: null };
         } catch (err) { console.error(err); refreshNewStakingRef.current = false; refreshNewStaking(); } finally { setActionLoading(false); }
@@ -1815,10 +1812,10 @@ export default function Home()
         try {
             setActionLoading(true);
             await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("claim", [])));
-            // Immediately reset pending to 0
+
             setRealTimePending("0.00");
             setNewStakingStats(prev => prev ? { ...prev, pendingRaw: ethers.BigNumber.from(0), pendingFormatted: "0" } : null);
-            // Background refresh
+
             setTimeout(() => { refreshNewStakingRef.current = false; refreshNewStaking(); }, 2000);
             ownedCacheRef.current = { addr: null, state: null };
         } catch (err) { console.error(err); } finally { setActionLoading(false); }
@@ -1826,7 +1823,7 @@ export default function Home()
 
     const connected = !!userAddress;
 
-    // Mobile-friendly wallet connection handler
+
     const handleConnectWallet = async (e: React.MouseEvent | React.TouchEvent) => {
         e.preventDefault();
         e.stopPropagation();
@@ -1848,9 +1845,9 @@ export default function Home()
     const newTotalAvailable = newAvailablePlants.length + newAvailableLands.length + newAvailableSuperLands.length;
     const newTotalStaked = newStakedPlants.length + newStakedLands.length + newStakedSuperLands.length;
 
-    // ============ CRATE SYSTEM LOGIC ============
 
-    // Load FCWEED balance when connected
+
+
     useEffect(() => {
         if (!connected || !userAddress) return;
         (async () => {
@@ -1864,7 +1861,7 @@ export default function Home()
         })();
     }, [connected, userAddress, readProvider]);
 
-    // Load vault inventory, user stats, and global stats
+
     useEffect(() => {
         if (activeTab !== "crates") return;
         setLoadingVault(true);
@@ -1872,7 +1869,7 @@ export default function Home()
             try {
                 const vaultContract = new ethers.Contract(CRATE_VAULT_ADDRESS, CRATE_VAULT_ABI, readProvider);
 
-                // Get vault inventory
+
                 const [plants, lands, superLands] = await vaultContract.getVaultInventory();
                 setVaultNfts({
                     plants: plants.toNumber(),
@@ -1880,7 +1877,7 @@ export default function Home()
                     superLands: superLands.toNumber(),
                 });
 
-                // Get global stats
+
                 const [totalOpened, totalBurned, , , , , uniqueUsers] = await vaultContract.getGlobalStats();
                 const burnedFormatted = parseFloat(ethers.utils.formatUnits(totalBurned, 18));
                 setCrateGlobalStats({
@@ -1889,11 +1886,11 @@ export default function Home()
                     uniqueUsers: uniqueUsers.toNumber(),
                 });
 
-                // Get dust conversion status
+
                 const dustEnabled = await vaultContract.dustConversionEnabled();
                 setDustConversionEnabled(dustEnabled);
 
-                // Get user stats if connected
+
                 if (userAddress) {
                     const [dustBalance, cratesOpened, fcweedWon, usdcWon, nftsWon, totalSpent] = await vaultContract.getUserStats(userAddress);
                     setCrateUserStats({
@@ -1922,7 +1919,7 @@ export default function Home()
         }
         setCrateError("");
 
-        // Check balance
+
         if (fcweedBalanceRaw.lt(CRATE_COST)) {
             setCrateError("Insufficient FCWEED balance");
             return;
@@ -1932,7 +1929,7 @@ export default function Home()
     };
 
     const onCrateConfirm = async () => {
-        // Prevent multiple simultaneous transactions
+
         if (crateTransactionInProgress.current) {
             console.log("[Crate] Transaction already in progress, ignoring");
             return;
@@ -1949,7 +1946,7 @@ export default function Home()
         setCrateShowWin(false);
         setCrateSpinning(false);
 
-        // Set a timeout to prevent infinite stuck state
+
         const timeoutId = setTimeout(() => {
             console.error("[Crate] Operation timed out after 120 seconds");
             setCrateLoading(false);
@@ -1972,7 +1969,7 @@ export default function Home()
 
             const vaultInterface = new ethers.utils.Interface(CRATE_VAULT_ABI);
 
-            // Determine if we're using Farcaster wallet
+
             const isFarcasterWallet = ctx.isMini || usingMiniApp;
             const farcasterProvider = miniAppEthProvider;
 
@@ -1983,10 +1980,10 @@ export default function Home()
                 userAddress: ctx.userAddress
             });
 
-            // Pre-flight checks
+
             setCrateStatus("Checking ETH for gas...");
 
-            // 1. Verify ETH balance for gas
+
             const currentBalance = await readProvider.getBalance(ctx.userAddress);
             console.log("[Crate] ETH balance:", ethers.utils.formatEther(currentBalance));
 
@@ -1999,7 +1996,7 @@ export default function Home()
                 return;
             }
 
-            // 2. Verify FCWEED token balance
+
             setCrateStatus("Checking FCWEED balance...");
             const fcweedContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             const tokenBalance = await fcweedContract.balanceOf(ctx.userAddress);
@@ -2014,7 +2011,7 @@ export default function Home()
                 return;
             }
 
-            // 3. Check allowance
+
             setCrateStatus("Checking approval...");
             const allowance = await fcweedContract.allowance(ctx.userAddress, CRATE_VAULT_ADDRESS);
             console.log("[Crate] Current allowance:", ethers.utils.formatUnits(allowance, 18));
@@ -2025,7 +2022,7 @@ export default function Home()
                 let approveTx: ethers.providers.TransactionResponse | null = null;
 
                 if (isFarcasterWallet && farcasterProvider) {
-                    // Farcaster wallet
+
                     console.log("[Crate] Using Farcaster wallet for approval");
                     approveTx = await sendWalletCalls(
                         ctx.userAddress,
@@ -2033,7 +2030,7 @@ export default function Home()
                         erc20Interface.encodeFunctionData("approve", [CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256])
                     );
                 } else {
-                    // External wallet (MetaMask, Coinbase Wallet, etc.)
+
                     console.log("[Crate] Using external wallet for approval");
                     try {
                         const fcweedWrite = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, ctx.signer);
@@ -2062,11 +2059,11 @@ export default function Home()
                     return;
                 }
 
-                // Wait for approval to complete before proceeding
+
                 setCrateStatus("Confirming approval...");
                 console.log("[Crate] Waiting for approval tx:", approveTx.hash);
 
-                // Poll for approval receipt using readProvider
+
                 if (approveTx.hash) {
                     for (let i = 0; i < 30; i++) {
                         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -2082,24 +2079,24 @@ export default function Home()
                     }
                 }
 
-                // Small delay to ensure blockchain state is updated
+
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
 
-            // Call openCrate on the vault contract
+
             setMintStatus("Opening crate...");
 
             let tx: ethers.providers.TransactionResponse | null = null;
 
-            // Get current block number BEFORE sending transaction
-            // This helps us search for events that happen AFTER this point
+
+
             let blockBeforeTx = 0;
             try {
                 blockBeforeTx = await readProvider.getBlockNumber();
                 console.log("[Crate] Block before tx:", blockBeforeTx);
             } catch {}
 
-            // Create a minimal interface just for openCrate to ensure clean encoding
+
             const openCrateAbi = ["function openCrate() external"];
             const openCrateInterface = new ethers.utils.Interface(openCrateAbi);
             const openCrateData = openCrateInterface.encodeFunctionData("openCrate", []);
@@ -2110,24 +2107,24 @@ export default function Home()
             setCrateStatus("Confirm in wallet...");
 
             if (isFarcasterWallet && farcasterProvider) {
-                // Farcaster wallet - use high gas limit for complex openCrate function
+
                 console.log("[Crate] Using Farcaster wallet for openCrate");
                 tx = await sendWalletCalls(
                     ctx.userAddress,
                     CRATE_VAULT_ADDRESS,
                     openCrateData,
-                    "0xF4240" // 1,000,000 gas for openCrate (complex RNG + transfers)
+                    "0xF4240"
                 );
             } else {
-                // External wallet (MetaMask, Coinbase Wallet, etc.)
+
                 console.log("[Crate] Using external wallet for openCrate");
                 try {
-                    // Use sendTransaction directly with high gas limit
+
                     tx = await ctx.signer.sendTransaction({
                         to: CRATE_VAULT_ADDRESS,
                         data: openCrateData,
                         value: 0,
-                        gasLimit: 1000000, // High gas for complex openCrate function
+                        gasLimit: 1000000,
                     });
                 } catch (openErr: any) {
                     clearTimeout(timeoutId);
@@ -2157,8 +2154,8 @@ export default function Home()
 
             setCrateStatus("Waiting for confirmation...");
 
-            // Wait for transaction and get receipt with logs
-            // Always use readProvider to ensure we get the full receipt
+
+
             let receipt: ethers.providers.TransactionReceipt | null = null;
 
             const txHash = tx?.hash;
@@ -2166,7 +2163,7 @@ export default function Home()
 
             console.log("[Crate] Transaction hash:", txHash, "isValid:", isValidHash);
 
-            // Create event interface for parsing
+
             const eventInterface = new ethers.utils.Interface([
                 "event CrateOpened(address indexed player, uint256 indexed rewardIndex, string rewardName, uint8 category, uint256 amount, uint256 nftTokenId, uint256 timestamp)"
             ]);
@@ -2175,8 +2172,8 @@ export default function Home()
 
             if (isValidHash) {
                 console.log("[Crate] Waiting for tx:", txHash);
-                // Poll for receipt - Base is fast, so use shorter intervals
-                // First try: Quick check (10 seconds)
+
+
                 let found = false;
                 for (let i = 0; i < 5; i++) {
                     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -2193,16 +2190,16 @@ export default function Home()
                     }
                 }
 
-                // If not found after 10 seconds, the transaction likely failed to submit
+
                 if (!found) {
                     console.log("[Crate] Transaction not found after 10s, checking if it was submitted...");
                     setCrateStatus("Checking transaction...");
 
-                    // Try a few more times but also check for events in case tx went through differently
+
                     for (let i = 0; i < 10; i++) {
                         await new Promise(resolve => setTimeout(resolve, 2000));
 
-                        // Check for receipt
+
                         try {
                             receipt = await readProvider.getTransactionReceipt(txHash);
                             if (receipt) {
@@ -2213,7 +2210,7 @@ export default function Home()
                             }
                         } catch {}
 
-                        // Also check for events
+
                         try {
                             const currentBlock = await readProvider.getBlockNumber();
                             const logs = await readProvider.getLogs({
@@ -2224,7 +2221,7 @@ export default function Home()
                             });
 
                             if (logs.length > 0) {
-                                // Find the most recent log that we haven't already processed
+
                                 for (let j = logs.length - 1; j >= 0; j--) {
                                     const log = logs[j];
                                     if (!processedCrateTxHashes.current.has(log.transactionHash)) {
@@ -2250,15 +2247,15 @@ export default function Home()
                     }
                 }
             } else {
-                // For Farcaster wallets that don't return a proper hash,
-                // we need to look for recent CrateOpened events for this user
+
+
                 console.log("[Crate] No valid tx hash, searching for recent CrateOpened events...");
                 setCrateStatus("Rolling Prizes...");
 
-                // Use the block we recorded before sending tx
+
                 const searchFromBlock = blockBeforeTx > 0 ? blockBeforeTx : 0;
 
-                // Quick initial check (10 seconds) - Base is fast
+
                 let found = false;
                 for (let i = 0; i < 5; i++) {
                     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -2276,7 +2273,7 @@ export default function Home()
                         });
 
                         if (logs.length > 0) {
-                            // Find the most recent log that we haven't already processed
+
                             for (let j = logs.length - 1; j >= 0; j--) {
                                 const log = logs[j];
                                 if (!processedCrateTxHashes.current.has(log.transactionHash)) {
@@ -2297,11 +2294,11 @@ export default function Home()
                     }
                 }
 
-                // If not found after 10 seconds, transaction likely failed
+
                 if (!found) {
                     setCrateStatus("Checking transaction...");
 
-                    // Extended search (20 more seconds)
+
                     for (let i = 0; i < 10; i++) {
                         await new Promise(resolve => setTimeout(resolve, 2000));
                         try {
@@ -2316,7 +2313,7 @@ export default function Home()
                             });
 
                             if (logs.length > 0) {
-                                // Find the most recent log that we haven't already processed
+
                                 for (let j = logs.length - 1; j >= 0; j--) {
                                     const log = logs[j];
                                     if (!processedCrateTxHashes.current.has(log.transactionHash)) {
@@ -2343,7 +2340,7 @@ export default function Home()
                 }
             }
 
-            // Parse CrateOpened event from logs
+
             let rewardIndex = 0;
             let rewardName = "Dust";
             let amount = ethers.BigNumber.from(100);
@@ -2357,7 +2354,7 @@ export default function Home()
                 for (const log of receipt.logs) {
                     console.log("[Crate] Processing log:", log.address, log.topics?.[0]);
                     try {
-                        // Only try to parse logs from the CrateVault contract
+
                         if (log.address.toLowerCase() === CRATE_VAULT_ADDRESS.toLowerCase()) {
                             const parsed = eventInterface.parseLog(log);
                             console.log("[Crate] Parsed event:", parsed);
@@ -2372,16 +2369,16 @@ export default function Home()
                             }
                         }
                     } catch (parseErr) {
-                        // Not our event, continue
+
                         console.log("[Crate] Could not parse log:", parseErr);
                     }
                 }
             }
 
-            // If we didn't find the event, show an error but don't fake a reward
+
             if (!eventFound) {
                 console.error("[Crate] Could not find CrateOpened event in receipt!");
-                // Try to refetch the receipt one more time
+
                 if (tx.hash) {
                     await new Promise(resolve => setTimeout(resolve, 3000));
                     try {
@@ -2423,7 +2420,7 @@ export default function Home()
             setCrateResultIdx(rewardIndex);
             setCrateResultData({ rewardIndex, rewardName, amount, nftTokenId });
 
-            // Build reel items with the winning item at the end
+
             const s = [...CRATE_REWARDS].sort(() => Math.random() - 0.5);
             const items: CrateReward[] = [];
             for (let i = 0; i < 6; i++) items.push(...s);
@@ -2436,7 +2433,7 @@ export default function Home()
             crateTransactionInProgress.current = false;
             setTimeout(() => setCrateSpinning(true), 100);
 
-            // Balance will be refreshed after spin completes in onCrateSpinDone
+
 
         } catch (err: any) {
             clearTimeout(timeoutId);
@@ -2459,7 +2456,7 @@ export default function Home()
         setCrateSpinning(false);
         setTimeout(() => setCrateShowWin(true), 300);
 
-        // Update local stats from result data
+
         if (crateResultData) {
             const r = CRATE_REWARDS[crateResultData.rewardIndex];
             if (r) {
@@ -2474,7 +2471,7 @@ export default function Home()
             }
         }
 
-        // Refresh balance after spin completes
+
         if (userAddress) {
             try {
                 const c = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
@@ -2495,7 +2492,7 @@ export default function Home()
         setCrateResultData(null);
     };
 
-    // Crate reel animation
+
     useEffect(() => {
         if (!crateSpinning || !crateReelRef.current) return;
         const w = 130, final = (crateReelItems.length - 1) * w - (window.innerWidth / 2) + 65;
@@ -2517,7 +2514,7 @@ export default function Home()
     const usdcRewards = CRATE_REWARDS.filter(r => r.token === 'USDC');
     const nftRewards = CRATE_REWARDS.filter(r => r.isNFT);
 
-    // ============ END CRATE SYSTEM LOGIC ============
+
 
     const NftCard = ({ id, img, name, checked, onChange }: { id: number; img: string; name: string; checked: boolean; onChange: () => void }) => (
         <label style={{ minWidth: 80, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}>
@@ -2530,7 +2527,7 @@ export default function Home()
         </label>
     );
 
-    // Connect wallet button component with proper mobile support
+
     const ConnectWalletButton = () => (
         <button
             type="button"
