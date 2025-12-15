@@ -1962,10 +1962,22 @@ export default function Home()
                         erc20Interface.encodeFunctionData("approve", [CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256])
                     );
                 } else {
-                    // External wallet
+                    // External wallet (MetaMask, Coinbase Wallet, etc.)
                     console.log("[Crate] Using external wallet for approval");
-                    const fcweedWrite = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, ctx.signer);
-                    approveTx = await fcweedWrite.approve(CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256);
+                    try {
+                        const fcweedWrite = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, ctx.signer);
+                        approveTx = await fcweedWrite.approve(CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256);
+                    } catch (approveErr: any) {
+                        console.error("[Crate] Approval error:", approveErr);
+                        if (approveErr?.code === 4001 || approveErr?.code === "ACTION_REJECTED") {
+                            setCrateError("Approval rejected");
+                        } else {
+                            setCrateError("Approval failed: " + (approveErr?.reason || approveErr?.message || "Unknown error").slice(0, 50));
+                        }
+                        setCrateLoading(false);
+                        setMintStatus("");
+                        return;
+                    }
                 }
 
                 if (!approveTx) {
@@ -1974,7 +1986,15 @@ export default function Home()
                     setMintStatus("");
                     return;
                 }
-                await waitForTx(approveTx);
+
+                // Wait for approval to complete before proceeding
+                setMintStatus("Waiting for approval confirmation...");
+                console.log("[Crate] Waiting for approval tx:", approveTx.hash);
+                const approvalReceipt = await waitForTx(approveTx);
+                console.log("[Crate] Approval confirmed:", approvalReceipt?.transactionHash);
+
+                // Small delay to ensure blockchain state is updated
+                await new Promise(resolve => setTimeout(resolve, 1000));
             }
 
             // Call openCrate on the vault contract
@@ -1991,10 +2011,24 @@ export default function Home()
                     vaultInterface.encodeFunctionData("openCrate", [])
                 );
             } else {
-                // External wallet
+                // External wallet (MetaMask, Coinbase Wallet, etc.)
                 console.log("[Crate] Using external wallet for openCrate");
-                const vaultWrite = new ethers.Contract(CRATE_VAULT_ADDRESS, CRATE_VAULT_ABI, ctx.signer);
-                tx = await vaultWrite.openCrate();
+                try {
+                    const vaultWrite = new ethers.Contract(CRATE_VAULT_ADDRESS, CRATE_VAULT_ABI, ctx.signer);
+                    tx = await vaultWrite.openCrate();
+                } catch (openErr: any) {
+                    console.error("[Crate] OpenCrate error:", openErr);
+                    if (openErr?.code === 4001 || openErr?.code === "ACTION_REJECTED") {
+                        setCrateError("Transaction rejected");
+                    } else if (openErr?.reason?.includes("Insufficient") || openErr?.message?.includes("Insufficient")) {
+                        setCrateError("Insufficient FCWEED balance");
+                    } else {
+                        setCrateError("Transaction failed: " + (openErr?.reason || openErr?.message || "Unknown error").slice(0, 50));
+                    }
+                    setCrateLoading(false);
+                    setMintStatus("");
+                    return;
+                }
             }
 
             if (!tx) {
@@ -2004,6 +2038,7 @@ export default function Home()
                 return;
             }
 
+            setMintStatus("Waiting for crate to open...");
             const receipt = await waitForTx(tx);
 
             // Parse CrateOpened event from logs
@@ -2042,12 +2077,7 @@ export default function Home()
             setMintStatus("");
             setTimeout(() => setCrateSpinning(true), 100);
 
-            // Refresh balance
-            const c = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            const b = await c.balanceOf(ctx.userAddress);
-            setFcweedBalanceRaw(b);
-            const f = parseFloat(ethers.utils.formatUnits(b, 18));
-            setFcweedBalance(f >= 1e6 ? (f / 1e6).toFixed(2) + "M" : f >= 1e3 ? (f / 1e3).toFixed(0) + "K" : f.toFixed(0));
+            // Balance will be refreshed after spin completes in onCrateSpinDone
 
         } catch (err: any) {
             console.error("Crate open failed:", err);
@@ -2064,7 +2094,7 @@ export default function Home()
         }
     };
 
-    const onCrateSpinDone = () => {
+    const onCrateSpinDone = async () => {
         setCrateSpinning(false);
         setTimeout(() => setCrateShowWin(true), 300);
 
@@ -2080,6 +2110,19 @@ export default function Home()
                     else if (r.isNFT) u.nfts += 1;
                     return u;
                 });
+            }
+        }
+
+        // Refresh balance after spin completes
+        if (userAddress) {
+            try {
+                const c = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+                const b = await c.balanceOf(userAddress);
+                setFcweedBalanceRaw(b);
+                const f = parseFloat(ethers.utils.formatUnits(b, 18));
+                setFcweedBalance(f >= 1e6 ? (f / 1e6).toFixed(2) + "M" : f >= 1e3 ? (f / 1e3).toFixed(0) + "K" : f.toFixed(0));
+            } catch (err) {
+                console.error("[Crate] Failed to refresh balance:", err);
             }
         }
     };
@@ -2298,7 +2341,7 @@ export default function Home()
                             <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 10 }}>
                                 <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 9, textAlign: 'center' }}>
                                     <div style={{ color: '#f87171', fontWeight: 700 }}>{crateGlobalStats.totalBurned}</div>
-                                    <div style={{ color: '#6b7280', fontSize: 7 }}>$FCWEED Burned</div>
+                                    <div style={{ color: '#6b7280', fontSize: 7 }}>$FCWEED Spent</div>
                                 </div>
                             </div>
 
