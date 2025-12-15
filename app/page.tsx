@@ -329,6 +329,7 @@ export default function Home()
 
     const [currentTrack, setCurrentTrack] = useState(0);
     const [isPlaying, setIsPlaying] = useState(true);
+    const [manualPause, setManualPause] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [gifIndex, setGifIndex] = useState(0);
 
@@ -398,7 +399,18 @@ export default function Home()
         setSelectedNewStakedSuperLands([]); },
               [userAddress]);
 
-    const handlePlayPause = () => setIsPlaying((prev) => !prev);
+    const handlePlayPause = () => {
+        setIsPlaying((prev) => {
+            if (prev) {
+                // User is pausing - set manual pause
+                setManualPause(true);
+            } else {
+                // User is playing - clear manual pause
+                setManualPause(false);
+            }
+            return !prev;
+        });
+    };
     const handleNextTrack = () =>
         setCurrentTrack((prev) => (prev + 1) % PLAYLIST.length);
     const handlePrevTrack = () =>
@@ -1922,10 +1934,24 @@ export default function Home()
         setCrateConfirmOpen(false);
         setCrateLoading(true);
         setCrateError("");
+        setCrateResultIdx(null);
+        setCrateResultData(null);
+        setCrateReelOpen(false);
+        setCrateShowWin(false);
+        setCrateSpinning(false);
+
+        // Set a timeout to prevent infinite stuck state
+        const timeoutId = setTimeout(() => {
+            console.error("[Crate] Operation timed out after 90 seconds");
+            setCrateLoading(false);
+            setCrateError("Transaction timed out. Please check your wallet.");
+            setMintStatus("");
+        }, 90000);
 
         try {
             const ctx = await ensureWallet();
             if (!ctx) {
+                clearTimeout(timeoutId);
                 setCrateLoading(false);
                 setCrateError("Wallet connection failed");
                 return;
@@ -1968,6 +1994,7 @@ export default function Home()
                         const fcweedWrite = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, ctx.signer);
                         approveTx = await fcweedWrite.approve(CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256);
                     } catch (approveErr: any) {
+                        clearTimeout(timeoutId);
                         console.error("[Crate] Approval error:", approveErr);
                         if (approveErr?.code === 4001 || approveErr?.code === "ACTION_REJECTED") {
                             setCrateError("Approval rejected");
@@ -1981,6 +2008,7 @@ export default function Home()
                 }
 
                 if (!approveTx) {
+                    clearTimeout(timeoutId);
                     setCrateError("Approval rejected");
                     setCrateLoading(false);
                     setMintStatus("");
@@ -2043,6 +2071,7 @@ export default function Home()
                         value: 0,
                     });
                 } catch (openErr: any) {
+                    clearTimeout(timeoutId);
                     console.error("[Crate] OpenCrate error:", openErr);
                     if (openErr?.code === 4001 || openErr?.code === "ACTION_REJECTED") {
                         setCrateError("Transaction rejected");
@@ -2058,6 +2087,7 @@ export default function Home()
             }
 
             if (!tx) {
+                clearTimeout(timeoutId);
                 setCrateError("Transaction rejected");
                 setCrateLoading(false);
                 setMintStatus("");
@@ -2158,6 +2188,7 @@ export default function Home()
             }
 
             if (!eventFound) {
+                clearTimeout(timeoutId);
                 setCrateError("Could not determine reward. Check your wallet for the transaction.");
                 setCrateLoading(false);
                 setMintStatus("");
@@ -2166,6 +2197,7 @@ export default function Home()
 
             console.log("[Crate] Final reward:", { rewardIndex, rewardName, amount: amount.toString() });
 
+            clearTimeout(timeoutId);
             setCrateResultIdx(rewardIndex);
             setCrateResultData({ rewardIndex, rewardName, amount, nftTokenId });
 
@@ -2184,6 +2216,7 @@ export default function Home()
             // Balance will be refreshed after spin completes in onCrateSpinDone
 
         } catch (err: any) {
+            clearTimeout(timeoutId);
             console.error("Crate open failed:", err);
             const errMsg = err?.message || err?.reason || String(err);
             if (errMsg.includes("rejected") || errMsg.includes("denied") || err?.code === 4001) {
@@ -2301,7 +2334,7 @@ export default function Home()
     );
 
     return (
-        <div className={styles.page} style={{ paddingBottom: 70 }} onPointerDown={() => { if (!isPlaying && audioRef.current) audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {}); }}>
+        <div className={styles.page} style={{ paddingBottom: 70 }} onPointerDown={() => { if (!isPlaying && !manualPause && audioRef.current) audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {}); }}>
             <header className={styles.headerWrapper}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
                     <div className={styles.brand}><span className={styles.liveDot} /><span className={styles.brandText}>FCWEED</span></div>
