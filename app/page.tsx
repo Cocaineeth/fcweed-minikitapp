@@ -356,9 +356,12 @@ export default function Home()
     const [loadingVault, setLoadingVault] = useState(false);
     const [crateLoading, setCrateLoading] = useState(false);
     const [crateError, setCrateError] = useState("");
+    const [crateStatus, setCrateStatus] = useState("");
     const [dustConversionEnabled, setDustConversionEnabled] = useState(false);
     const crateReelRef = useRef<HTMLDivElement>(null);
     const [crateReelItems, setCrateReelItems] = useState<CrateReward[]>([]);
+    const crateTransactionInProgress = useRef(false);
+    const lastCrateOpenBlock = useRef(0);
 
     // const ladder = useLeaderboard({ readProvider, userAddress, usingMiniApp, topN: 10, });
 
@@ -1928,9 +1931,17 @@ export default function Home()
     };
 
     const onCrateConfirm = async () => {
+        // Prevent multiple simultaneous transactions
+        if (crateTransactionInProgress.current) {
+            console.log("[Crate] Transaction already in progress, ignoring");
+            return;
+        }
+        crateTransactionInProgress.current = true;
+
         setCrateConfirmOpen(false);
         setCrateLoading(true);
         setCrateError("");
+        setCrateStatus("");
         setCrateResultIdx(null);
         setCrateResultData(null);
         setCrateReelOpen(false);
@@ -1939,18 +1950,22 @@ export default function Home()
 
         // Set a timeout to prevent infinite stuck state
         const timeoutId = setTimeout(() => {
-            console.error("[Crate] Operation timed out after 90 seconds");
+            console.error("[Crate] Operation timed out after 120 seconds");
             setCrateLoading(false);
-            setCrateError("Transaction timed out. Please check your wallet.");
-            setMintStatus("");
-        }, 90000);
+            setCrateError("Transaction timed out. Please refresh and try again.");
+            setCrateStatus("");
+            crateTransactionInProgress.current = false;
+        }, 120000);
 
         try {
+            setCrateStatus("Connecting wallet...");
             const ctx = await ensureWallet();
             if (!ctx) {
                 clearTimeout(timeoutId);
+                crateTransactionInProgress.current = false;
                 setCrateLoading(false);
                 setCrateError("Wallet connection failed");
+                setCrateStatus("");
                 return;
             }
 
@@ -1967,12 +1982,44 @@ export default function Home()
                 userAddress: ctx.userAddress
             });
 
-            // First check and approve FCWEED spending if needed
+            // Pre-flight checks
+            setCrateStatus("Checking ETH for gas...");
+
+            // 1. Verify ETH balance for gas
+            const currentBalance = await readProvider.getBalance(ctx.userAddress);
+            console.log("[Crate] ETH balance:", ethers.utils.formatEther(currentBalance));
+
+            if (currentBalance.lt(ethers.utils.parseEther("0.0001"))) {
+                clearTimeout(timeoutId);
+                crateTransactionInProgress.current = false;
+                setCrateError("Need ETH for gas fees");
+                setCrateLoading(false);
+                setCrateStatus("");
+                return;
+            }
+
+            // 2. Verify FCWEED token balance
+            setCrateStatus("Checking FCWEED balance...");
             const fcweedContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+            const tokenBalance = await fcweedContract.balanceOf(ctx.userAddress);
+            console.log("[Crate] FCWEED balance:", ethers.utils.formatUnits(tokenBalance, 18));
+
+            if (tokenBalance.lt(CRATE_COST)) {
+                clearTimeout(timeoutId);
+                crateTransactionInProgress.current = false;
+                setCrateError("Insufficient FCWEED balance");
+                setCrateLoading(false);
+                setCrateStatus("");
+                return;
+            }
+
+            // 3. Check allowance
+            setCrateStatus("Checking approval...");
             const allowance = await fcweedContract.allowance(ctx.userAddress, CRATE_VAULT_ADDRESS);
+            console.log("[Crate] Current allowance:", ethers.utils.formatUnits(allowance, 18));
 
             if (allowance.lt(CRATE_COST)) {
-                setMintStatus("Approving FCWEED...");
+                setCrateStatus("Approving FCWEED...");
 
                 let approveTx: ethers.providers.TransactionResponse | null = null;
 
@@ -1992,6 +2039,7 @@ export default function Home()
                         approveTx = await fcweedWrite.approve(CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256);
                     } catch (approveErr: any) {
                         clearTimeout(timeoutId);
+                        crateTransactionInProgress.current = false;
                         console.error("[Crate] Approval error:", approveErr);
                         if (approveErr?.code === 4001 || approveErr?.code === "ACTION_REJECTED") {
                             setCrateError("Approval rejected");
@@ -1999,21 +2047,22 @@ export default function Home()
                             setCrateError("Approval failed: " + (approveErr?.reason || approveErr?.message || "Unknown error").slice(0, 50));
                         }
                         setCrateLoading(false);
-                        setMintStatus("");
+                        setCrateStatus("");
                         return;
                     }
                 }
 
                 if (!approveTx) {
                     clearTimeout(timeoutId);
+                    crateTransactionInProgress.current = false;
                     setCrateError("Approval rejected");
                     setCrateLoading(false);
-                    setMintStatus("");
+                    setCrateStatus("");
                     return;
                 }
 
                 // Wait for approval to complete before proceeding
-                setMintStatus("Waiting for approval confirmation...");
+                setCrateStatus("Confirming approval...");
                 console.log("[Crate] Waiting for approval tx:", approveTx.hash);
 
                 // Poll for approval receipt using readProvider
@@ -2057,6 +2106,8 @@ export default function Home()
             console.log("[Crate] openCrate encoded data:", openCrateData);
             console.log("[Crate] Target contract:", CRATE_VAULT_ADDRESS);
 
+            setCrateStatus("Confirm in wallet...");
+
             if (isFarcasterWallet && farcasterProvider) {
                 // Farcaster wallet - use high gas limit for complex openCrate function
                 console.log("[Crate] Using Farcaster wallet for openCrate");
@@ -2079,6 +2130,7 @@ export default function Home()
                     });
                 } catch (openErr: any) {
                     clearTimeout(timeoutId);
+                    crateTransactionInProgress.current = false;
                     console.error("[Crate] OpenCrate error:", openErr);
                     if (openErr?.code === 4001 || openErr?.code === "ACTION_REJECTED") {
                         setCrateError("Transaction rejected");
@@ -2088,20 +2140,21 @@ export default function Home()
                         setCrateError("Transaction failed: " + (openErr?.reason || openErr?.message || "Unknown error").slice(0, 50));
                     }
                     setCrateLoading(false);
-                    setMintStatus("");
+                    setCrateStatus("");
                     return;
                 }
             }
 
             if (!tx) {
                 clearTimeout(timeoutId);
+                crateTransactionInProgress.current = false;
                 setCrateError("Transaction rejected");
                 setCrateLoading(false);
-                setMintStatus("");
+                setCrateStatus("");
                 return;
             }
 
-            setMintStatus("Waiting for crate to open...");
+            setCrateStatus("Waiting for confirmation...");
 
             // Wait for transaction and get receipt with logs
             // Always use readProvider to ensure we get the full receipt
@@ -2131,7 +2184,7 @@ export default function Home()
                 // For Farcaster wallets that don't return a proper hash,
                 // we need to look for recent CrateOpened events for this user
                 console.log("[Crate] No valid tx hash, searching for recent CrateOpened events...");
-                setMintStatus("Confirming transaction...");
+                setCrateStatus("Rolling Prizes...");
 
                 const eventInterface = new ethers.utils.Interface([
                     "event CrateOpened(address indexed player, uint256 indexed rewardIndex, string rewardName, uint8 category, uint256 amount, uint256 nftTokenId, uint256 timestamp)"
@@ -2252,9 +2305,10 @@ export default function Home()
 
             if (!eventFound) {
                 clearTimeout(timeoutId);
+                crateTransactionInProgress.current = false;
                 setCrateError("Could not determine reward. Check your wallet for the transaction.");
                 setCrateLoading(false);
-                setMintStatus("");
+                setCrateStatus("");
                 return;
             }
 
@@ -2273,13 +2327,15 @@ export default function Home()
 
             setCrateReelOpen(true);
             setCrateLoading(false);
-            setMintStatus("");
+            setCrateStatus("");
+            crateTransactionInProgress.current = false;
             setTimeout(() => setCrateSpinning(true), 100);
 
             // Balance will be refreshed after spin completes in onCrateSpinDone
 
         } catch (err: any) {
             clearTimeout(timeoutId);
+            crateTransactionInProgress.current = false;
             console.error("Crate open failed:", err);
             const errMsg = err?.message || err?.reason || String(err);
             if (errMsg.includes("rejected") || errMsg.includes("denied") || err?.code === 4001) {
@@ -2290,7 +2346,7 @@ export default function Home()
                 setCrateError(errMsg.slice(0, 60));
             }
             setCrateLoading(false);
-            setMintStatus("");
+            setCrateStatus("");
         }
     };
 
@@ -2608,6 +2664,7 @@ export default function Home()
                                     {crateLoading ? '⏳ Processing...' : '🎰 OPEN CRATE'}
                                 </button>
                                 <div style={{ marginTop: 6, fontSize: 10, color: '#9ca3af' }}>Cost: <span style={{ color: '#fbbf24', fontWeight: 600 }}>200,000 $FCWEED</span></div>
+                                {crateStatus && <div style={{ marginTop: 4, fontSize: 9, color: '#60a5fa', fontStyle: 'italic' }}>{crateStatus}</div>}
                                 {crateError && <div style={{ marginTop: 6, fontSize: 10, color: '#f87171' }}>{crateError}</div>}
                             </div>
 
