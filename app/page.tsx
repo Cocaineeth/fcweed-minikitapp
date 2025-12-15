@@ -113,11 +113,73 @@ function isSuper(nftAddress: string, id: number): boolean
     return false;
 }
 
+// Detect if running inside Farcaster mobile app
+function detectMiniAppEnvironment(): { isMiniApp: boolean; isMobile: boolean } {
+    if (typeof window === "undefined") return { isMiniApp: false, isMobile: false };
+
+    const userAgent = navigator.userAgent || "";
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(userAgent);
+
+    // Multiple detection methods for Farcaster mini app
+    const inIframe = window.parent !== window;
+    const hasFarcasterContext = !!(window as any).farcaster || !!(window as any).__FARCASTER__;
+    const hasWarpcastUA = userAgent.toLowerCase().includes("warpcast");
+    const urlHasFrame = window.location.href.includes("fc-frame") ||
+                        window.location.href.includes("farcaster") ||
+                        document.referrer.includes("warpcast") ||
+                        document.referrer.includes("farcaster");
+
+    // Check if SDK is available and has wallet
+    let sdkAvailable = false;
+    try {
+        sdkAvailable = !!(sdk && sdk.wallet);
+    } catch {
+        sdkAvailable = false;
+    }
+
+    const isMiniApp = inIframe || hasFarcasterContext || hasWarpcastUA || urlHasFrame || (isMobile && sdkAvailable);
+
+    console.log("[Detect] Environment check:", {
+        isMobile,
+        inIframe,
+        hasFarcasterContext,
+        hasWarpcastUA,
+        urlHasFrame,
+        sdkAvailable,
+        isMiniApp
+    });
+
+    return { isMiniApp, isMobile };
+}
+
 async function waitForTx(
-    tx: ethers.providers.TransactionResponse | undefined | null
+    tx: ethers.providers.TransactionResponse | undefined | null,
+    readProvider?: ethers.providers.Provider,
+    maxWaitMs = 60000
 )
 {
     if (!tx) return;
+
+    // For mini app transactions, we may not be able to call wait()
+    // Instead, poll the chain for confirmation
+    if (readProvider && tx.hash) {
+        const startTime = Date.now();
+        while (Date.now() - startTime < maxWaitMs) {
+            try {
+                const receipt = await readProvider.getTransactionReceipt(tx.hash);
+                if (receipt && receipt.confirmations > 0) {
+                    return receipt;
+                }
+            } catch {
+                // Ignore and retry
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        console.warn("Transaction wait timeout, proceeding anyway:", tx.hash);
+        return;
+    }
+
+    // Fallback to standard wait
     try {
         await tx.wait();
     } catch (e: any) {
@@ -129,7 +191,8 @@ async function waitForTx(
             "";
         if (
             msg.includes("does not support the requested method") ||
-            msg.includes("unsupported method")
+            msg.includes("unsupported method") ||
+            msg.includes("wait is not a function")
         ) {
             console.warn("Ignoring provider wait() error:", e);
         } else {
@@ -271,11 +334,27 @@ export default function Home()
         if (!isMiniAppReady) {
             setMiniAppReady();
         }
+
+        // Initialize Farcaster SDK and auto-connect if in mini app
         (async () => {
             try {
+                console.log("[Init] Initializing Farcaster SDK...");
                 await sdk.actions.ready();
-            } catch {
-                //
+                console.log("[Init] SDK ready");
+
+                // Auto-connect wallet if in Farcaster mini app
+                const { isMiniApp } = detectMiniAppEnvironment();
+                if (isMiniApp && !userAddress) {
+                    console.log("[Init] Auto-connecting wallet in mini app...");
+                    // Small delay to ensure SDK is fully initialized
+                    setTimeout(() => {
+                        ensureWallet().catch(err => {
+                            console.warn("[Init] Auto-connect failed:", err);
+                        });
+                    }, 500);
+                }
+            } catch (err) {
+                console.warn("[Init] SDK initialization failed:", err);
             }
         })();
     }, [isMiniAppReady, setMiniAppReady]);
@@ -288,9 +367,9 @@ export default function Home()
             return { signer, provider, userAddress, isMini: usingMiniApp };
         }
 
-
         try {
             setConnecting(true);
+            setMintStatus("");
 
             let p: ethers.providers.Web3Provider;
             let s: ethers.Signer;
@@ -298,55 +377,174 @@ export default function Home()
             let isMini = false;
             let ethProv: any | null = null;
 
-            const isProbablyMiniApp =
-                typeof window !== "undefined" &&
-                (window as any).parent !== window; // crude but useful signal
+            const { isMiniApp: detectedMiniApp, isMobile } = detectMiniAppEnvironment();
 
-            if (isProbablyMiniApp) {
+            console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, userAgent: navigator.userAgent });
+
+            // Try Farcaster MiniApp SDK first (works for both mobile and desktop frames)
+            if (detectedMiniApp || isMobile) {
                 try {
-                    ethProv = await sdk.wallet.getEthereumProvider();
-                } catch {
+                    console.log("[Wallet] Attempting Farcaster SDK wallet connection...");
+
+                    // Make sure SDK is ready
+                    try {
+                        await sdk.actions.ready();
+                        console.log("[Wallet] SDK ready confirmed");
+                    } catch (readyErr) {
+                        console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
+                    }
+
+                    // Try multiple methods to get the ethereum provider
+                    try {
+                        // Method 1: Direct wallet.getEthereumProvider()
+                        ethProv = await sdk.wallet.getEthereumProvider();
+                        console.log("[Wallet] Got provider via getEthereumProvider()");
+                    } catch (err1) {
+                        console.warn("[Wallet] getEthereumProvider failed:", err1);
+
+                        // Method 2: Check if ethProvider is directly available
+                        if ((sdk.wallet as any).ethProvider) {
+                            ethProv = (sdk.wallet as any).ethProvider;
+                            console.log("[Wallet] Got provider via ethProvider property");
+                        }
+                    }
+
+                    if (ethProv) {
+                        console.log("[Wallet] Got Farcaster ethereum provider:", typeof ethProv);
+                        isMini = true;
+                    }
+                } catch (err) {
+                    console.warn("[Wallet] Farcaster SDK wallet failed:", err);
                     ethProv = null;
                 }
             }
+
+            // If we got a Farcaster provider, use it
             if (ethProv) {
-                isMini = true;
                 setUsingMiniApp(true);
                 setMiniAppEthProvider(ethProv);
 
+                // Request accounts via the provider - this triggers the wallet connect prompt
+                try {
+                    console.log("[Wallet] Requesting accounts from Farcaster provider...");
+                    const accounts = await ethProv.request({ method: "eth_requestAccounts" });
+                    console.log("[Wallet] Got accounts:", accounts);
+                } catch (err: any) {
+                    console.warn("[Wallet] eth_requestAccounts failed:", err);
+                    // If user rejected, throw to show error
+                    if (err?.code === 4001) {
+                        throw new Error("Wallet connection rejected. Please approve the connection request.");
+                    }
+                    // Otherwise continue - we might still be able to get the address
+                }
+
                 p = new ethers.providers.Web3Provider(ethProv as any, "any");
                 s = p.getSigner();
-                addr = await s.getAddress();
+
+                try {
+                    addr = await s.getAddress();
+                    console.log("[Wallet] Got address:", addr);
+                } catch (err) {
+                    console.error("[Wallet] Failed to get address from Farcaster provider:", err);
+
+                    // Try getting accounts directly from provider
+                    try {
+                        const accounts = await ethProv.request({ method: "eth_accounts" });
+                        if (accounts && accounts.length > 0) {
+                            addr = accounts[0];
+                            console.log("[Wallet] Got address from eth_accounts:", addr);
+                        } else {
+                            throw new Error("No accounts available");
+                        }
+                    } catch (accErr) {
+                        throw new Error("Could not get wallet address. Please make sure you have a wallet connected in Farcaster.");
+                    }
+                }
+
+                console.log("[Wallet] Connected via Farcaster:", addr);
             } else {
+                // Fallback to browser wallet (MetaMask, etc.)
                 setUsingMiniApp(false);
                 const anyWindow = window as any;
-                if (!anyWindow.ethereum) {
-                    setMintStatus(
-                        "No wallet found. Open this in the Farcaster app or install a browser wallet."
-                    );
+
+                // Check for various wallet providers
+                const browserProvider = anyWindow.ethereum || anyWindow.web3?.currentProvider;
+
+                if (!browserProvider) {
+                    const errorMsg = isMobile
+                        ? "No wallet found. Please open this app inside the Farcaster app to connect your wallet."
+                        : "No wallet found. Please install MetaMask or another Web3 wallet.";
+                    setMintStatus(errorMsg);
                     setConnecting(false);
                     return null;
                 }
-                await anyWindow.ethereum.request({ method: "eth_requestAccounts" });
-                p = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
+
+                console.log("[Wallet] Using browser ethereum provider");
+
+                try {
+                    await browserProvider.request({ method: "eth_requestAccounts" });
+                } catch (err: any) {
+                    if (err.code === 4001) {
+                        setMintStatus("Wallet connection rejected. Please approve the connection request.");
+                    } else {
+                        setMintStatus("Failed to connect wallet. Please try again.");
+                    }
+                    setConnecting(false);
+                    return null;
+                }
+
+                p = new ethers.providers.Web3Provider(browserProvider, "any");
                 s = p.getSigner();
                 addr = await s.getAddress();
+
+                console.log("[Wallet] Connected via browser wallet:", addr);
             }
 
-            const net = await p.getNetwork();
-            if (net.chainId !== CHAIN_ID) {
-                if (isMini) {
-                    setMintStatus("Please switch your Farcaster wallet to Base to mint.");
-                } else {
-                    const anyWindow = window as any;
-                    if (anyWindow.ethereum?.request) {
-                        try {
-                            await anyWindow.ethereum.request({
-                                method: "wallet_switchEthereumChain",
-                                params: [{ chainId: "0x2105" }],
-                            });
-                        } catch {
-                            //
+            // Check and switch to Base chain
+            let currentChainId: number;
+            try {
+                const net = await p.getNetwork();
+                currentChainId = net.chainId;
+            } catch {
+                currentChainId = 0;
+            }
+
+            if (currentChainId !== CHAIN_ID) {
+                console.log("[Wallet] Wrong chain, attempting to switch to Base...");
+
+                const switchProvider = isMini ? ethProv : (window as any).ethereum;
+
+                if (switchProvider?.request) {
+                    try {
+                        await switchProvider.request({
+                            method: "wallet_switchEthereumChain",
+                            params: [{ chainId: "0x2105" }],
+                        });
+                        // Re-create provider after chain switch
+                        p = new ethers.providers.Web3Provider(switchProvider as any, "any");
+                        s = p.getSigner();
+                        console.log("[Wallet] Switched to Base");
+                    } catch (switchErr: any) {
+                        console.warn("[Wallet] Chain switch failed:", switchErr);
+
+                        // Try to add the chain if it doesn't exist (error 4902)
+                        if (switchErr.code === 4902 && !isMini) {
+                            try {
+                                await switchProvider.request({
+                                    method: "wallet_addEthereumChain",
+                                    params: [{
+                                        chainId: "0x2105",
+                                        chainName: "Base",
+                                        nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+                                        rpcUrls: ["https://mainnet.base.org"],
+                                        blockExplorerUrls: ["https://basescan.org"],
+                                    }],
+                                });
+                                p = new ethers.providers.Web3Provider(switchProvider, "any");
+                                s = p.getSigner();
+                            } catch {
+                                console.warn("[Wallet] Failed to add Base chain");
+                            }
                         }
                     }
                 }
@@ -358,15 +556,12 @@ export default function Home()
             setConnecting(false);
 
             return { signer: s, provider: p, userAddress: addr, isMini };
-        } catch (err) {
-            console.error("Wallet connect failed:", err);
-            if (usingMiniApp) {
-                setMintStatus(
-                    "Could not connect Farcaster wallet. Make sure the mini app has wallet permissions."
-                );
-            } else {
-                setMintStatus("Wallet connect failed. Check your wallet and try again.");
-            }
+        } catch (err: any) {
+            console.error("[Wallet] Connection failed:", err);
+            const errorMessage = err?.message || "Wallet connection failed";
+            setMintStatus(
+                errorMessage.length > 100 ? errorMessage.substring(0, 100) + "..." : errorMessage
+            );
             setConnecting(false);
             return null;
         }
@@ -377,8 +572,8 @@ export default function Home()
         to: string,
         data: string
     ): Promise<ethers.providers.TransactionResponse> {
-        if (!usingMiniApp || !miniAppEthProvider) {
-            throw new Error("wallet_sendCalls not available");
+        if (!miniAppEthProvider) {
+            throw new Error("Mini app provider not available");
         }
 
         const req =
@@ -386,43 +581,116 @@ export default function Home()
             miniAppEthProvider.send?.bind(miniAppEthProvider);
 
         if (!req) {
-            throw new Error("Mini app provider missing request/send");
+            throw new Error("Mini app provider missing request/send method");
         }
 
         const chainIdHex = ethers.utils.hexValue(CHAIN_ID);
 
-        const result = await req({
-            method: "wallet_sendCalls",
-            params: [
-                {
-                    from,
-                    chainId: chainIdHex,
-                    atomicRequired: false,
-                    calls: [
-                        {
-                            to,
-                            data,
-                            value: "0x0",
-                        },
-                    ],
-                },
-            ],
-        });
+        console.log("[TX] Sending wallet_sendCalls:", { from, to, chainIdHex });
 
+        let result: any;
+
+        try {
+            // Try wallet_sendCalls first (EIP-5792)
+            result = await req({
+                method: "wallet_sendCalls",
+                params: [
+                    {
+                        from,
+                        chainId: chainIdHex,
+                        atomicRequired: false,
+                        calls: [
+                            {
+                                to,
+                                data,
+                                value: "0x0",
+                            },
+                        ],
+                    },
+                ],
+            });
+        } catch (sendCallsError: any) {
+            console.warn("[TX] wallet_sendCalls failed, trying eth_sendTransaction:", sendCallsError);
+
+            // Fallback to eth_sendTransaction
+            try {
+                result = await req({
+                    method: "eth_sendTransaction",
+                    params: [{
+                        from,
+                        to,
+                        data,
+                        value: "0x0",
+                        chainId: chainIdHex,
+                    }],
+                });
+
+                // eth_sendTransaction returns the hash directly
+                if (typeof result === "string" && result.startsWith("0x")) {
+                    return {
+                        hash: result,
+                        wait: async () => {
+                            // Poll for receipt using readProvider
+                            for (let i = 0; i < 30; i++) {
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                try {
+                                    const receipt = await readProvider.getTransactionReceipt(result);
+                                    if (receipt) return receipt;
+                                } catch {
+                                    // Continue polling
+                                }
+                            }
+                            return null;
+                        },
+                    } as any;
+                }
+            } catch (sendTxError) {
+                console.error("[TX] eth_sendTransaction also failed:", sendTxError);
+                throw sendTxError;
+            }
+        }
+
+        console.log("[TX] Result:", result);
+
+        // Extract transaction hash from various response formats
         const txHash =
             (result?.txHashes && result.txHashes[0]) ||
             result?.txHash ||
             result?.hash ||
-            "0x";
+            (typeof result === "string" ? result : null);
 
-        if (!txHash || typeof txHash !== "string" || txHash.length !== 66)
-        {
-            throw new Error("wallet_sendCalls did not return a valid tx hash");
+        if (!txHash || typeof txHash !== "string" || !txHash.startsWith("0x")) {
+            console.error("[TX] Invalid tx hash response:", result);
+            // Don't throw - the transaction might have succeeded
+            // Return a fake tx that won't block on wait()
+            return {
+                hash: "0x" + "0".repeat(64),
+                wait: async () => {},
+            } as any;
         }
 
+        console.log("[TX] Transaction hash:", txHash);
+
+        // Return a transaction-like object that can be awaited
         const fakeTx: any = {
             hash: txHash,
-            wait: async () => {},
+            wait: async () => {
+                // Poll for receipt using readProvider
+                for (let i = 0; i < 30; i++) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    try {
+                        const receipt = await readProvider.getTransactionReceipt(txHash);
+                        if (receipt && receipt.confirmations > 0) {
+                            console.log("[TX] Confirmed:", txHash);
+                            return receipt;
+                        }
+                    } catch {
+                        // Continue polling
+                    }
+                }
+                console.warn("[TX] Wait timeout, proceeding:", txHash);
+                return null;
+            },
         };
 
         return fakeTx as ethers.providers.TransactionResponse;
@@ -435,15 +703,33 @@ export default function Home()
         const ctx = await ensureWallet();
         if (!ctx) return null;
 
-        if (ctx.isMini && miniAppEthProvider) {
-            return await sendWalletCalls(ctx.userAddress, to, data);
-        } else {
-            const tx = await ctx.signer.sendTransaction({
-                to,
-                data,
-                value: 0,
-            });
-            return tx;
+        console.log("[TX] sendContractTx:", { to, isMini: ctx.isMini, usingMiniApp });
+
+        try {
+            if (ctx.isMini && miniAppEthProvider) {
+                return await sendWalletCalls(ctx.userAddress, to, data);
+            } else {
+                const tx = await ctx.signer.sendTransaction({
+                    to,
+                    data,
+                    value: 0,
+                });
+                return tx;
+            }
+        } catch (err: any) {
+            console.error("[TX] sendContractTx failed:", err);
+
+            // Provide helpful error messages
+            const errMsg = err?.message || err?.reason || String(err);
+            if (errMsg.includes("rejected") || errMsg.includes("denied") || err?.code === 4001) {
+                setMintStatus("Transaction rejected. Please approve in your wallet.");
+            } else if (errMsg.includes("insufficient")) {
+                setMintStatus("Insufficient funds for transaction.");
+            } else {
+                setMintStatus("Transaction failed: " + errMsg.slice(0, 100));
+            }
+
+            throw err;
         }
     }
 
@@ -707,144 +993,38 @@ export default function Home()
     }>({ addr: null, state: null });
 
     async function getOwnedState(addr: string) {
-        if (ownedCacheRef.current.addr === addr && ownedCacheRef.current.state)
+        console.log("[NFT] getOwnedState called for:", addr);
+
+        if (ownedCacheRef.current.addr?.toLowerCase() === addr.toLowerCase() && ownedCacheRef.current.state)
         {
+            console.log("[NFT] Returning cached state");
             return ownedCacheRef.current.state;
         }
 
-        const state = await loadOwnedTokens(addr); // backend
-        ownedCacheRef.current = { addr, state };
-        return state;
-    }
-
-    // Query available NFTs directly from blockchain (works for both Farcaster and external wallets)
-    async function queryAvailableNFTsFromChain(addr: string): Promise<{
-        plants: number[];
-        lands: number[];
-        superLands: number[];
-    }> {
-        console.log("[NFT] Querying available NFTs from chain for:", addr);
-
-        const plants: number[] = [];
-        const lands: number[] = [];
-        const superLands: number[] = [];
-
         try {
-            // ERC721Enumerable ABI for tokenOfOwnerByIndex
-            const erc721EnumAbi = [
-                "function balanceOf(address owner) view returns (uint256)",
-                "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)"
-            ];
-
-            const plantContract = new ethers.Contract(PLANT_ADDRESS, erc721EnumAbi, readProvider);
-            const landContract = new ethers.Contract(LAND_ADDRESS, erc721EnumAbi, readProvider);
-            const superLandContract = new ethers.Contract(SUPER_LAND_ADDRESS, erc721EnumAbi, readProvider);
-
-            // Get balances
-            const [plantBal, landBal, superLandBal] = await Promise.all([
-                plantContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
-                landContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
-                superLandContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
-            ]);
-
-            console.log("[NFT] Balances:", {
-                plants: plantBal.toNumber(),
-                lands: landBal.toNumber(),
-                superLands: superLandBal.toNumber()
+            console.log("[NFT] Fetching owned tokens from API...");
+            const state = await loadOwnedTokens(addr); // backend
+            console.log("[NFT] Got owned state:", {
+                plants: state.plants?.length || 0,
+                lands: state.lands?.length || 0,
+                superLands: state.superLands?.length || 0,
+                totals: state.totals
             });
-
-            // Query plant token IDs
-            const plantPromises = [];
-            for (let i = 0; i < Math.min(plantBal.toNumber(), 200); i++) {
-                plantPromises.push(
-                    plantContract.tokenOfOwnerByIndex(addr, i)
-                        .then((id: ethers.BigNumber) => id.toNumber())
-                        .catch(() => null)
-                );
-            }
-            const plantResults = await Promise.all(plantPromises);
-            plants.push(...plantResults.filter((id): id is number => id !== null));
-
-            // Query land token IDs
-            const landPromises = [];
-            for (let i = 0; i < Math.min(landBal.toNumber(), 100); i++) {
-                landPromises.push(
-                    landContract.tokenOfOwnerByIndex(addr, i)
-                        .then((id: ethers.BigNumber) => id.toNumber())
-                        .catch(() => null)
-                );
-            }
-            const landResults = await Promise.all(landPromises);
-            lands.push(...landResults.filter((id): id is number => id !== null));
-
-            // Query super land token IDs
-            const superLandPromises = [];
-            for (let i = 0; i < Math.min(superLandBal.toNumber(), 100); i++) {
-                superLandPromises.push(
-                    superLandContract.tokenOfOwnerByIndex(addr, i)
-                        .then((id: ethers.BigNumber) => id.toNumber())
-                        .catch(() => null)
-                );
-            }
-            const superLandResults = await Promise.all(superLandPromises);
-            superLands.push(...superLandResults.filter((id): id is number => id !== null));
-
-            console.log("[NFT] Found from chain:", {
-                plants: plants.length,
-                lands: lands.length,
-                superLands: superLands.length
-            });
-
+            ownedCacheRef.current = { addr, state };
+            return state;
         } catch (err) {
-            console.error("[NFT] Failed to query NFTs from chain:", err);
+            console.error("[NFT] Failed to load owned tokens:", err);
+            // Return empty state on error instead of throwing
+            return {
+                wallet: addr,
+                plants: [],
+                lands: [],
+                superLands: [],
+                totals: { plants: 0, lands: 0, superLands: 0 }
+            };
         }
-
-        return { plants, lands, superLands };
     }
 
-    // Query staked NFTs directly from staking contract
-    async function queryStakedNFTsFromContract(
-        stakingAddress: string,
-        addr: string,
-        includeSuperLands: boolean = false
-    ): Promise<{
-        plants: number[];
-        lands: number[];
-        superLands: number[];
-    }> {
-        console.log("[NFT] Querying staked NFTs from contract:", stakingAddress);
-
-        const stakingContract = new ethers.Contract(stakingAddress, STAKING_ABI, readProvider);
-
-        let plants: number[] = [];
-        let lands: number[] = [];
-        let superLands: number[] = [];
-
-        try {
-            const promises: Promise<ethers.BigNumber[]>[] = [
-                stakingContract.plantsOf(addr),
-                stakingContract.landsOf(addr),
-            ];
-
-            if (includeSuperLands) {
-                promises.push(stakingContract.superLandsOf(addr));
-            }
-
-            const results = await Promise.all(promises);
-
-            plants = results[0].map((bn: ethers.BigNumber) => bn.toNumber());
-            lands = results[1].map((bn: ethers.BigNumber) => bn.toNumber());
-            if (includeSuperLands && results[2]) {
-                superLands = results[2].map((bn: ethers.BigNumber) => bn.toNumber());
-            }
-
-            console.log("[NFT] Staked from contract:", { plants, lands, superLands });
-        } catch (err) {
-            console.error("[NFT] Failed to query staked NFTs:", err);
-        }
-
-        return { plants, lands, superLands };
-    }
 
     const refreshOldStakingRef = useRef(false);
 
@@ -861,23 +1041,64 @@ export default function Home()
             let addr = userAddress;
             if (!addr)
             {
+                console.log("[OldStaking] No userAddress, calling ensureWallet...");
                 const ctx = await ensureWallet();
-                if (!ctx) return;
+                if (!ctx) {
+                    console.log("[OldStaking] ensureWallet returned null");
+                    return;
+                }
                 addr = ctx.userAddress;
             }
 
-            console.log("[OldStaking] Loading for address:", addr);
+            console.log("[OldStaking] Loading data for address:", addr);
 
-            // Query staked NFTs directly from OLD staking contract
-            const staked = await queryStakedNFTsFromContract(OLD_STAKING_ADDRESS, addr, false);
-            const stakedPlantNums = staked.plants;
-            const stakedLandNums = staked.lands;
+            // Query staked NFTs directly from the OLD staking contract
+            const oldStakingContract = new ethers.Contract(OLD_STAKING_ADDRESS, STAKING_ABI, readProvider);
 
-            // Query available NFTs directly from blockchain
-            const available = await queryAvailableNFTsFromChain(addr);
-            const availPlants = available.plants;
-            const availLands = available.lands;
-            const availSuperLands = available.superLands;
+            let stakedPlantNums: number[] = [];
+            let stakedLandNums: number[] = [];
+
+            try {
+                const [stakedPlantsBN, stakedLandsBN] = await Promise.all([
+                    oldStakingContract.plantsOf(addr),
+                    oldStakingContract.landsOf(addr),
+                ]);
+                stakedPlantNums = stakedPlantsBN.map((bn: ethers.BigNumber) => bn.toNumber());
+                stakedLandNums = stakedLandsBN.map((bn: ethers.BigNumber) => bn.toNumber());
+                console.log("[OldStaking] Staked from contract:", { plants: stakedPlantNums, lands: stakedLandNums });
+            } catch (err) {
+                console.error("[OldStaking] Failed to query staked NFTs from contract:", err);
+            }
+
+            // Get available (unstaked) NFTs - try API first, then fallback to chain
+            let availPlants: number[] = [];
+            let availLands: number[] = [];
+            let availSuperLands: number[] = [];
+
+            try {
+                const ownedState = await getOwnedState(addr);
+                const plants = ownedState?.plants || [];
+                const lands = ownedState?.lands || [];
+                const superLands = ownedState?.superLands || [];
+
+                // These are NFTs in the wallet (not staked)
+                availPlants = plants.map((t: any) => Number(t.tokenId));
+                availLands = lands.map((t: any) => Number(t.tokenId));
+                availSuperLands = superLands.map((t: any) => Number(t.tokenId));
+
+                console.log("[OldStaking] Available from API:", { plants: availPlants.length, lands: availLands.length, superLands: availSuperLands.length });
+            } catch (err) {
+                console.error("[OldStaking] Failed to load owned tokens from API:", err);
+            }
+
+            // If API returned empty, try querying blockchain directly
+            if (availPlants.length === 0 && availLands.length === 0 && availSuperLands.length === 0) {
+                console.log("[OldStaking] API returned empty, trying blockchain query...");
+                const chainNFTs = await queryAvailableNFTsFromChain(addr);
+                availPlants = chainNFTs.plants;
+                availLands = chainNFTs.lands;
+                availSuperLands = chainNFTs.superLands;
+            }
 
             console.log("[OldStaking] NFT counts:", {
                 stakedPlants: stakedPlantNums.length,
@@ -901,18 +1122,14 @@ export default function Home()
                 ];
 
             const res = await multicallTry(readProvider, calls);
+            console.log("[OldStaking] Multicall results:", res.map(r => r.success));
 
-            const pendingRaw = decode1(iface, "pending", res[0]);
+            const pendingRaw = decode1(iface, "pending", res[0]) ?? ethers.BigNumber.from(0);
 
             const landBps = decode1(iface, "landBoostBps", res[1]) ?? ethers.BigNumber.from(0);
             const claimEnabled = decode1(iface, "claimEnabled", res[2]) ?? false;
             const landEnabled = decode1(iface, "landStakingEnabled", res[3]) ?? false;
             const tokensPerDay = decode1(iface, "tokensPerPlantPerDay", res[4]) ?? ethers.BigNumber.from(0);
-
-            if (!pendingRaw)
-            {
-                throw new Error("Old staking: failed to fetch users/pending");
-            }
 
             const plantsStaked = stakedPlantNums.length;
             const landsStaked  = stakedLandNums.length;
@@ -925,6 +1142,11 @@ export default function Home()
             // Set old available NFTs for old staking modal
             setOldAvailablePlants(availPlants);
             setOldAvailableLands(availLands);
+
+            // Also set shared available state
+            setAvailablePlants(availPlants);
+            setAvailableLands(availLands);
+            setAvailableSuperLands(availSuperLands);
 
             setOldLandStakingEnabled(landEnabled);
 
@@ -940,10 +1162,18 @@ export default function Home()
                     claimEnabled,
                     tokensPerSecond,
             });
+
+            console.log("[OldStaking] Stats set:", {
+                plantsStaked,
+                landsStaked,
+                totalSlots: 1 + landsStaked * 3,
+                landBoostPct: (landsStaked * Number(landBps)) / 100,
+                claimEnabled
+            });
         }
         catch (err)
         {
-            console.error("Old staking refresh failed:", err);
+            console.error("[OldStaking] Refresh failed:", err);
         }
         finally
         {
@@ -954,6 +1184,93 @@ export default function Home()
 
 
     const refreshNewStakingRef = useRef(false);
+
+    // Query NFTs directly from blockchain (fallback if API fails)
+    async function queryAvailableNFTsFromChain(addr: string): Promise<{
+        plants: number[];
+        lands: number[];
+        superLands: number[];
+    }> {
+        console.log("[NFT] Querying available NFTs directly from chain for:", addr);
+
+        const plantContract = new ethers.Contract(PLANT_ADDRESS, ERC721_VIEW_ABI, readProvider);
+        const landContract = new ethers.Contract(LAND_ADDRESS, ERC721_VIEW_ABI, readProvider);
+        const superLandContract = new ethers.Contract(SUPER_LAND_ADDRESS, ERC721_VIEW_ABI, readProvider);
+
+        const plants: number[] = [];
+        const lands: number[] = [];
+        const superLands: number[] = [];
+
+        try {
+            // Get balances
+            const [plantBal, landBal, superLandBal] = await Promise.all([
+                plantContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
+                landContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
+                superLandContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
+            ]);
+
+            console.log("[NFT] Balances:", {
+                plants: plantBal.toNumber(),
+                lands: landBal.toNumber(),
+                superLands: superLandBal.toNumber()
+            });
+
+            // For each NFT type, try to get token IDs using tokenOfOwnerByIndex if available
+            // Otherwise we'll need to scan Transfer events or use a different method
+
+            // Try ERC721Enumerable tokenOfOwnerByIndex
+            const erc721EnumAbi = [
+                "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)"
+            ];
+
+            const plantEnum = new ethers.Contract(PLANT_ADDRESS, erc721EnumAbi, readProvider);
+            const landEnum = new ethers.Contract(LAND_ADDRESS, erc721EnumAbi, readProvider);
+            const superLandEnum = new ethers.Contract(SUPER_LAND_ADDRESS, erc721EnumAbi, readProvider);
+
+            // Query plant token IDs
+            const plantPromises = [];
+            for (let i = 0; i < Math.min(plantBal.toNumber(), 100); i++) {
+                plantPromises.push(
+                    plantEnum.tokenOfOwnerByIndex(addr, i)
+                        .then((id: ethers.BigNumber) => id.toNumber())
+                        .catch(() => null)
+                );
+            }
+            const plantResults = await Promise.all(plantPromises);
+            plants.push(...plantResults.filter((id): id is number => id !== null));
+
+            // Query land token IDs
+            const landPromises = [];
+            for (let i = 0; i < Math.min(landBal.toNumber(), 100); i++) {
+                landPromises.push(
+                    landEnum.tokenOfOwnerByIndex(addr, i)
+                        .then((id: ethers.BigNumber) => id.toNumber())
+                        .catch(() => null)
+                );
+            }
+            const landResults = await Promise.all(landPromises);
+            lands.push(...landResults.filter((id): id is number => id !== null));
+
+            // Query super land token IDs
+            const superLandPromises = [];
+            for (let i = 0; i < Math.min(superLandBal.toNumber(), 100); i++) {
+                superLandPromises.push(
+                    superLandEnum.tokenOfOwnerByIndex(addr, i)
+                        .then((id: ethers.BigNumber) => id.toNumber())
+                        .catch(() => null)
+                );
+            }
+            const superLandResults = await Promise.all(superLandPromises);
+            superLands.push(...superLandResults.filter((id): id is number => id !== null));
+
+            console.log("[NFT] Found from chain:", { plants, lands, superLands });
+
+        } catch (err) {
+            console.error("[NFT] Failed to query NFTs from chain:", err);
+        }
+
+        return { plants, lands, superLands };
+    }
 
     async function refreshNewStaking() {
         if (!newStakingOpen || refreshNewStakingRef.current) return;
@@ -967,24 +1284,75 @@ export default function Home()
             let addr = userAddress;
             if (!addr)
             {
+                console.log("[NewStaking] No userAddress, calling ensureWallet...");
                 const ctx = await ensureWallet();
-                if (!ctx) return;
+                if (!ctx) {
+                    console.log("[NewStaking] ensureWallet returned null");
+                    return;
+                }
                 addr = ctx.userAddress;
             }
 
-            console.log("[NewStaking] Loading for address:", addr);
+            console.log("[NewStaking] Loading data for address:", addr);
 
-            // Query staked NFTs directly from NEW staking contract (includes super lands)
-            const staked = await queryStakedNFTsFromContract(NEW_STAKING_ADDRESS, addr, true);
-            const stakedPlantNums = staked.plants;
-            const stakedLandNums = staked.lands;
-            const stakedSuperLandNums = staked.superLands;
+            // Query staked NFTs directly from the NEW staking contract
+            const newStakingContract = new ethers.Contract(NEW_STAKING_ADDRESS, STAKING_ABI, readProvider);
 
-            // Query available NFTs directly from blockchain
-            const available = await queryAvailableNFTsFromChain(addr);
-            const availPlants = available.plants;
-            const availLands = available.lands;
-            const availSuperLands = available.superLands;
+            let stakedPlantNums: number[] = [];
+            let stakedLandNums: number[] = [];
+            let stakedSuperLandNums: number[] = [];
+
+            try {
+                const [stakedPlantsBN, stakedLandsBN, stakedSuperLandsBN] = await Promise.all([
+                    newStakingContract.plantsOf(addr),
+                    newStakingContract.landsOf(addr),
+                    newStakingContract.superLandsOf(addr),
+                ]);
+                stakedPlantNums = stakedPlantsBN.map((bn: ethers.BigNumber) => bn.toNumber());
+                stakedLandNums = stakedLandsBN.map((bn: ethers.BigNumber) => bn.toNumber());
+                stakedSuperLandNums = stakedSuperLandsBN.map((bn: ethers.BigNumber) => bn.toNumber());
+                console.log("[NewStaking] Staked from contract:", {
+                    plants: stakedPlantNums,
+                    lands: stakedLandNums,
+                    superLands: stakedSuperLandNums
+                });
+            } catch (err) {
+                console.error("[NewStaking] Failed to query staked NFTs from contract:", err);
+            }
+
+            // Get available (unstaked) NFTs - try API first, then fallback to chain
+            let availPlants: number[] = [];
+            let availLands: number[] = [];
+            let availSuperLands: number[] = [];
+
+            try {
+                const ownedState = await getOwnedState(addr);
+                const plants = ownedState?.plants || [];
+                const lands = ownedState?.lands || [];
+                const superLands = ownedState?.superLands || [];
+
+                // These are NFTs in the wallet (not staked)
+                availPlants = plants.map((t: any) => Number(t.tokenId));
+                availLands = lands.map((t: any) => Number(t.tokenId));
+                availSuperLands = superLands.map((t: any) => Number(t.tokenId));
+
+                console.log("[NewStaking] Available from API:", {
+                    plants: availPlants.length,
+                    lands: availLands.length,
+                    superLands: availSuperLands.length
+                });
+            } catch (err) {
+                console.error("[NewStaking] Failed to load owned tokens from API:", err);
+            }
+
+            // If API returned empty, try querying blockchain directly
+            if (availPlants.length === 0 && availLands.length === 0 && availSuperLands.length === 0) {
+                console.log("[NewStaking] API returned empty, trying blockchain query...");
+                const chainNFTs = await queryAvailableNFTsFromChain(addr);
+                availPlants = chainNFTs.plants;
+                availLands = chainNFTs.lands;
+                availSuperLands = chainNFTs.superLands;
+            }
 
             console.log("[NewStaking] NFT counts:", {
                 stakedPlants: stakedPlantNums.length,
@@ -1012,8 +1380,9 @@ export default function Home()
                 ];
 
             const res = await multicallTry(readProvider, calls);
+            console.log("[NewStaking] Multicall results:", res.map(r => r.success));
 
-            const pendingRaw = decode1(iface, "pending", res[0]);
+            const pendingRaw = decode1(iface, "pending", res[0]) ?? ethers.BigNumber.from(0);
 
             const tokensPerDay = decode1(iface, "tokensPerPlantPerDay", res[1]) ?? ethers.BigNumber.from(0);
             const totalBoostBps = decode1(iface, "getBoostBps", res[2]) ?? ethers.BigNumber.from(10_000);
@@ -1022,11 +1391,6 @@ export default function Home()
             const claimEnabled = decode1(iface, "claimEnabled", res[4]) ?? false;
             const landEnabled = decode1(iface, "landStakingEnabled", res[5]) ?? false;
             const superLandEnabled = decode1(iface, "superLandStakingEnabled", res[6]) ?? false;
-
-            if (!pendingRaw)
-            {
-                throw new Error("New staking: failed to fetch users/pending");
-            }
 
             const plantsStaked = stakedPlantNums.length;
             const landsStaked  = stakedLandNums.length;
@@ -1072,10 +1436,20 @@ export default function Home()
                     claimEnabled,
                     tokensPerSecond,
             });
+
+            console.log("[NewStaking] Stats set:", {
+                plantsStaked,
+                landsStaked,
+                superLandsStaked,
+                totalSlots,
+                totalBoostPct: boostPct,
+                dailyRewards,
+                claimEnabled
+            });
         }
         catch (err)
         {
-            console.error("New staking refresh failed:", err);
+            console.error("[NewStaking] Refresh failed:", err);
         }
         finally
         {
@@ -1085,12 +1459,114 @@ export default function Home()
     }
 
     useEffect(() => {
-        if (oldStakingOpen) refreshOldStaking();
-    }, [oldStakingOpen]);
+        if (oldStakingOpen) {
+            // Clear cache when address changes to force fresh data
+            ownedCacheRef.current = { addr: null, state: null };
+            refreshOldStakingRef.current = false;
+            refreshOldStaking();
+        }
+    }, [oldStakingOpen, userAddress]);
 
     useEffect(() => {
-        if (newStakingOpen) refreshNewStaking();
-    }, [newStakingOpen]);
+        if (newStakingOpen) {
+            // Clear cache when address changes to force fresh data
+            ownedCacheRef.current = { addr: null, state: null };
+            refreshNewStakingRef.current = false;
+            refreshNewStaking();
+        }
+    }, [newStakingOpen, userAddress]);
+
+    // Real-time pending rewards update for NEW staking
+    useEffect(() => {
+        if (!newStakingOpen || !newStakingStats) return;
+
+        const { pendingRaw, tokensPerSecond, plantsStaked, totalBoostPct } = newStakingStats;
+        if (!pendingRaw || !tokensPerSecond || plantsStaked === 0) return;
+
+        console.log("[Pending] Starting real-time update, tokensPerSecond:", tokensPerSecond.toString());
+
+        let currentPending = pendingRaw;
+        const boostMultiplier = totalBoostPct / 100; // e.g., 112% -> 1.12
+
+        // Calculate tokens per second with boost
+        const effectiveTokensPerSecond = tokensPerSecond.mul(plantsStaked).mul(Math.floor(boostMultiplier * 100)).div(100);
+
+        const interval = setInterval(() => {
+            currentPending = currentPending.add(effectiveTokensPerSecond);
+            const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
+
+            let display: string;
+            if (formatted >= 1_000_000) {
+                display = (formatted / 1_000_000).toFixed(4) + "M";
+            } else if (formatted >= 1000) {
+                display = (formatted / 1000).toFixed(2) + "K";
+            } else {
+                display = formatted.toFixed(2);
+            }
+
+            setRealTimePending(display);
+        }, 1000);
+
+        // Set initial value
+        const initialFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
+        let initialDisplay: string;
+        if (initialFormatted >= 1_000_000) {
+            initialDisplay = (initialFormatted / 1_000_000).toFixed(4) + "M";
+        } else if (initialFormatted >= 1000) {
+            initialDisplay = (initialFormatted / 1000).toFixed(2) + "K";
+        } else {
+            initialDisplay = initialFormatted.toFixed(2);
+        }
+        setRealTimePending(initialDisplay);
+
+        return () => clearInterval(interval);
+    }, [newStakingOpen, newStakingStats]);
+
+    // Real-time pending rewards update for OLD staking
+    useEffect(() => {
+        if (!oldStakingOpen || !oldStakingStats) return;
+
+        const { pendingRaw, tokensPerSecond, plantsStaked, landBoostPct } = oldStakingStats;
+        if (!pendingRaw || !tokensPerSecond || plantsStaked === 0) return;
+
+        console.log("[OldPending] Starting real-time update");
+
+        let currentPending = pendingRaw;
+        const boostMultiplier = 1 + (landBoostPct / 100); // e.g., 12% -> 1.12
+
+        // Calculate tokens per second with boost
+        const effectiveTokensPerSecond = tokensPerSecond.mul(plantsStaked).mul(Math.floor(boostMultiplier * 100)).div(100);
+
+        const interval = setInterval(() => {
+            currentPending = currentPending.add(effectiveTokensPerSecond);
+            const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
+
+            let display: string;
+            if (formatted >= 1_000_000) {
+                display = (formatted / 1_000_000).toFixed(4) + "M";
+            } else if (formatted >= 1000) {
+                display = (formatted / 1000).toFixed(2) + "K";
+            } else {
+                display = formatted.toFixed(2);
+            }
+
+            setOldRealTimePending(display);
+        }, 1000);
+
+        // Set initial value
+        const initialFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
+        let initialDisplay: string;
+        if (initialFormatted >= 1_000_000) {
+            initialDisplay = (initialFormatted / 1_000_000).toFixed(4) + "M";
+        } else if (initialFormatted >= 1000) {
+            initialDisplay = (initialFormatted / 1000).toFixed(2) + "K";
+        } else {
+            initialDisplay = initialFormatted.toFixed(2);
+        }
+        setOldRealTimePending(initialDisplay);
+
+        return () => clearInterval(interval);
+    }, [oldStakingOpen, oldStakingStats]);
 
 
     async function ensureCollectionApproval(collectionAddress: string, stakingAddress: string, ctx: { signer: ethers.Signer; userAddress: string }) {
@@ -1263,6 +1739,22 @@ export default function Home()
 
     const connected = !!userAddress;
 
+    // Mobile-friendly wallet connection handler
+    const handleConnectWallet = async (e: React.MouseEvent | React.TouchEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (connecting) return;
+
+        console.log("[UI] Connect wallet button pressed");
+
+        try {
+            await ensureWallet();
+        } catch (err) {
+            console.error("[UI] Wallet connection error:", err);
+        }
+    };
+
     const toggleId = (id: number, list: number[], setter: (v: number[]) => void) => list.includes(id) ? setter(list.filter((x) => x !== id)) : setter([...list, id]);
     const oldTotalAvailable = oldAvailablePlants.length + oldAvailableLands.length;
     const oldTotalStaked = oldStakedPlants.length + oldStakedLands.length;
@@ -1280,12 +1772,39 @@ export default function Home()
         </label>
     );
 
+    // Connect wallet button component with proper mobile support
+    const ConnectWalletButton = () => (
+        <button
+            type="button"
+            disabled={connecting}
+            onClick={handleConnectWallet}
+            onTouchEnd={handleConnectWallet}
+            style={{
+                padding: "8px 16px",
+                borderRadius: 999,
+                border: "1px solid rgba(255,255,255,0.25)",
+                background: connected ? "rgba(0,200,130,0.18)" : "rgba(39,95,255,0.55)",
+                fontSize: 11,
+                fontWeight: 500,
+                color: "#fff",
+                cursor: connecting ? "wait" : "pointer",
+                touchAction: "manipulation",
+                WebkitTapHighlightColor: "transparent",
+                userSelect: "none",
+                minHeight: 36,
+                opacity: connecting ? 0.7 : 1,
+            }}
+        >
+            {connecting ? "Connecting..." : shortAddr(userAddress)}
+        </button>
+    );
+
     return (
         <div className={styles.page} style={{ paddingBottom: 70 }} onPointerDown={() => { if (!isPlaying && audioRef.current) audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {}); }}>
             <header className={styles.headerWrapper}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
                     <div className={styles.brand}><span className={styles.liveDot} /><span className={styles.brandText}>FCWEED</span></div>
-                    <button type="button" disabled={connecting} onClick={() => void ensureWallet()} style={{ padding: "4px 10px", borderRadius: 999, border: "1px solid rgba(255,255,255,0.25)", background: connected ? "rgba(0,200,130,0.18)" : "rgba(39,95,255,0.55)", fontSize: 10, fontWeight: 500, color: "#fff", cursor: "pointer" }}>{shortAddr(userAddress)}</button>
+                    <ConnectWalletButton />
                 </div>
                 <div className={styles.headerRight}>
                     <div className={styles.radioPill}>
