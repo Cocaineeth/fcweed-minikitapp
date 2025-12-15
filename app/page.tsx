@@ -341,7 +341,7 @@ export default function Home()
    
     const [crateSpinning, setCrateSpinning] = useState(false);
     const [crateResultIdx, setCrateResultIdx] = useState<number | null>(null);
-    const [crateResultData, setCrateResultData] = useState<{ rewardIndex: number; rewardName: string; amount: ethers.BigNumber; nftTokenId: number; category: number } | null>(null);
+    const [crateResultData, setCrateResultData] = useState<{ rewardIndex: number; rewardName: string; amount: ethers.BigNumber; nftTokenId: number } | null>(null);
     const [crateShowWin, setCrateShowWin] = useState(false);
     const [crateConfirmOpen, setCrateConfirmOpen] = useState(false);
     const [crateReelOpen, setCrateReelOpen] = useState(false);
@@ -357,6 +357,7 @@ export default function Home()
     const [dustConversionEnabled, setDustConversionEnabled] = useState(false);
     const crateReelRef = useRef<HTMLDivElement>(null);
     const [crateReelItems, setCrateReelItems] = useState<CrateReward[]>([]);
+    const [crateWinItem, setCrateWinItem] = useState<CrateReward | null>(null);
     const crateTransactionInProgress = useRef(false);
     const lastCrateOpenBlock = useRef(0);
     const processedCrateTxHashes = useRef<Set<string>>(new Set());
@@ -2422,7 +2423,7 @@ export default function Home()
 
             clearTimeout(timeoutId);
             setCrateResultIdx(rewardIndex);
-            setCrateResultData({ rewardIndex, rewardName, amount, nftTokenId, category });
+            setCrateResultData({ rewardIndex, rewardName, amount, nftTokenId });
 
             let winToken = 'DUST';
             let winColor = '#6B7280';
@@ -2430,7 +2431,7 @@ export default function Home()
             let winIsNFT = false;
             let winIsJackpot = false;
 
-            if (category === RewardCategory.FCWEED) {
+            if (category === 0) {
                 winToken = 'FCWEED';
                 const fcweedVal = parseFloat(ethers.utils.formatUnits(amount, 18));
                 if (fcweedVal >= 5000000) { winIsJackpot = true; winColor = '#FFD700'; winAmount = '5M'; }
@@ -2439,7 +2440,7 @@ export default function Home()
                 else if (fcweedVal >= 300000) { winColor = '#3B82F6'; winAmount = '300K'; }
                 else if (fcweedVal >= 150000) { winColor = '#4A9B7F'; winAmount = '150K'; }
                 else { winColor = '#8B9A6B'; winAmount = '50K'; }
-            } else if (category === RewardCategory.USDC) {
+            } else if (category === 1) {
                 winToken = 'USDC';
                 const usdcVal = parseFloat(ethers.utils.formatUnits(amount, 6));
                 if (usdcVal >= 250) { winIsJackpot = true; winColor = '#00D4FF'; winAmount = '$250'; }
@@ -2447,28 +2448,29 @@ export default function Home()
                 else if (usdcVal >= 50) { winColor = '#2775CA'; winAmount = '$50'; }
                 else if (usdcVal >= 15) { winColor = '#2775CA'; winAmount = '$15'; }
                 else { winColor = '#2775CA'; winAmount = '$5'; }
-            } else if (category === RewardCategory.DUST) {
+            } else if (category === 2) {
                 winToken = 'DUST';
                 const dustVal = amount.toNumber();
                 if (dustVal >= 1000) { winColor = '#E5E7EB'; winAmount = '1,000'; }
                 else if (dustVal >= 500) { winColor = '#D1D5DB'; winAmount = '500'; }
                 else if (dustVal >= 250) { winColor = '#9CA3AF'; winAmount = '250'; }
                 else { winColor = '#6B7280'; winAmount = '100'; }
-            } else if (category === RewardCategory.NFT_PLANT) {
+            } else if (category === 3) {
                 winToken = 'NFT'; winIsNFT = true; winColor = '#228B22'; winAmount = '1x';
-            } else if (category === RewardCategory.NFT_LAND) {
+            } else if (category === 4) {
                 winToken = 'NFT'; winIsNFT = true; winColor = '#8B4513'; winAmount = '1x';
-            } else if (category === RewardCategory.NFT_SUPER_LAND) {
+            } else if (category === 5) {
                 winToken = 'NFT'; winIsNFT = true; winIsJackpot = true; winColor = '#FF6B35'; winAmount = '1x';
             }
 
-            const winningItem: CrateReward = { id: rewardIndex, name: rewardName, amount: winAmount, token: winToken, color: winColor, isNFT: winIsNFT, isJackpot: winIsJackpot };
+            const winningItem: CrateReward = { id: 999, name: rewardName, amount: winAmount, token: winToken, color: winColor, isNFT: winIsNFT, isJackpot: winIsJackpot };
 
             const s = [...CRATE_REWARDS].sort(() => Math.random() - 0.5);
             const items: CrateReward[] = [];
-            for (let i = 0; i < 6; i++) items.push(...s);
+            for (let i = 0; i < 5; i++) items.push(...s);
             items.push(winningItem);
             setCrateReelItems(items);
+            setCrateWinItem(winningItem);
 
             setCrateReelOpen(true);
             setCrateLoading(false);
@@ -2533,6 +2535,7 @@ export default function Home()
         setCrateReelOpen(false);
         setCrateResultIdx(null);
         setCrateResultData(null);
+        setCrateWinItem(null);
     };
 
 
@@ -2551,49 +2554,7 @@ export default function Home()
         return () => clearTimeout(t);
     }, [crateSpinning, crateReelItems]);
 
-    const crateWon = useMemo(() => {
-        if (!crateResultData) return null;
-        const { category, rewardName, amount } = crateResultData;
-        let token = 'DUST';
-        let color = '#6B7280';
-        let isNFT = false;
-        let isJackpot = false;
-        let displayAmount = '0';
-
-        if (category === RewardCategory.FCWEED) {
-            token = 'FCWEED';
-            const fcweedVal = parseFloat(ethers.utils.formatUnits(amount, 18));
-            if (fcweedVal >= 5000000) { isJackpot = true; color = '#FFD700'; displayAmount = '5M'; }
-            else if (fcweedVal >= 1000000) { color = '#F59E0B'; displayAmount = '1M'; }
-            else if (fcweedVal >= 500000) { color = '#A855F7'; displayAmount = '500K'; }
-            else if (fcweedVal >= 300000) { color = '#3B82F6'; displayAmount = '300K'; }
-            else if (fcweedVal >= 150000) { color = '#4A9B7F'; displayAmount = '150K'; }
-            else { color = '#8B9A6B'; displayAmount = '50K'; }
-        } else if (category === RewardCategory.USDC) {
-            token = 'USDC';
-            const usdcVal = parseFloat(ethers.utils.formatUnits(amount, 6));
-            if (usdcVal >= 250) { isJackpot = true; color = '#00D4FF'; displayAmount = '$250'; }
-            else if (usdcVal >= 100) { color = '#2775CA'; displayAmount = '$100'; }
-            else if (usdcVal >= 50) { color = '#2775CA'; displayAmount = '$50'; }
-            else if (usdcVal >= 15) { color = '#2775CA'; displayAmount = '$15'; }
-            else { color = '#2775CA'; displayAmount = '$5'; }
-        } else if (category === RewardCategory.DUST) {
-            token = 'DUST';
-            const dustVal = amount.toNumber();
-            if (dustVal >= 1000) { color = '#E5E7EB'; displayAmount = '1,000'; }
-            else if (dustVal >= 500) { color = '#D1D5DB'; displayAmount = '500'; }
-            else if (dustVal >= 250) { color = '#9CA3AF'; displayAmount = '250'; }
-            else { color = '#6B7280'; displayAmount = '100'; }
-        } else if (category === RewardCategory.NFT_PLANT) {
-            token = 'NFT'; isNFT = true; color = '#228B22'; displayAmount = '1x';
-        } else if (category === RewardCategory.NFT_LAND) {
-            token = 'NFT'; isNFT = true; color = '#8B4513'; displayAmount = '1x';
-        } else if (category === RewardCategory.NFT_SUPER_LAND) {
-            token = 'NFT'; isNFT = true; isJackpot = true; color = '#FF6B35'; displayAmount = '1x';
-        }
-
-        return { name: rewardName, amount: displayAmount, token, color, isNFT, isJackpot };
-    }, [crateResultData]);
+    const crateWon = crateWinItem;
     const dustRewards = CRATE_REWARDS.filter(r => r.token === 'DUST');
     const fcweedRewards = CRATE_REWARDS.filter(r => r.token === 'FCWEED');
     const usdcRewards = CRATE_REWARDS.filter(r => r.token === 'USDC');
