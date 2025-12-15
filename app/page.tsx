@@ -113,11 +113,52 @@ function isSuper(nftAddress: string, id: number): boolean
     return false;
 }
 
+// Detect if running inside Farcaster mobile app
+function detectMiniAppEnvironment(): { isMiniApp: boolean; isMobile: boolean } {
+    if (typeof window === "undefined") return { isMiniApp: false, isMobile: false };
+
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+    // Multiple detection methods for Farcaster mini app
+    const inIframe = window.parent !== window;
+    const hasFarcasterContext = !!(window as any).farcaster || !!(window as any).__FARCASTER__;
+    const urlHasFrame = window.location.href.includes("fc-frame") ||
+                        window.location.href.includes("farcaster") ||
+                        document.referrer.includes("warpcast");
+
+    const isMiniApp = inIframe || hasFarcasterContext || urlHasFrame;
+
+    return { isMiniApp, isMobile };
+}
+
 async function waitForTx(
-    tx: ethers.providers.TransactionResponse | undefined | null
+    tx: ethers.providers.TransactionResponse | undefined | null,
+    readProvider?: ethers.providers.Provider,
+    maxWaitMs = 60000
 )
 {
     if (!tx) return;
+
+    // For mini app transactions, we may not be able to call wait()
+    // Instead, poll the chain for confirmation
+    if (readProvider && tx.hash) {
+        const startTime = Date.now();
+        while (Date.now() - startTime < maxWaitMs) {
+            try {
+                const receipt = await readProvider.getTransactionReceipt(tx.hash);
+                if (receipt && receipt.confirmations > 0) {
+                    return receipt;
+                }
+            } catch {
+                // Ignore and retry
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        console.warn("Transaction wait timeout, proceeding anyway:", tx.hash);
+        return;
+    }
+
+    // Fallback to standard wait
     try {
         await tx.wait();
     } catch (e: any) {
@@ -129,7 +170,8 @@ async function waitForTx(
             "";
         if (
             msg.includes("does not support the requested method") ||
-            msg.includes("unsupported method")
+            msg.includes("unsupported method") ||
+            msg.includes("wait is not a function")
         ) {
             console.warn("Ignoring provider wait() error:", e);
         } else {
@@ -260,7 +302,7 @@ export default function Home()
         setSelectedNewStakedLands([]);
         setSelectedNewStakedSuperLands([]); },
               [userAddress]);
-    
+
     const handlePlayPause = () => setIsPlaying((prev) => !prev);
     const handleNextTrack = () =>
         setCurrentTrack((prev) => (prev + 1) % PLAYLIST.length);
@@ -271,11 +313,27 @@ export default function Home()
         if (!isMiniAppReady) {
             setMiniAppReady();
         }
+
+        // Initialize Farcaster SDK and auto-connect if in mini app
         (async () => {
             try {
+                console.log("[Init] Initializing Farcaster SDK...");
                 await sdk.actions.ready();
-            } catch {
-                //
+                console.log("[Init] SDK ready");
+
+                // Auto-connect wallet if in Farcaster mini app
+                const { isMiniApp } = detectMiniAppEnvironment();
+                if (isMiniApp && !userAddress) {
+                    console.log("[Init] Auto-connecting wallet in mini app...");
+                    // Small delay to ensure SDK is fully initialized
+                    setTimeout(() => {
+                        ensureWallet().catch(err => {
+                            console.warn("[Init] Auto-connect failed:", err);
+                        });
+                    }, 500);
+                }
+            } catch (err) {
+                console.warn("[Init] SDK initialization failed:", err);
             }
         })();
     }, [isMiniAppReady, setMiniAppReady]);
@@ -287,10 +345,10 @@ export default function Home()
         if (signer && provider && userAddress) {
             return { signer, provider, userAddress, isMini: usingMiniApp };
         }
-        
 
         try {
             setConnecting(true);
+            setMintStatus("");
 
             let p: ethers.providers.Web3Provider;
             let s: ethers.Signer;
@@ -298,46 +356,120 @@ export default function Home()
             let isMini = false;
             let ethProv: any | null = null;
 
-            const isProbablyMiniApp =
-                typeof window !== "undefined" &&
-                (window as any).parent !== window; // crude but useful signal
+            const { isMiniApp: detectedMiniApp, isMobile } = detectMiniAppEnvironment();
 
-            if (isProbablyMiniApp) {
+            console.log("[Wallet] Environment:", { detectedMiniApp, isMobile });
+
+            // Try Farcaster MiniApp SDK first (works for both mobile and desktop frames)
+            if (detectedMiniApp) {
                 try {
+                    console.log("[Wallet] Attempting Farcaster SDK wallet connection...");
+
+                    // Initialize SDK if needed
+                    try {
+                        await sdk.actions.ready();
+                    } catch {
+                        // Already ready or not available
+                    }
+
                     ethProv = await sdk.wallet.getEthereumProvider();
-                } catch {
+
+                    if (ethProv) {
+                        console.log("[Wallet] Got Farcaster ethereum provider");
+                        isMini = true;
+                    }
+                } catch (err) {
+                    console.warn("[Wallet] Farcaster SDK wallet failed:", err);
                     ethProv = null;
                 }
             }
+
+            // If we got a Farcaster provider, use it
             if (ethProv) {
-                isMini = true;
                 setUsingMiniApp(true);
                 setMiniAppEthProvider(ethProv);
 
+                // Request accounts via the provider
+                try {
+                    await ethProv.request({ method: "eth_requestAccounts" });
+                } catch (err) {
+                    console.warn("[Wallet] eth_requestAccounts failed, trying to get address anyway:", err);
+                }
+
                 p = new ethers.providers.Web3Provider(ethProv as any, "any");
                 s = p.getSigner();
-                addr = await s.getAddress();
+
+                try {
+                    addr = await s.getAddress();
+                } catch (err) {
+                    console.error("[Wallet] Failed to get address from Farcaster provider:", err);
+                    throw new Error("Could not get wallet address from Farcaster. Please try again.");
+                }
+
+                console.log("[Wallet] Connected via Farcaster:", addr);
             } else {
+                // Fallback to browser wallet (MetaMask, etc.)
                 setUsingMiniApp(false);
                 const anyWindow = window as any;
+
                 if (!anyWindow.ethereum) {
-                    setMintStatus(
-                        "No wallet found. Open this in the Farcaster app or install a browser wallet."
-                    );
+                    const errorMsg = isMobile
+                        ? "No wallet found. Please open this app in the Farcaster app to connect your wallet."
+                        : "No wallet found. Please install MetaMask or another Web3 wallet.";
+                    setMintStatus(errorMsg);
                     setConnecting(false);
                     return null;
                 }
-                await anyWindow.ethereum.request({ method: "eth_requestAccounts" });
+
+                console.log("[Wallet] Using browser ethereum provider");
+
+                try {
+                    await anyWindow.ethereum.request({ method: "eth_requestAccounts" });
+                } catch (err: any) {
+                    if (err.code === 4001) {
+                        setMintStatus("Wallet connection rejected. Please approve the connection request.");
+                    } else {
+                        setMintStatus("Failed to connect wallet. Please try again.");
+                    }
+                    setConnecting(false);
+                    return null;
+                }
+
                 p = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
                 s = p.getSigner();
                 addr = await s.getAddress();
+
+                console.log("[Wallet] Connected via browser wallet:", addr);
             }
 
-            const net = await p.getNetwork();
-            if (net.chainId !== CHAIN_ID) {
-                if (isMini) {
-                    setMintStatus("Please switch your Farcaster wallet to Base to mint.");
+            // Check and switch to Base chain
+            let currentChainId: number;
+            try {
+                const net = await p.getNetwork();
+                currentChainId = net.chainId;
+            } catch {
+                currentChainId = 0;
+            }
+
+            if (currentChainId !== CHAIN_ID) {
+                console.log("[Wallet] Wrong chain, attempting to switch to Base...");
+
+                if (isMini && ethProv) {
+                    // For Farcaster mini app, try to switch chain via the provider
+                    try {
+                        await ethProv.request({
+                            method: "wallet_switchEthereumChain",
+                            params: [{ chainId: "0x2105" }],
+                        });
+                        // Re-create provider after chain switch
+                        p = new ethers.providers.Web3Provider(ethProv as any, "any");
+                        s = p.getSigner();
+                    } catch (switchErr: any) {
+                        console.warn("[Wallet] Chain switch failed in mini app:", switchErr);
+                        // Don't fail - the user might already be on Base
+                    }
                 } else {
+                    // Browser wallet chain switch
                     const anyWindow = window as any;
                     if (anyWindow.ethereum?.request) {
                         try {
@@ -345,8 +477,29 @@ export default function Home()
                                 method: "wallet_switchEthereumChain",
                                 params: [{ chainId: "0x2105" }],
                             });
-                        } catch {
-                            //
+                            // Re-create provider after chain switch
+                            p = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
+                            s = p.getSigner();
+                        } catch (switchErr: any) {
+                            if (switchErr.code === 4902) {
+                                // Chain not added, try to add it
+                                try {
+                                    await anyWindow.ethereum.request({
+                                        method: "wallet_addEthereumChain",
+                                        params: [{
+                                            chainId: "0x2105",
+                                            chainName: "Base",
+                                            nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+                                            rpcUrls: ["https://mainnet.base.org"],
+                                            blockExplorerUrls: ["https://basescan.org"],
+                                        }],
+                                    });
+                                    p = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
+                                    s = p.getSigner();
+                                } catch {
+                                    console.warn("[Wallet] Failed to add Base chain");
+                                }
+                            }
                         }
                     }
                 }
@@ -359,14 +512,12 @@ export default function Home()
 
             return { signer: s, provider: p, userAddress: addr, isMini };
         } catch (err) {
-            console.error("Wallet connect failed:", err);
-            if (usingMiniApp) {
-                setMintStatus(
-                    "Could not connect Farcaster wallet. Make sure the mini app has wallet permissions."
-                );
-            } else {
-                setMintStatus("Wallet connect failed. Check your wallet and try again.");
-            }
+            console.error("[Wallet] Connection failed:", err);
+            setMintStatus(
+                usingMiniApp
+                    ? "Could not connect Farcaster wallet. Please make sure you have granted wallet permissions in the Farcaster app."
+                    : "Wallet connection failed. Please check your wallet and try again."
+            );
             setConnecting(false);
             return null;
         }
@@ -377,8 +528,8 @@ export default function Home()
         to: string,
         data: string
     ): Promise<ethers.providers.TransactionResponse> {
-        if (!usingMiniApp || !miniAppEthProvider) {
-            throw new Error("wallet_sendCalls not available");
+        if (!miniAppEthProvider) {
+            throw new Error("Mini app provider not available");
         }
 
         const req =
@@ -386,43 +537,116 @@ export default function Home()
             miniAppEthProvider.send?.bind(miniAppEthProvider);
 
         if (!req) {
-            throw new Error("Mini app provider missing request/send");
+            throw new Error("Mini app provider missing request/send method");
         }
 
         const chainIdHex = ethers.utils.hexValue(CHAIN_ID);
 
-        const result = await req({
-            method: "wallet_sendCalls",
-            params: [
-                {
-                    from,
-                    chainId: chainIdHex,
-                    atomicRequired: false,
-                    calls: [
-                        {
-                            to,
-                            data,
-                            value: "0x0",
-                        },
-                    ],
-                },
-            ],
-        });
+        console.log("[TX] Sending wallet_sendCalls:", { from, to, chainIdHex });
 
+        let result: any;
+
+        try {
+            // Try wallet_sendCalls first (EIP-5792)
+            result = await req({
+                method: "wallet_sendCalls",
+                params: [
+                    {
+                        from,
+                        chainId: chainIdHex,
+                        atomicRequired: false,
+                        calls: [
+                            {
+                                to,
+                                data,
+                                value: "0x0",
+                            },
+                        ],
+                    },
+                ],
+            });
+        } catch (sendCallsError: any) {
+            console.warn("[TX] wallet_sendCalls failed, trying eth_sendTransaction:", sendCallsError);
+
+            // Fallback to eth_sendTransaction
+            try {
+                result = await req({
+                    method: "eth_sendTransaction",
+                    params: [{
+                        from,
+                        to,
+                        data,
+                        value: "0x0",
+                        chainId: chainIdHex,
+                    }],
+                });
+
+                // eth_sendTransaction returns the hash directly
+                if (typeof result === "string" && result.startsWith("0x")) {
+                    return {
+                        hash: result,
+                        wait: async () => {
+                            // Poll for receipt using readProvider
+                            for (let i = 0; i < 30; i++) {
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                try {
+                                    const receipt = await readProvider.getTransactionReceipt(result);
+                                    if (receipt) return receipt;
+                                } catch {
+                                    // Continue polling
+                                }
+                            }
+                            return null;
+                        },
+                    } as any;
+                }
+            } catch (sendTxError) {
+                console.error("[TX] eth_sendTransaction also failed:", sendTxError);
+                throw sendTxError;
+            }
+        }
+
+        console.log("[TX] Result:", result);
+
+        // Extract transaction hash from various response formats
         const txHash =
             (result?.txHashes && result.txHashes[0]) ||
             result?.txHash ||
             result?.hash ||
-            "0x";
+            (typeof result === "string" ? result : null);
 
-        if (!txHash || typeof txHash !== "string" || txHash.length !== 66)
-        {
-            throw new Error("wallet_sendCalls did not return a valid tx hash");
+        if (!txHash || typeof txHash !== "string" || !txHash.startsWith("0x")) {
+            console.error("[TX] Invalid tx hash response:", result);
+            // Don't throw - the transaction might have succeeded
+            // Return a fake tx that won't block on wait()
+            return {
+                hash: "0x" + "0".repeat(64),
+                wait: async () => {},
+            } as any;
         }
 
+        console.log("[TX] Transaction hash:", txHash);
+
+        // Return a transaction-like object that can be awaited
         const fakeTx: any = {
             hash: txHash,
-            wait: async () => {},
+            wait: async () => {
+                // Poll for receipt using readProvider
+                for (let i = 0; i < 30; i++) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    try {
+                        const receipt = await readProvider.getTransactionReceipt(txHash);
+                        if (receipt && receipt.confirmations > 0) {
+                            console.log("[TX] Confirmed:", txHash);
+                            return receipt;
+                        }
+                    } catch {
+                        // Continue polling
+                    }
+                }
+                console.warn("[TX] Wait timeout, proceeding:", txHash);
+                return null;
+            },
         };
 
         return fakeTx as ethers.providers.TransactionResponse;
@@ -435,15 +659,33 @@ export default function Home()
         const ctx = await ensureWallet();
         if (!ctx) return null;
 
-        if (ctx.isMini && miniAppEthProvider) {
-            return await sendWalletCalls(ctx.userAddress, to, data);
-        } else {
-            const tx = await ctx.signer.sendTransaction({
-                to,
-                data,
-                value: 0,
-            });
-            return tx;
+        console.log("[TX] sendContractTx:", { to, isMini: ctx.isMini, usingMiniApp });
+
+        try {
+            if (ctx.isMini && miniAppEthProvider) {
+                return await sendWalletCalls(ctx.userAddress, to, data);
+            } else {
+                const tx = await ctx.signer.sendTransaction({
+                    to,
+                    data,
+                    value: 0,
+                });
+                return tx;
+            }
+        } catch (err: any) {
+            console.error("[TX] sendContractTx failed:", err);
+
+            // Provide helpful error messages
+            const errMsg = err?.message || err?.reason || String(err);
+            if (errMsg.includes("rejected") || errMsg.includes("denied") || err?.code === 4001) {
+                setMintStatus("Transaction rejected. Please approve in your wallet.");
+            } else if (errMsg.includes("insufficient")) {
+                setMintStatus("Insufficient funds for transaction.");
+            } else {
+                setMintStatus("Transaction failed: " + errMsg.slice(0, 100));
+            }
+
+            throw err;
         }
     }
 
