@@ -56,6 +56,34 @@ import {
 
 const METADATA_MODE: "local-only" | "hybrid" | "remote-all" = "hybrid";
 
+// Crate system constants
+const CRATE_VAULT_ADDRESS = "0x63e0F8Bf2670f54b7DB51254cED9B65b2B748B0C";
+const CRATE_COST = ethers.utils.parseUnits("200000", 18); // 200,000 FCWEED
+
+const CRATE_REWARDS = [
+  { id: 0, name: 'Dust', amount: '100', token: 'DUST', color: '#6B7280' },
+  { id: 1, name: 'Dust Pile', amount: '250', token: 'DUST', color: '#9CA3AF' },
+  { id: 2, name: 'Dust Cloud', amount: '500', token: 'DUST', color: '#D1D5DB' },
+  { id: 3, name: 'Dust Storm', amount: '1,000', token: 'DUST', color: '#E5E7EB' },
+  { id: 4, name: 'Common', amount: '50K', token: 'FCWEED', color: '#8B9A6B' },
+  { id: 5, name: 'Uncommon', amount: '150K', token: 'FCWEED', color: '#4A9B7F' },
+  { id: 6, name: 'Rare', amount: '300K', token: 'FCWEED', color: '#3B82F6' },
+  { id: 7, name: 'Epic', amount: '500K', token: 'FCWEED', color: '#A855F7' },
+  { id: 8, name: 'Legendary', amount: '1M', token: 'FCWEED', color: '#F59E0B' },
+  { id: 9, name: 'JACKPOT', amount: '5M', token: 'FCWEED', color: '#FFD700', isJackpot: true },
+  { id: 10, name: '$5', amount: '$5', token: 'USDC', color: '#2775CA' },
+  { id: 11, name: '$15', amount: '$15', token: 'USDC', color: '#2775CA' },
+  { id: 12, name: '$50', amount: '$50', token: 'USDC', color: '#2775CA' },
+  { id: 13, name: '$100', amount: '$100', token: 'USDC', color: '#2775CA' },
+  { id: 14, name: '$250', amount: '$250', token: 'USDC', color: '#00D4FF', isJackpot: true },
+  { id: 15, name: 'Plant NFT', amount: '1x', token: 'NFT', color: '#228B22', isNFT: true },
+  { id: 16, name: 'Land NFT', amount: '1x', token: 'NFT', color: '#8B4513', isNFT: true },
+  { id: 17, name: 'Super Land', amount: '1x', token: 'NFT', color: '#FF6B35', isNFT: true, isJackpot: true },
+];
+const CRATE_PROBS = [2800, 1800, 1200, 600, 1400, 900, 400, 180, 50, 10, 300, 150, 50, 20, 5, 80, 40, 15];
+
+type CrateReward = typeof CRATE_REWARDS[number];
+
 type StakingStats = {
     plantsStaked: number;
     landsStaked: number;
@@ -284,6 +312,19 @@ export default function Home()
     const [farmerCount, setFarmerCount] = useState<number>(0);
     const [realTimePending, setRealTimePending] = useState<string>("0.00");
     const [oldRealTimePending, setOldRealTimePending] = useState<string>("0.00");
+
+    // Crate system states
+    const [crateSpinning, setCrateSpinning] = useState(false);
+    const [crateResultIdx, setCrateResultIdx] = useState<number | null>(null);
+    const [crateShowWin, setCrateShowWin] = useState(false);
+    const [crateConfirmOpen, setCrateConfirmOpen] = useState(false);
+    const [crateReelOpen, setCrateReelOpen] = useState(false);
+    const [crateUserStats, setCrateUserStats] = useState({ opened: 0, dust: 0, fcweed: 0, usdc: 0, nfts: 0 });
+    const [fcweedBalance, setFcweedBalance] = useState("0");
+    const [vaultNfts, setVaultNfts] = useState({ plants: 0, lands: 0, superLands: 0 });
+    const [loadingVault, setLoadingVault] = useState(false);
+    const crateReelRef = useRef<HTMLDivElement>(null);
+    const [crateReelItems, setCrateReelItems] = useState<CrateReward[]>([]);
 
     // const ladder = useLeaderboard({ readProvider, userAddress, usingMiniApp, topN: 10, });
 
@@ -1761,6 +1802,119 @@ export default function Home()
     const newTotalAvailable = newAvailablePlants.length + newAvailableLands.length + newAvailableSuperLands.length;
     const newTotalStaked = newStakedPlants.length + newStakedLands.length + newStakedSuperLands.length;
 
+    // ============ CRATE SYSTEM LOGIC ============
+
+    // Load FCWEED balance and vault NFTs when connected
+    useEffect(() => {
+        if (!connected || !userAddress) return;
+        (async () => {
+            try {
+                const c = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+                const b = await c.balanceOf(userAddress);
+                const f = parseFloat(ethers.utils.formatUnits(b, 18));
+                setFcweedBalance(f >= 1e6 ? (f / 1e6).toFixed(2) + "M" : f >= 1e3 ? (f / 1e3).toFixed(0) + "K" : f.toFixed(0));
+            } catch {}
+        })();
+    }, [connected, userAddress, readProvider]);
+
+    // Load vault NFT counts
+    useEffect(() => {
+        if (activeTab !== "crates") return;
+        setLoadingVault(true);
+        (async () => {
+            try {
+                const [plantBal, landBal, superLandBal] = await Promise.all([
+                    new ethers.Contract(PLANT_ADDRESS, ERC721_VIEW_ABI, readProvider).balanceOf(CRATE_VAULT_ADDRESS),
+                    new ethers.Contract(LAND_ADDRESS, ERC721_VIEW_ABI, readProvider).balanceOf(CRATE_VAULT_ADDRESS),
+                    new ethers.Contract(SUPER_LAND_ADDRESS, ERC721_VIEW_ABI, readProvider).balanceOf(CRATE_VAULT_ADDRESS),
+                ]);
+                setVaultNfts({
+                    plants: plantBal.toNumber(),
+                    lands: landBal.toNumber(),
+                    superLands: superLandBal.toNumber(),
+                });
+            } catch (err) {
+                console.error("Failed to load vault NFTs:", err);
+            } finally {
+                setLoadingVault(false);
+            }
+        })();
+    }, [activeTab, readProvider]);
+
+    // Crate roll function
+    const crateRoll = () => {
+        let r = Math.random() * 10000, c = 0;
+        for (let i = 0; i < CRATE_PROBS.length; i++) {
+            c += CRATE_PROBS[i];
+            if (r < c) return i;
+        }
+        return 0;
+    };
+
+    const crateIcon = (t: string) => t === 'DUST' ? '💨' : t === 'FCWEED' ? '🌿' : t === 'USDC' ? '💵' : '🏆';
+
+    const onCrateOpen = () => {
+        if (!connected) { ensureWallet(); return; }
+        setCrateConfirmOpen(true);
+    };
+
+    const onCrateConfirm = () => {
+        setCrateConfirmOpen(false);
+        const res = crateRoll();
+        setCrateResultIdx(res);
+        const s = [...CRATE_REWARDS].sort(() => Math.random() - 0.5);
+        const items: CrateReward[] = [];
+        for (let i = 0; i < 6; i++) items.push(...s);
+        items.push(CRATE_REWARDS[res]);
+        setCrateReelItems(items);
+        setCrateReelOpen(true);
+        setTimeout(() => setCrateSpinning(true), 100);
+    };
+
+    const onCrateSpinDone = () => {
+        setCrateSpinning(false);
+        setTimeout(() => setCrateShowWin(true), 300);
+        const r = CRATE_REWARDS[crateResultIdx!];
+        setCrateUserStats(p => {
+            const u = { ...p, opened: p.opened + 1 };
+            if (r.token === 'DUST') u.dust += parseInt(r.amount.replace(/,/g, ''));
+            else if (r.token === 'FCWEED') u.fcweed += parseInt(r.amount.replace(/[KM,]/g, '')) * (r.amount.includes('M') ? 1e6 : r.amount.includes('K') ? 1e3 : 1);
+            else if (r.token === 'USDC') u.usdc += parseInt(r.amount.replace('$', ''));
+            else if (r.isNFT) u.nfts += 1;
+            return u;
+        });
+    };
+
+    const onCrateClose = () => {
+        setCrateShowWin(false);
+        setCrateReelOpen(false);
+        setCrateResultIdx(null);
+    };
+
+    // Crate reel animation
+    useEffect(() => {
+        if (!crateSpinning || !crateReelRef.current) return;
+        const w = 130, final = (crateReelItems.length - 1) * w - (window.innerWidth / 2) + 65;
+        crateReelRef.current.style.transition = 'none';
+        crateReelRef.current.style.transform = 'translateX(0)';
+        setTimeout(() => {
+            if (crateReelRef.current) {
+                crateReelRef.current.style.transition = 'transform 4s cubic-bezier(0.15, 0.85, 0.3, 1)';
+                crateReelRef.current.style.transform = `translateX(-${final}px)`;
+            }
+        }, 50);
+        const t = setTimeout(onCrateSpinDone, 4000);
+        return () => clearTimeout(t);
+    }, [crateSpinning, crateReelItems]);
+
+    const crateWon = crateResultIdx !== null ? CRATE_REWARDS[crateResultIdx] : null;
+    const dustRewards = CRATE_REWARDS.filter(r => r.token === 'DUST');
+    const fcweedRewards = CRATE_REWARDS.filter(r => r.token === 'FCWEED');
+    const usdcRewards = CRATE_REWARDS.filter(r => r.token === 'USDC');
+    const nftRewards = CRATE_REWARDS.filter(r => r.isNFT);
+
+    // ============ END CRATE SYSTEM LOGIC ============
+
     const NftCard = ({ id, img, name, checked, onChange }: { id: number; img: string; name: string; checked: boolean; onChange: () => void }) => (
         <label style={{ minWidth: 80, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}>
             <input type="checkbox" checked={checked} onChange={onChange} style={{ marginBottom: 3 }} />
@@ -1925,15 +2079,130 @@ export default function Home()
                 )}
 
                 {activeTab === "crates" && (
-                    <section className={styles.infoCard} style={{ position: "relative", textAlign: "center", padding: 40, minHeight: 300 }}>
-                        <div style={{ position: "absolute", inset: 0, background: "rgba(5,8,18,0.85)", backdropFilter: "blur(8px)", borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
-                            <div>
-                                <div style={{ fontSize: 48, marginBottom: 12 }}>📦</div>
-                                <h2 style={{ fontSize: 20, color: "#fbbf24" }}>Coming Soon</h2>
-                                <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 8 }}>Crate openings with mystery rewards</p>
+                    <>
+                        <style>{`
+                            @keyframes crateFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+                            @keyframes glowPulse{0%,100%{box-shadow:0 0 20px rgba(16,185,129,0.3)}50%{box-shadow:0 0 40px rgba(16,185,129,0.6)}}
+                            @keyframes popIn{0%{transform:scale(0.8);opacity:0}100%{transform:scale(1);opacity:1}}
+                            @keyframes jackpot{0%,100%{box-shadow:0 0 30px rgba(255,215,0,0.5)}50%{box-shadow:0 0 60px rgba(255,215,0,0.9)}}
+                            .c-float{animation:crateFloat 3s ease-in-out infinite}
+                            .c-glow{animation:glowPulse 2s ease-in-out infinite}
+                            .c-pop{animation:popIn 0.3s ease-out}
+                            .c-jack{animation:jackpot 1s ease-in-out infinite}
+                        `}</style>
+
+                        <section className={styles.infoCard} style={{ padding: '14px 10px' }}>
+                            <h2 style={{ fontSize: 15, margin: '0 0 10px', color: '#7cb3ff', textAlign: 'center' }}>Open Crate for Mystery Rewards</h2>
+
+                            {connected && (
+                                <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                                    <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 10 }}>
+                                        <span style={{ color: '#9ca3af' }}>Bal: </span><span style={{ color: '#34d399', fontWeight: 600 }}>{fcweedBalance}</span>
+                                    </div>
+                                    <div style={{ background: 'rgba(107,114,128,0.1)', border: '1px solid rgba(107,114,128,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 10 }}>
+                                        <span style={{ color: '#9ca3af' }}>Dust: </span><span style={{ color: '#d1d5db', fontWeight: 600 }}>{crateUserStats.dust.toLocaleString()}</span>
+                                    </div>
+                                    <div style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 10 }}>
+                                        <span style={{ color: '#9ca3af' }}>Opened: </span><span style={{ color: '#fbbf24', fontWeight: 600 }}>{crateUserStats.opened}</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4, marginBottom: 12, fontSize: 9 }}>
+                                <div>
+                                    <div style={{ color: '#6b7280', marginBottom: 2, fontWeight: 700, fontSize: 8, textTransform: 'uppercase' }}>Dust</div>
+                                    {dustRewards.map(r => <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 5px', background: 'rgba(107,114,128,0.1)', borderRadius: 4, marginBottom: 2 }}><span>{crateIcon(r.token)}</span><span style={{ color: '#fff', flex: 1 }}>{r.name}</span><span style={{ color: r.color }}>{r.amount}</span></div>)}
+                                </div>
+                                <div>
+                                    <div style={{ color: '#4ade80', marginBottom: 2, fontWeight: 700, fontSize: 8, textTransform: 'uppercase' }}>$FCWEED</div>
+                                    {fcweedRewards.map(r => <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 5px', background: r.isJackpot ? 'rgba(255,215,0,0.15)' : 'rgba(74,222,128,0.1)', borderRadius: 4, marginBottom: 2, border: r.isJackpot ? '1px solid rgba(255,215,0,0.3)' : 'none' }}><span>{r.isJackpot ? '🎰' : crateIcon(r.token)}</span><span style={{ color: '#fff', flex: 1 }}>{r.name}</span><span style={{ color: r.color, fontWeight: r.isJackpot ? 700 : 400 }}>{r.amount}</span></div>)}
+                                </div>
+                                <div>
+                                    <div style={{ color: '#2775CA', marginBottom: 2, fontWeight: 700, fontSize: 8, textTransform: 'uppercase' }}>USDC</div>
+                                    {usdcRewards.map(r => <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 5px', background: r.isJackpot ? 'rgba(0,212,255,0.15)' : 'rgba(39,117,202,0.1)', borderRadius: 4, marginBottom: 2, border: r.isJackpot ? '1px solid rgba(0,212,255,0.3)' : 'none' }}><span>{crateIcon(r.token)}</span><span style={{ color: '#fff', flex: 1 }}>{r.name}</span><span style={{ color: r.color }}>{r.amount}</span></div>)}
+                                </div>
+                                <div>
+                                    <div style={{ color: '#f59e0b', marginBottom: 2, fontWeight: 700, fontSize: 8, textTransform: 'uppercase' }}>NFTs</div>
+                                    {nftRewards.map(r => <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 5px', background: r.isJackpot ? 'rgba(255,107,53,0.15)' : 'rgba(245,158,11,0.1)', borderRadius: 4, marginBottom: 2, border: r.isJackpot ? '1px solid rgba(255,107,53,0.3)' : 'none' }}><span>{crateIcon(r.token)}</span><span style={{ color: '#fff', flex: 1 }}>{r.name}</span><span style={{ color: r.color }}>{r.amount}</span></div>)}
+                                </div>
+                            </div>
+
+                            <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 8, padding: 8, marginBottom: 12 }}>
+                                <div style={{ fontSize: 9, color: '#fbbf24', fontWeight: 600, marginBottom: 4 }}>🏦 Vault NFTs</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-around' }}>
+                                    <div style={{ textAlign: 'center' }}><div style={{ fontSize: 16, fontWeight: 800, color: '#ff6b35' }}>{loadingVault ? '...' : vaultNfts.superLands}</div><div style={{ color: '#9ca3af', fontSize: 8 }}>Super</div></div>
+                                    <div style={{ textAlign: 'center' }}><div style={{ fontSize: 16, fontWeight: 800, color: '#8b4513' }}>{loadingVault ? '...' : vaultNfts.lands}</div><div style={{ color: '#9ca3af', fontSize: 8 }}>Land</div></div>
+                                    <div style={{ textAlign: 'center' }}><div style={{ fontSize: 16, fontWeight: 800, color: '#228b22' }}>{loadingVault ? '...' : vaultNfts.plants}</div><div style={{ color: '#9ca3af', fontSize: 8 }}>Plant</div></div>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                <div className="c-float" style={{ width: 100, height: 100, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 56 }}>📦</div>
+                                <button type="button" onClick={onCrateOpen} className={`${styles.btnPrimary} c-glow`} style={{ width: '100%', maxWidth: 260, padding: '12px 20px', fontSize: 13, fontWeight: 700, background: 'linear-gradient(135deg, #059669, #10b981)', borderRadius: 10 }}>🎰 OPEN CRATE</button>
+                                <div style={{ marginTop: 6, fontSize: 10, color: '#9ca3af' }}>Cost: <span style={{ color: '#fbbf24', fontWeight: 600 }}>200,000 $FCWEED</span></div>
+                            </div>
+
+                            {crateUserStats.dust >= 1000 && (
+                                <div style={{ marginTop: 10, padding: 8, background: 'rgba(16,185,129,0.1)', borderRadius: 6, border: '1px solid rgba(16,185,129,0.2)', textAlign: 'center', fontSize: 9 }}>
+                                    <span style={{ color: '#34d399' }}>💨 {crateUserStats.dust.toLocaleString()} Dust = <b>{(Math.floor(crateUserStats.dust / 1000) * 60000).toLocaleString()}</b> $FCWEED</span>
+                                </div>
+                            )}
+                        </section>
+                    </>
+                )}
+
+                {/* Crate Confirm Modal */}
+                {crateConfirmOpen && (
+                    <div className={styles.modalBackdrop}>
+                        <div className={`${styles.modal} c-pop`} style={{ maxWidth: 300, padding: 16 }}>
+                            <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 40, marginBottom: 8 }}>🔥</div>
+                                <h2 style={{ fontSize: 16, color: '#fff', margin: '0 0 6px' }}>Burn to Open</h2>
+                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>Burn <span style={{ color: '#fbbf24', fontWeight: 600 }}>200,000 $FCWEED</span>?</p>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    <button type="button" onClick={() => setCrateConfirmOpen(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #374151', background: 'transparent', color: '#9ca3af', cursor: 'pointer', fontSize: 12 }}>Cancel</button>
+                                    <button type="button" onClick={onCrateConfirm} className={styles.btnPrimary} style={{ flex: 1, padding: 10, fontSize: 12, background: 'linear-gradient(135deg, #f59e0b, #fbbf24)', color: '#000' }}>🔥 Open</button>
+                                </div>
                             </div>
                         </div>
-                    </section>
+                    </div>
+                )}
+
+                {/* Crate Reel Modal */}
+                {crateReelOpen && (
+                    <div className={styles.modalBackdrop} style={{ background: 'rgba(0,0,0,0.95)' }}>
+                        <div style={{ width: '100%', maxWidth: 440, padding: 16 }}>
+                            <div style={{ textAlign: 'center', marginBottom: 12, color: '#fbbf24', fontSize: 13, fontWeight: 600 }}>{crateSpinning ? '🎰 SPINNING...' : '🎉 RESULT!'}</div>
+                            <div style={{ position: 'relative', height: 100, overflow: 'hidden', borderRadius: 10, background: '#111', border: '3px solid #333' }}>
+                                <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 3, background: '#fbbf24', transform: 'translateX(-50%)', zIndex: 20, boxShadow: '0 0 15px #fbbf24' }} />
+                                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, #111 0%, transparent 12%, transparent 88%, #111 100%)', zIndex: 10, pointerEvents: 'none' }} />
+                                <div ref={crateReelRef} style={{ display: 'flex', height: '100%', alignItems: 'center' }}>
+                                    {crateReelItems.map((item, idx) => (
+                                        <div key={idx} style={{ flexShrink: 0, width: 130, height: 90, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, padding: 6 }}>
+                                            <div style={{ width: 40, height: 40, borderRadius: 8, background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, border: `2px solid ${item.color}` }}>{crateIcon(item.token)}</div>
+                                            <div style={{ fontSize: 10, fontWeight: 600, color: '#fff' }}>{item.name}</div>
+                                            <div style={{ fontSize: 9, color: item.color }}>{item.amount}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Crate Win Modal */}
+                {crateShowWin && crateWon && (
+                    <div className={styles.modalBackdrop} onClick={onCrateClose}>
+                        <div className={`${styles.modal} c-pop ${crateWon.isJackpot ? 'c-jack' : ''}`} onClick={e => e.stopPropagation()} style={{ maxWidth: 300, padding: 20, background: crateWon.isJackpot ? 'linear-gradient(135deg, #1a1a2e, #16213e)' : '#0f172a', border: crateWon.isJackpot ? '2px solid #ffd700' : '1px solid #334155' }}>
+                            <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 48, marginBottom: 6 }}>{crateIcon(crateWon.token)}</div>
+                                <h2 style={{ fontSize: 18, color: crateWon.color, margin: '0 0 2px', fontWeight: 800 }}>{crateWon.name}</h2>
+                                <div style={{ fontSize: 28, fontWeight: 900, color: crateWon.color, marginBottom: 6 }}>{crateWon.amount} <span style={{ fontSize: 12, opacity: 0.8 }}>{crateWon.token}</span></div>
+                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>{crateWon.isJackpot ? '🎉 JACKPOT! 🎉' : crateWon.token === 'DUST' ? 'Convert to $FCWEED later!' : crateWon.isNFT ? 'NFT sent!' : 'Sent!'}</p>
+                                <button type="button" onClick={onCrateClose} className={styles.btnPrimary} style={{ width: '100%', padding: 12, fontSize: 12, background: crateWon.token === 'DUST' ? 'linear-gradient(135deg, #4b5563, #6b7280)' : 'linear-gradient(135deg, #059669, #10b981)' }}>{crateWon.token === 'DUST' ? 'Collect' : 'Awesome!'}</button>
+                            </div>
+                        </div>
+                    </div>
                 )}
 
                 {activeTab === "referrals" && (
