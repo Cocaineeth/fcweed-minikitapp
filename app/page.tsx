@@ -1933,6 +1933,17 @@ export default function Home()
 
             const vaultInterface = new ethers.utils.Interface(CRATE_VAULT_ABI);
 
+            // Determine if we're using Farcaster wallet
+            const isFarcasterWallet = ctx.isMini || usingMiniApp;
+            const farcasterProvider = miniAppEthProvider;
+
+            console.log("[Crate] Wallet context:", {
+                isMini: ctx.isMini,
+                usingMiniApp,
+                hasFarcasterProvider: !!farcasterProvider,
+                userAddress: ctx.userAddress
+            });
+
             // First check and approve FCWEED spending if needed
             const fcweedContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             const allowance = await fcweedContract.allowance(ctx.userAddress, CRATE_VAULT_ADDRESS);
@@ -1942,8 +1953,9 @@ export default function Home()
 
                 let approveTx: ethers.providers.TransactionResponse | null = null;
 
-                if (ctx.isMini && miniAppEthProvider) {
+                if (isFarcasterWallet && farcasterProvider) {
                     // Farcaster wallet
+                    console.log("[Crate] Using Farcaster wallet for approval");
                     approveTx = await sendWalletCalls(
                         ctx.userAddress,
                         FCWEED_ADDRESS,
@@ -1951,6 +1963,7 @@ export default function Home()
                     );
                 } else {
                     // External wallet
+                    console.log("[Crate] Using external wallet for approval");
                     const fcweedWrite = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, ctx.signer);
                     approveTx = await fcweedWrite.approve(CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256);
                 }
@@ -1969,8 +1982,9 @@ export default function Home()
 
             let tx: ethers.providers.TransactionResponse | null = null;
 
-            if (ctx.isMini && miniAppEthProvider) {
+            if (isFarcasterWallet && farcasterProvider) {
                 // Farcaster wallet
+                console.log("[Crate] Using Farcaster wallet for openCrate");
                 tx = await sendWalletCalls(
                     ctx.userAddress,
                     CRATE_VAULT_ADDRESS,
@@ -1978,6 +1992,7 @@ export default function Home()
                 );
             } else {
                 // External wallet
+                console.log("[Crate] Using external wallet for openCrate");
                 const vaultWrite = new ethers.Contract(CRATE_VAULT_ADDRESS, CRATE_VAULT_ABI, ctx.signer);
                 tx = await vaultWrite.openCrate();
             }
@@ -2356,12 +2371,6 @@ export default function Home()
                             {crateUserStats.dust >= 1000 && dustConversionEnabled && (
                                 <div style={{ marginTop: 10, padding: 8, background: 'rgba(16,185,129,0.1)', borderRadius: 6, border: '1px solid rgba(16,185,129,0.2)', textAlign: 'center', fontSize: 9 }}>
                                     <span style={{ color: '#34d399' }}>💨 {crateUserStats.dust.toLocaleString()} Dust = <b>{(Math.floor(crateUserStats.dust / 1000) * 60000).toLocaleString()}</b> $FCWEED</span>
-                                </div>
-                            )}
-
-                            {crateUserStats.dust > 0 && !dustConversionEnabled && (
-                                <div style={{ marginTop: 10, padding: 8, background: 'rgba(107,114,128,0.1)', borderRadius: 6, border: '1px solid rgba(107,114,128,0.2)', textAlign: 'center', fontSize: 9 }}>
-                                    <span style={{ color: '#9ca3af' }}>💨 {crateUserStats.dust.toLocaleString()} Dust collected (conversion coming soon)</span>
                                 </div>
                             )}
                         </section>
