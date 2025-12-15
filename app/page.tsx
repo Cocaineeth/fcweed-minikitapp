@@ -2702,7 +2702,7 @@ export default function Home()
                             <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 10 }}>
                                 <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 9, textAlign: 'center' }}>
                                     <div style={{ color: '#f87171', fontWeight: 700 }}>{crateGlobalStats.totalBurned}</div>
-                                    <div style={{ color: '#6b7280', fontSize: 7 }}>$FCWEED Spent</div>
+                                    <div style={{ color: '#6b7280', fontSize: 7 }}>Global $FCWEED Spent</div>
                                 </div>
                             </div>
 
