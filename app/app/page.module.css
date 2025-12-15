@@ -1,0 +1,369 @@
+.page
+{
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #15192a 0, #050814 55%, #020308 100%);
+  color: #fff;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.headerWrapper
+{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.brand
+{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.liveDot
+{
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ff3355;
+  box-shadow: 0 0 6px rgba(255, 51, 85, 0.8);
+}
+
+.brandText
+{
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+.walletButton
+{
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.walletButton:active
+{
+  transform: translateY(1px);
+}
+
+.headerRight
+{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.iconButton,
+.iconButtonSmall
+{
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(5, 8, 20, 0.9);
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.iconButton
+{
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.iconButtonSmall
+{
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+}
+
+.radioPill
+{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(4, 8, 24, 0.9);
+  font-size: 11px;
+  max-width: 280px;
+}
+
+.radioLabel
+{
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 9px;
+  opacity: 0.8;
+}
+
+.radioTitleWrap
+{
+  flex: 1;
+  overflow: hidden;
+}
+
+.radioTitleInner
+{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+.main
+{
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.heroCard
+{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 18px;
+  background: radial-gradient(circle at top left, #283045 0, #090b18 55%, #050814 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.heroMedia
+{
+  flex: 0 0 auto;
+}
+
+.heroImage
+{
+  border-radius: 16px;
+}
+
+.heroMain
+{
+  flex: 1 1 260px;
+}
+
+.title
+{
+  font-size: 24px;
+  margin-bottom: 6px;
+}
+
+.subtitle
+{
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+
+.highlight
+{
+  color: #42ffba;
+  font-weight: 600;
+}
+
+.ctaRow,
+.ctaRowSecondary
+{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btnPrimary,
+.btnSecondary
+{
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btnPrimary
+{
+  background: linear-gradient(90deg, #2df19b, #35a4ff);
+  color: #050814;
+  font-weight: 600;
+}
+
+.btnSecondary
+{
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.infoCard
+{
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(5, 8, 20, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.heading
+{
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.bulletList
+{
+  font-size: 13px;
+  padding-left: 20px;
+  margin-bottom: 10px;
+}
+
+.footer
+{
+  margin-top: 18px;
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* Modal + staking */
+
+.modalBackdrop
+{
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 5, 12, 0.8);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.modal
+{
+  background: #050814;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  padding: 12px;
+}
+
+.modalHeader
+{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.modalTitle
+{
+  font-size: 18px;
+}
+
+.modalClose
+{
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+}
+
+.modalStatsGrid
+{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.statCard
+{
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(9, 13, 32, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.statLabel
+{
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.statValue
+{
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.modalBody
+{
+  margin-top: 10px;
+}
+
+.nftHeader
+{
+  font-size: 13px;
+}
+
+.selectAllRow
+{
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+}
+
+.emptyState
+{
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.nftRow
+{
+  display: flex;
+  align-items: center;
+}
+
+.nftThumb
+{
+  display: block;
+}
+
+.nftMeta
+{
+  font-size: 12px;
+}
+
+.nftName
+{
+  font-weight: 600;
+}
+
+.nftSub
+{
+  opacity: 0.8;
+}
+
+.actionRow
+{
+  margin-top: 10px;
+}
