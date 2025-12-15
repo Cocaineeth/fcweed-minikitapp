@@ -656,7 +656,8 @@ export default function Home()
     async function sendWalletCalls(
         from: string,
         to: string,
-        data: string
+        data: string,
+        gasLimit: string = "0x493E0" // 300,000 gas default
     ): Promise<ethers.providers.TransactionResponse> {
         if (!miniAppEthProvider) {
             throw new Error("Mini app provider not available");
@@ -672,7 +673,7 @@ export default function Home()
 
         const chainIdHex = ethers.utils.hexValue(CHAIN_ID);
 
-        console.log("[TX] Sending wallet_sendCalls:", { from, to, chainIdHex });
+        console.log("[TX] Sending wallet_sendCalls:", { from, to, chainIdHex, gasLimit });
 
         let result: any;
         let txHash: string | null = null;
@@ -691,6 +692,7 @@ export default function Home()
                                 to,
                                 data,
                                 value: "0x0",
+                                gas: gasLimit,
                             },
                         ],
                     },
@@ -719,6 +721,7 @@ export default function Home()
                         to,
                         data,
                         value: "0x0",
+                        gas: gasLimit,
                         chainId: chainIdHex,
                     }],
                 });
@@ -2038,6 +2041,14 @@ export default function Home()
 
             let tx: ethers.providers.TransactionResponse | null = null;
 
+            // Get current block number BEFORE sending transaction
+            // This helps us search for events that happen AFTER this point
+            let blockBeforeTx = 0;
+            try {
+                blockBeforeTx = await readProvider.getBlockNumber();
+                console.log("[Crate] Block before tx:", blockBeforeTx);
+            } catch {}
+
             // Create a minimal interface just for openCrate to ensure clean encoding
             const openCrateAbi = ["function openCrate() external"];
             const openCrateInterface = new ethers.utils.Interface(openCrateAbi);
@@ -2047,22 +2058,24 @@ export default function Home()
             console.log("[Crate] Target contract:", CRATE_VAULT_ADDRESS);
 
             if (isFarcasterWallet && farcasterProvider) {
-                // Farcaster wallet
+                // Farcaster wallet - use high gas limit for complex openCrate function
                 console.log("[Crate] Using Farcaster wallet for openCrate");
                 tx = await sendWalletCalls(
                     ctx.userAddress,
                     CRATE_VAULT_ADDRESS,
-                    openCrateData
+                    openCrateData,
+                    "0x7A120" // 500,000 gas for openCrate (it's complex with transfers)
                 );
             } else {
                 // External wallet (MetaMask, Coinbase Wallet, etc.)
                 console.log("[Crate] Using external wallet for openCrate");
                 try {
-                    // Use sendTransaction directly for cleaner transaction
+                    // Use sendTransaction directly with high gas limit
                     tx = await ctx.signer.sendTransaction({
                         to: CRATE_VAULT_ADDRESS,
                         data: openCrateData,
                         value: 0,
+                        gasLimit: 500000, // High gas for complex openCrate function
                     });
                 } catch (openErr: any) {
                     clearTimeout(timeoutId);
@@ -2128,15 +2141,22 @@ export default function Home()
                 const crateOpenedTopic = eventInterface.getEventTopic("CrateOpened");
                 const userTopic = ethers.utils.hexZeroPad(ctx.userAddress.toLowerCase(), 32);
 
+                // Use the block we recorded before sending tx, or search last 20 blocks
+                const searchFromBlock = blockBeforeTx > 0 ? blockBeforeTx : 0;
+
                 // Poll for recent events
-                for (let i = 0; i < 45; i++) {
+                for (let i = 0; i < 60; i++) {
                     await new Promise(resolve => setTimeout(resolve, 2000));
                     try {
                         const currentBlock = await readProvider.getBlockNumber();
+                        const fromBlock = searchFromBlock > 0 ? searchFromBlock : currentBlock - 20;
+
+                        console.log("[Crate] Searching blocks", fromBlock, "to", currentBlock);
+
                         const logs = await readProvider.getLogs({
                             address: CRATE_VAULT_ADDRESS,
                             topics: [crateOpenedTopic, userTopic],
-                            fromBlock: currentBlock - 10,
+                            fromBlock: fromBlock,
                             toBlock: currentBlock,
                         });
 
@@ -2153,7 +2173,7 @@ export default function Home()
                             } as any;
                             break;
                         }
-                        console.log("[Crate] Searching for event...", i);
+                        console.log("[Crate] Searching for event...", i, "found", logs.length, "logs");
                     } catch (err) {
                         console.log("[Crate] Event search error:", err);
                     }
