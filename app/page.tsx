@@ -2618,6 +2618,7 @@ export default function Home()
                                 <li>The more Land you stack — the stronger your multiplier will be.</li>
                                 <li style={{ color: "#fbbf24" }}><b>NEW: Super Land</b> — Burn 1 Land + 2M FCWEED to upgrade!</li>
                                 <li>Each Super Land grants <b style={{ color: "#fbbf24" }}>+12% token boost</b>.</li>
+                                <li style={{ color: "#fbbf24" }}><b>NEW: Open Crates</b> for Prizes by spending <b>200,000 $FCWEED</b>!</li>
                             </ul>
                             <h2 className={styles.heading}>Use of Funds</h2>
                             <ul className={styles.bulletList}>
@@ -2625,10 +2626,10 @@ export default function Home()
                                 <li>$FCWEED has a <b>3% buy &amp; sell tax</b>:
                     <ul style={{ marginTop: 4, marginLeft: 16 }}>
                         <li><b>2%</b> goes directly into automated <b>buyback &amp; burn</b>.</li>
-                        <li><b>1%</b> is set aside for <b>top farmer rewards</b> in ETH, paid out based on the Crime Ladder leaderboard.</li>
+                        <li><b>1%</b> is set aside for <b>top farmer rewards</b> in USDC, paid out based on the Crime Ladder leaderboard.</li>
                     </ul>
                                 </li>
-                                <li>The more you farm and climb the ladder, the larger your share of <b>ETH rewards</b> from the tax pool.</li>
+                                <li>The more you farm and climb the ladder, the larger your share of <b>USDC rewards</b> from the tax pool.</li>
                             </ul>
                         </section>
                         <section className={styles.infoCard}>
@@ -2695,7 +2696,6 @@ export default function Home()
                         <section className={styles.infoCard} style={{ padding: '14px 10px' }}>
                             <h2 style={{ fontSize: 15, margin: '0 0 10px', color: '#7cb3ff', textAlign: 'center' }}>Open Crates for Prizes</h2>
 
-                            {/* Global Stats - only burned */}
                             <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 10 }}>
                                 <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 9, textAlign: 'center' }}>
                                     <div style={{ color: '#f87171', fontWeight: 700 }}>{crateGlobalStats.totalBurned}</div>
@@ -2784,12 +2784,12 @@ export default function Home()
                     <div className={styles.modalBackdrop}>
                         <div className={`${styles.modal} c-pop`} style={{ maxWidth: 300, padding: 16 }}>
                             <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 40, marginBottom: 8 }}>🔥</div>
-                                <h2 style={{ fontSize: 16, color: '#fff', margin: '0 0 6px' }}>Burn to Open</h2>
-                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>Burn <span style={{ color: '#fbbf24', fontWeight: 600 }}>200,000 $FCWEED</span>?</p>
+                                <div style={{ fontSize: 40, marginBottom: 8 }}>📦</div>
+                                <h2 style={{ fontSize: 16, color: '#fff', margin: '0 0 6px' }}>Open Crate</h2>
+                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>Pay <span style={{ color: '#fbbf24', fontWeight: 600 }}>200,000 $FCWEED</span> to open?</p>
                                 <div style={{ display: 'flex', gap: 8 }}>
                                     <button type="button" onClick={() => setCrateConfirmOpen(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #374151', background: 'transparent', color: '#9ca3af', cursor: 'pointer', fontSize: 12 }}>Cancel</button>
-                                    <button type="button" onClick={onCrateConfirm} className={styles.btnPrimary} style={{ flex: 1, padding: 10, fontSize: 12, background: 'linear-gradient(135deg, #f59e0b, #fbbf24)', color: '#000' }}>🔥 Open</button>
+                                    <button type="button" onClick={onCrateConfirm} className={styles.btnPrimary} style={{ flex: 1, padding: 10, fontSize: 12, background: 'linear-gradient(135deg, #f59e0b, #fbbf24)', color: '#000' }}>🎰 Open</button>
                                 </div>
                             </div>
                         </div>
