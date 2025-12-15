@@ -1902,8 +1902,11 @@ export default function Home()
 
     const crateIcon = (t: string) => t === 'DUST' ? '💨' : t === 'FCWEED' ? '🌿' : t === 'USDC' ? '💵' : '🏆';
 
-    const onCrateOpen = () => {
-        if (!connected) { ensureWallet(); return; }
+    const onCrateOpen = async () => {
+        if (!connected) {
+            await ensureWallet();
+            return;
+        }
         setCrateError("");
 
         // Check balance
@@ -1924,22 +1927,38 @@ export default function Home()
             const ctx = await ensureWallet();
             if (!ctx) {
                 setCrateLoading(false);
+                setCrateError("Wallet connection failed");
                 return;
             }
 
-            // First approve FCWEED spending
+            const vaultInterface = new ethers.utils.Interface(CRATE_VAULT_ABI);
+
+            // First check and approve FCWEED spending if needed
             const fcweedContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             const allowance = await fcweedContract.allowance(ctx.userAddress, CRATE_VAULT_ADDRESS);
 
             if (allowance.lt(CRATE_COST)) {
                 setMintStatus("Approving FCWEED...");
-                const approveTx = await sendContractTx(
-                    FCWEED_ADDRESS,
-                    erc20Interface.encodeFunctionData("approve", [CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256])
-                );
+
+                let approveTx: ethers.providers.TransactionResponse | null = null;
+
+                if (ctx.isMini && miniAppEthProvider) {
+                    // Farcaster wallet
+                    approveTx = await sendWalletCalls(
+                        ctx.userAddress,
+                        FCWEED_ADDRESS,
+                        erc20Interface.encodeFunctionData("approve", [CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256])
+                    );
+                } else {
+                    // External wallet
+                    const fcweedWrite = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, ctx.signer);
+                    approveTx = await fcweedWrite.approve(CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256);
+                }
+
                 if (!approveTx) {
                     setCrateError("Approval rejected");
                     setCrateLoading(false);
+                    setMintStatus("");
                     return;
                 }
                 await waitForTx(approveTx);
@@ -1947,15 +1966,26 @@ export default function Home()
 
             // Call openCrate on the vault contract
             setMintStatus("Opening crate...");
-            const vaultInterface = new ethers.utils.Interface(CRATE_VAULT_ABI);
-            const tx = await sendContractTx(
-                CRATE_VAULT_ADDRESS,
-                vaultInterface.encodeFunctionData("openCrate", [])
-            );
+
+            let tx: ethers.providers.TransactionResponse | null = null;
+
+            if (ctx.isMini && miniAppEthProvider) {
+                // Farcaster wallet
+                tx = await sendWalletCalls(
+                    ctx.userAddress,
+                    CRATE_VAULT_ADDRESS,
+                    vaultInterface.encodeFunctionData("openCrate", [])
+                );
+            } else {
+                // External wallet
+                const vaultWrite = new ethers.Contract(CRATE_VAULT_ADDRESS, CRATE_VAULT_ABI, ctx.signer);
+                tx = await vaultWrite.openCrate();
+            }
 
             if (!tx) {
                 setCrateError("Transaction rejected");
                 setCrateLoading(false);
+                setMintStatus("");
                 return;
             }
 
@@ -1993,6 +2023,8 @@ export default function Home()
             setCrateReelItems(items);
 
             setCrateReelOpen(true);
+            setCrateLoading(false);
+            setMintStatus("");
             setTimeout(() => setCrateSpinning(true), 100);
 
             // Refresh balance
@@ -2004,8 +2036,14 @@ export default function Home()
 
         } catch (err: any) {
             console.error("Crate open failed:", err);
-            setCrateError(err.message || "Failed to open crate");
-        } finally {
+            const errMsg = err?.message || err?.reason || String(err);
+            if (errMsg.includes("rejected") || errMsg.includes("denied") || err?.code === 4001) {
+                setCrateError("Transaction rejected");
+            } else if (errMsg.includes("insufficient") || errMsg.includes("Insufficient")) {
+                setCrateError("Insufficient FCWEED balance");
+            } else {
+                setCrateError(errMsg.slice(0, 60));
+            }
             setCrateLoading(false);
             setMintStatus("");
         }
@@ -2239,21 +2277,13 @@ export default function Home()
                         `}</style>
 
                         <section className={styles.infoCard} style={{ padding: '14px 10px' }}>
-                            <h2 style={{ fontSize: 15, margin: '0 0 10px', color: '#7cb3ff', textAlign: 'center' }}>Open Crate for Mystery Rewards</h2>
+                            <h2 style={{ fontSize: 15, margin: '0 0 10px', color: '#7cb3ff', textAlign: 'center' }}>Open Crates for Prizes</h2>
 
-                            {/* Global Stats */}
+                            {/* Global Stats - only burned */}
                             <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 10 }}>
-                                <div style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 9, textAlign: 'center' }}>
-                                    <div style={{ color: '#a78bfa', fontWeight: 700 }}>{crateGlobalStats.totalOpened.toLocaleString()}</div>
-                                    <div style={{ color: '#6b7280', fontSize: 7 }}>Total Opened</div>
-                                </div>
                                 <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 9, textAlign: 'center' }}>
                                     <div style={{ color: '#f87171', fontWeight: 700 }}>{crateGlobalStats.totalBurned}</div>
                                     <div style={{ color: '#6b7280', fontSize: 7 }}>$FCWEED Burned</div>
-                                </div>
-                                <div style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 9, textAlign: 'center' }}>
-                                    <div style={{ color: '#60a5fa', fontWeight: 700 }}>{crateGlobalStats.uniqueUsers}</div>
-                                    <div style={{ color: '#6b7280', fontSize: 7 }}>Players</div>
                                 </div>
                             </div>
 
@@ -2385,7 +2415,7 @@ export default function Home()
                                 <div style={{ fontSize: 48, marginBottom: 6 }}>{crateIcon(crateWon.token)}</div>
                                 <h2 style={{ fontSize: 18, color: crateWon.color, margin: '0 0 2px', fontWeight: 800 }}>{crateWon.name}</h2>
                                 <div style={{ fontSize: 28, fontWeight: 900, color: crateWon.color, marginBottom: 6 }}>{crateWon.amount} <span style={{ fontSize: 12, opacity: 0.8 }}>{crateWon.token}</span></div>
-                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>{crateWon.isJackpot ? '🎉 JACKPOT! 🎉' : crateWon.token === 'DUST' ? 'Convert to $FCWEED later!' : crateWon.isNFT ? 'NFT sent!' : 'Sent!'}</p>
+                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>{crateWon.isJackpot ? '🎉 JACKPOT! 🎉' : crateWon.token === 'DUST' ? 'For use in Item Shop later!' : crateWon.isNFT ? 'NFT sent!' : 'Sent!'}</p>
                                 <button type="button" onClick={onCrateClose} className={styles.btnPrimary} style={{ width: '100%', padding: 12, fontSize: 12, background: crateWon.token === 'DUST' ? 'linear-gradient(135deg, #4b5563, #6b7280)' : 'linear-gradient(135deg, #059669, #10b981)' }}>{crateWon.token === 'DUST' ? 'Collect' : 'Awesome!'}</button>
                             </div>
                         </div>
