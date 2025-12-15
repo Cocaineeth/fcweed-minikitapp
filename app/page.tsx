@@ -61,7 +61,7 @@ const CRATE_VAULT_ADDRESS = "0x63e0F8Bf2670f54b7DB51254cED9B65b2B748B0C";
 const CRATE_COST = ethers.utils.parseUnits("200000", 18); // 200,000 FCWEED
 
 const CRATE_VAULT_ABI = [
-    "function openCrate() external returns (uint256, string memory, uint256, uint256)",
+    "function openCrate() external",
     "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent, uint256 lastOpenedAt)",
     "function getUserDustBalance(address user) external view returns (uint256)",
     "function getUserCratesOpened(address user) external view returns (uint256)",
