@@ -1052,21 +1052,44 @@ export default function Home()
 
             console.log("[OldStaking] Loading data for address:", addr);
 
-            const ownedState = await getOwnedState(addr);
+            // Query staked NFTs directly from the OLD staking contract
+            const oldStakingContract = new ethers.Contract(OLD_STAKING_ADDRESS, STAKING_ABI, readProvider);
 
-            // Ensure ownedState has the expected structure
-            const plants = ownedState?.plants || [];
-            const lands = ownedState?.lands || [];
-            const superLands = ownedState?.superLands || [];
+            let stakedPlantNums: number[] = [];
+            let stakedLandNums: number[] = [];
 
-            // ownedState expected shape:
-            // { plants:[{tokenId, staked:boolean, ...}], lands:[...], superLands:[...] }
-            const stakedPlantNums = plants.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
-            const stakedLandNums  = lands.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
+            try {
+                const [stakedPlantsBN, stakedLandsBN] = await Promise.all([
+                    oldStakingContract.plantsOf(addr),
+                    oldStakingContract.landsOf(addr),
+                ]);
+                stakedPlantNums = stakedPlantsBN.map((bn: ethers.BigNumber) => bn.toNumber());
+                stakedLandNums = stakedLandsBN.map((bn: ethers.BigNumber) => bn.toNumber());
+                console.log("[OldStaking] Staked from contract:", { plants: stakedPlantNums, lands: stakedLandNums });
+            } catch (err) {
+                console.error("[OldStaking] Failed to query staked NFTs from contract:", err);
+            }
 
-            const availPlants = plants.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
-            const availLands  = lands.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
-            const availSuperLands = superLands.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
+            // Get available (unstaked) NFTs from the backend API
+            let availPlants: number[] = [];
+            let availLands: number[] = [];
+            let availSuperLands: number[] = [];
+
+            try {
+                const ownedState = await getOwnedState(addr);
+                const plants = ownedState?.plants || [];
+                const lands = ownedState?.lands || [];
+                const superLands = ownedState?.superLands || [];
+
+                // These are NFTs in the wallet (not staked)
+                availPlants = plants.map((t: any) => Number(t.tokenId));
+                availLands = lands.map((t: any) => Number(t.tokenId));
+                availSuperLands = superLands.map((t: any) => Number(t.tokenId));
+
+                console.log("[OldStaking] Available from API:", { plants: availPlants.length, lands: availLands.length, superLands: availSuperLands.length });
+            } catch (err) {
+                console.error("[OldStaking] Failed to load owned tokens:", err);
+            }
 
             console.log("[OldStaking] NFT counts:", {
                 stakedPlants: stakedPlantNums.length,
@@ -1176,20 +1199,55 @@ export default function Home()
 
             console.log("[NewStaking] Loading data for address:", addr);
 
-            const ownedState = await getOwnedState(addr);
+            // Query staked NFTs directly from the NEW staking contract
+            const newStakingContract = new ethers.Contract(NEW_STAKING_ADDRESS, STAKING_ABI, readProvider);
 
-            // Ensure ownedState has the expected structure
-            const plants = ownedState?.plants || [];
-            const lands = ownedState?.lands || [];
-            const superLands = ownedState?.superLands || [];
+            let stakedPlantNums: number[] = [];
+            let stakedLandNums: number[] = [];
+            let stakedSuperLandNums: number[] = [];
 
-            const stakedPlantNums = plants.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
-            const stakedLandNums  = lands.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
-            const stakedSuperLandNums = superLands.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
+            try {
+                const [stakedPlantsBN, stakedLandsBN, stakedSuperLandsBN] = await Promise.all([
+                    newStakingContract.plantsOf(addr),
+                    newStakingContract.landsOf(addr),
+                    newStakingContract.superLandsOf(addr),
+                ]);
+                stakedPlantNums = stakedPlantsBN.map((bn: ethers.BigNumber) => bn.toNumber());
+                stakedLandNums = stakedLandsBN.map((bn: ethers.BigNumber) => bn.toNumber());
+                stakedSuperLandNums = stakedSuperLandsBN.map((bn: ethers.BigNumber) => bn.toNumber());
+                console.log("[NewStaking] Staked from contract:", {
+                    plants: stakedPlantNums,
+                    lands: stakedLandNums,
+                    superLands: stakedSuperLandNums
+                });
+            } catch (err) {
+                console.error("[NewStaking] Failed to query staked NFTs from contract:", err);
+            }
 
-            const availPlants = plants.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
-            const availLands  = lands.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
-            const availSuperLands = superLands.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
+            // Get available (unstaked) NFTs from the backend API
+            let availPlants: number[] = [];
+            let availLands: number[] = [];
+            let availSuperLands: number[] = [];
+
+            try {
+                const ownedState = await getOwnedState(addr);
+                const plants = ownedState?.plants || [];
+                const lands = ownedState?.lands || [];
+                const superLands = ownedState?.superLands || [];
+
+                // These are NFTs in the wallet (not staked)
+                availPlants = plants.map((t: any) => Number(t.tokenId));
+                availLands = lands.map((t: any) => Number(t.tokenId));
+                availSuperLands = superLands.map((t: any) => Number(t.tokenId));
+
+                console.log("[NewStaking] Available from API:", {
+                    plants: availPlants.length,
+                    lands: availLands.length,
+                    superLands: availSuperLands.length
+                });
+            } catch (err) {
+                console.error("[NewStaking] Failed to load owned tokens:", err);
+            }
 
             console.log("[NewStaking] NFT counts:", {
                 stakedPlants: stakedPlantNums.length,
