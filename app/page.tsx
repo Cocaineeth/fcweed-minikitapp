@@ -675,6 +675,7 @@ export default function Home()
         console.log("[TX] Sending wallet_sendCalls:", { from, to, chainIdHex });
 
         let result: any;
+        let txHash: string | null = null;
 
         try {
             // Try wallet_sendCalls first (EIP-5792)
@@ -695,6 +696,17 @@ export default function Home()
                     },
                 ],
             });
+
+            console.log("[TX] wallet_sendCalls result:", result);
+
+            // Extract hash from various response formats
+            txHash =
+                result?.txHashes?.[0] ||
+                result?.txHash ||
+                result?.hash ||
+                result?.id ||
+                (typeof result === "string" && result.startsWith("0x") ? result : null);
+
         } catch (sendCallsError: any) {
             console.warn("[TX] wallet_sendCalls failed, trying eth_sendTransaction:", sendCallsError);
 
@@ -711,24 +723,13 @@ export default function Home()
                     }],
                 });
 
+                console.log("[TX] eth_sendTransaction result:", result);
+
                 // eth_sendTransaction returns the hash directly
                 if (typeof result === "string" && result.startsWith("0x")) {
-                    return {
-                        hash: result,
-                        wait: async () => {
-                            // Poll for receipt using readProvider
-                            for (let i = 0; i < 30; i++) {
-                                await new Promise(resolve => setTimeout(resolve, 2000));
-                                try {
-                                    const receipt = await readProvider.getTransactionReceipt(result);
-                                    if (receipt) return receipt;
-                                } catch {
-                                    // Continue polling
-                                }
-                            }
-                            return null;
-                        },
-                    } as any;
+                    txHash = result;
+                } else {
+                    txHash = result?.hash || result?.txHash || null;
                 }
             } catch (sendTxError) {
                 console.error("[TX] eth_sendTransaction also failed:", sendTxError);
@@ -736,22 +737,15 @@ export default function Home()
             }
         }
 
-        console.log("[TX] Result:", result);
+        console.log("[TX] Extracted txHash:", txHash);
 
-        // Extract transaction hash from various response formats
-        const txHash =
-            (result?.txHashes && result.txHashes[0]) ||
-            result?.txHash ||
-            result?.hash ||
-            (typeof result === "string" ? result : null);
-
-        if (!txHash || typeof txHash !== "string" || !txHash.startsWith("0x")) {
-            console.error("[TX] Invalid tx hash response:", result);
-            // Don't throw - the transaction might have succeeded
-            // Return a fake tx that won't block on wait()
+        // If we still don't have a valid hash, return a marker that indicates
+        // we need to search for the transaction by events
+        if (!txHash || typeof txHash !== "string" || !txHash.startsWith("0x") || txHash.length < 66) {
+            console.warn("[TX] No valid tx hash, will search by events. Result was:", result);
             return {
-                hash: "0x" + "0".repeat(64),
-                wait: async () => {},
+                hash: "0x" + "0".repeat(64), // Marker for "search by events"
+                wait: async () => null,
             } as any;
         }
 
@@ -762,10 +756,10 @@ export default function Home()
             hash: txHash,
             wait: async () => {
                 // Poll for receipt using readProvider
-                for (let i = 0; i < 30; i++) {
+                for (let i = 0; i < 45; i++) {
                     await new Promise(resolve => setTimeout(resolve, 2000));
                     try {
-                        const receipt = await readProvider.getTransactionReceipt(txHash);
+                        const receipt = await readProvider.getTransactionReceipt(txHash!);
                         if (receipt && receipt.confirmations > 0) {
                             console.log("[TX] Confirmed:", txHash);
                             return receipt;
@@ -2100,19 +2094,68 @@ export default function Home()
             // Always use readProvider to ensure we get the full receipt
             let receipt: ethers.providers.TransactionReceipt | null = null;
 
-            if (tx.hash) {
-                console.log("[Crate] Waiting for tx:", tx.hash);
+            const txHash = tx?.hash;
+            const isValidHash = txHash && txHash !== "0x" + "0".repeat(64) && txHash.startsWith("0x");
+
+            console.log("[Crate] Transaction hash:", txHash, "isValid:", isValidHash);
+
+            if (isValidHash) {
+                console.log("[Crate] Waiting for tx:", txHash);
                 // Poll for receipt using readProvider to ensure we get logs
-                for (let i = 0; i < 30; i++) {
+                for (let i = 0; i < 45; i++) {
                     await new Promise(resolve => setTimeout(resolve, 2000));
                     try {
-                        receipt = await readProvider.getTransactionReceipt(tx.hash);
+                        receipt = await readProvider.getTransactionReceipt(txHash);
                         if (receipt && receipt.confirmations > 0) {
                             console.log("[Crate] Got receipt with", receipt.logs?.length, "logs");
                             break;
                         }
                     } catch (err) {
                         console.log("[Crate] Polling for receipt...", i);
+                    }
+                }
+            } else {
+                // For Farcaster wallets that don't return a proper hash,
+                // we need to look for recent CrateOpened events for this user
+                console.log("[Crate] No valid tx hash, searching for recent CrateOpened events...");
+                setMintStatus("Confirming transaction...");
+
+                const eventInterface = new ethers.utils.Interface([
+                    "event CrateOpened(address indexed player, uint256 indexed rewardIndex, string rewardName, uint8 category, uint256 amount, uint256 nftTokenId, uint256 timestamp)"
+                ]);
+
+                // Get the topic for CrateOpened event
+                const crateOpenedTopic = eventInterface.getEventTopic("CrateOpened");
+                const userTopic = ethers.utils.hexZeroPad(ctx.userAddress.toLowerCase(), 32);
+
+                // Poll for recent events
+                for (let i = 0; i < 45; i++) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    try {
+                        const currentBlock = await readProvider.getBlockNumber();
+                        const logs = await readProvider.getLogs({
+                            address: CRATE_VAULT_ADDRESS,
+                            topics: [crateOpenedTopic, userTopic],
+                            fromBlock: currentBlock - 10,
+                            toBlock: currentBlock,
+                        });
+
+                        if (logs.length > 0) {
+                            // Get the most recent log
+                            const latestLog = logs[logs.length - 1];
+                            console.log("[Crate] Found CrateOpened event via log search:", latestLog);
+
+                            // Create a fake receipt with just this log
+                            receipt = {
+                                logs: [latestLog],
+                                confirmations: 1,
+                                transactionHash: latestLog.transactionHash,
+                            } as any;
+                            break;
+                        }
+                        console.log("[Crate] Searching for event...", i);
+                    } catch (err) {
+                        console.log("[Crate] Event search error:", err);
                     }
                 }
             }
