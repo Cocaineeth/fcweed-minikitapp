@@ -30,7 +30,7 @@ function mustEnv(name: string): string {
 }
 
 export async function loadOwnedTokens(wallet: string, signal?: AbortSignal): Promise<OwnedTokensResponse> {
-    const base = mustEnv("NEXT_PUBLIC_API_BASE_URL");
+    const base = "https://api.fcweed.xyz/v1";
     const url = new URL(`${base}/owned-tokens`);
     url.searchParams.set("wallet", wallet);
 
