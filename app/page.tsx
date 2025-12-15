@@ -658,7 +658,7 @@ export default function Home()
         from: string,
         to: string,
         data: string,
-        gasLimit: string = "0x7A120"
+        gasLimit: string = "0x1E8480"
     ): Promise<ethers.providers.TransactionResponse> {
         if (!miniAppEthProvider) {
             throw new Error("Mini app provider not available");
@@ -694,6 +694,7 @@ export default function Home()
                                 data,
                                 value: "0x0",
                                 gas: gasLimit,
+                                gasLimit: gasLimit,
                             },
                         ],
                     },
@@ -723,6 +724,7 @@ export default function Home()
                         data,
                         value: "0x0",
                         gas: gasLimit,
+                        gasLimit: gasLimit,
                         chainId: chainIdHex,
                     }],
                 });
@@ -2113,7 +2115,7 @@ export default function Home()
                     ctx.userAddress,
                     CRATE_VAULT_ADDRESS,
                     openCrateData,
-                    "0xF4240"
+                    "0x1E8480"
                 );
             } else {
 
@@ -2124,7 +2126,7 @@ export default function Home()
                         to: CRATE_VAULT_ADDRESS,
                         data: openCrateData,
                         value: 0,
-                        gasLimit: 1000000,
+                        gasLimit: 2000000,
                     });
                 } catch (openErr: any) {
                     clearTimeout(timeoutId);
