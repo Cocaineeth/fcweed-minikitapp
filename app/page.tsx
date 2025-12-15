@@ -2635,7 +2635,6 @@ export default function Home()
                             <h2 className={styles.heading}>Coming Soon</h2>
                             <ul className={styles.bulletList}>
                                 <li style={{ color: "#fbbf24" }}>🎁 Referrals — Earn rewards for inviting friends</li>
-                                <li style={{ color: "#fbbf24" }}>📦 Crate Openings — Mystery rewards and rare drops</li>
                                 <li style={{ color: "#fbbf24" }}>🛒 Item Shop — Buy boosts and exclusive items</li>
                             </ul>
                         </section>
