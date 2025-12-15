@@ -661,7 +661,7 @@ export default function Home()
         from: string,
         to: string,
         data: string,
-        gasLimit: string = "0x493E0" // 300,000 gas default
+        gasLimit: string = "0x7A120" // 500,000 gas default
     ): Promise<ethers.providers.TransactionResponse> {
         if (!miniAppEthProvider) {
             throw new Error("Mini app provider not available");
@@ -2116,7 +2116,7 @@ export default function Home()
                     ctx.userAddress,
                     CRATE_VAULT_ADDRESS,
                     openCrateData,
-                    "0x7A120" // 500,000 gas for openCrate (it's complex with transfers)
+                    "0xF4240" // 1,000,000 gas for openCrate (complex RNG + transfers)
                 );
             } else {
                 // External wallet (MetaMask, Coinbase Wallet, etc.)
@@ -2127,7 +2127,7 @@ export default function Home()
                         to: CRATE_VAULT_ADDRESS,
                         data: openCrateData,
                         value: 0,
-                        gasLimit: 500000, // High gas for complex openCrate function
+                        gasLimit: 1000000, // High gas for complex openCrate function
                     });
                 } catch (openErr: any) {
                     clearTimeout(timeoutId);
