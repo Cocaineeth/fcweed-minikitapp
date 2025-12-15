@@ -993,14 +993,36 @@ export default function Home()
     }>({ addr: null, state: null });
 
     async function getOwnedState(addr: string) {
-        if (ownedCacheRef.current.addr === addr && ownedCacheRef.current.state)
+        console.log("[NFT] getOwnedState called for:", addr);
+
+        if (ownedCacheRef.current.addr?.toLowerCase() === addr.toLowerCase() && ownedCacheRef.current.state)
         {
+            console.log("[NFT] Returning cached state");
             return ownedCacheRef.current.state;
         }
 
-        const state = await loadOwnedTokens(addr); // backend
-        ownedCacheRef.current = { addr, state };
-        return state;
+        try {
+            console.log("[NFT] Fetching owned tokens from API...");
+            const state = await loadOwnedTokens(addr); // backend
+            console.log("[NFT] Got owned state:", {
+                plants: state.plants?.length || 0,
+                lands: state.lands?.length || 0,
+                superLands: state.superLands?.length || 0,
+                totals: state.totals
+            });
+            ownedCacheRef.current = { addr, state };
+            return state;
+        } catch (err) {
+            console.error("[NFT] Failed to load owned tokens:", err);
+            // Return empty state on error instead of throwing
+            return {
+                wallet: addr,
+                plants: [],
+                lands: [],
+                superLands: [],
+                totals: { plants: 0, lands: 0, superLands: 0 }
+            };
+        }
     }
 
 
@@ -1012,27 +1034,47 @@ export default function Home()
         refreshOldStakingRef.current = true;
 
         setLoadingOldStaking(true);
+        console.log("[OldStaking] Starting refresh...");
 
         try
         {
             let addr = userAddress;
             if (!addr)
             {
+                console.log("[OldStaking] No userAddress, calling ensureWallet...");
                 const ctx = await ensureWallet();
-                if (!ctx) return;
+                if (!ctx) {
+                    console.log("[OldStaking] ensureWallet returned null");
+                    return;
+                }
                 addr = ctx.userAddress;
             }
 
+            console.log("[OldStaking] Loading data for address:", addr);
+
             const ownedState = await getOwnedState(addr);
+
+            // Ensure ownedState has the expected structure
+            const plants = ownedState?.plants || [];
+            const lands = ownedState?.lands || [];
+            const superLands = ownedState?.superLands || [];
 
             // ownedState expected shape:
             // { plants:[{tokenId, staked:boolean, ...}], lands:[...], superLands:[...] }
-            const stakedPlantNums = ownedState.plants.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
-            const stakedLandNums  = ownedState.lands.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
+            const stakedPlantNums = plants.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
+            const stakedLandNums  = lands.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
 
-            const availPlants = ownedState.plants.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
-            const availLands  = ownedState.lands.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
-            const availSuperLands = ownedState.superLands.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
+            const availPlants = plants.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
+            const availLands  = lands.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
+            const availSuperLands = superLands.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
+
+            console.log("[OldStaking] NFT counts:", {
+                stakedPlants: stakedPlantNums.length,
+                stakedLands: stakedLandNums.length,
+                availPlants: availPlants.length,
+                availLands: availLands.length,
+                availSuperLands: availSuperLands.length
+            });
 
             // ---- multicall old staking
             const iface = new ethers.utils.Interface(STAKING_ABI);
@@ -1048,18 +1090,14 @@ export default function Home()
                 ];
 
             const res = await multicallTry(readProvider, calls);
+            console.log("[OldStaking] Multicall results:", res.map(r => r.success));
 
-            const pendingRaw = decode1(iface, "pending", res[0]);
+            const pendingRaw = decode1(iface, "pending", res[0]) ?? ethers.BigNumber.from(0);
 
             const landBps = decode1(iface, "landBoostBps", res[1]) ?? ethers.BigNumber.from(0);
             const claimEnabled = decode1(iface, "claimEnabled", res[2]) ?? false;
             const landEnabled = decode1(iface, "landStakingEnabled", res[3]) ?? false;
             const tokensPerDay = decode1(iface, "tokensPerPlantPerDay", res[4]) ?? ethers.BigNumber.from(0);
-
-            if (!pendingRaw)
-            {
-                throw new Error("Old staking: failed to fetch users/pending");
-            }
 
             const plantsStaked = stakedPlantNums.length;
             const landsStaked  = stakedLandNums.length;
@@ -1069,6 +1107,11 @@ export default function Home()
             setOldStakedPlants(stakedPlantNums);
             setOldStakedLands(stakedLandNums);
 
+            // Set old available NFTs for old staking modal
+            setOldAvailablePlants(availPlants);
+            setOldAvailableLands(availLands);
+
+            // Also set shared available state
             setAvailablePlants(availPlants);
             setAvailableLands(availLands);
             setAvailableSuperLands(availSuperLands);
@@ -1087,10 +1130,18 @@ export default function Home()
                     claimEnabled,
                     tokensPerSecond,
             });
+
+            console.log("[OldStaking] Stats set:", {
+                plantsStaked,
+                landsStaked,
+                totalSlots: 1 + landsStaked * 3,
+                landBoostPct: (landsStaked * Number(landBps)) / 100,
+                claimEnabled
+            });
         }
         catch (err)
         {
-            console.error("Old staking refresh failed:", err);
+            console.error("[OldStaking] Refresh failed:", err);
         }
         finally
         {
@@ -1107,26 +1158,47 @@ export default function Home()
         refreshNewStakingRef.current = true;
 
         setLoadingNewStaking(true);
+        console.log("[NewStaking] Starting refresh...");
 
         try
         {
             let addr = userAddress;
             if (!addr)
             {
+                console.log("[NewStaking] No userAddress, calling ensureWallet...");
                 const ctx = await ensureWallet();
-                if (!ctx) return;
+                if (!ctx) {
+                    console.log("[NewStaking] ensureWallet returned null");
+                    return;
+                }
                 addr = ctx.userAddress;
             }
 
+            console.log("[NewStaking] Loading data for address:", addr);
+
             const ownedState = await getOwnedState(addr);
 
-            const stakedPlantNums = ownedState.plants.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
-            const stakedLandNums  = ownedState.lands.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
-            const stakedSuperLandNums = ownedState.superLands.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
+            // Ensure ownedState has the expected structure
+            const plants = ownedState?.plants || [];
+            const lands = ownedState?.lands || [];
+            const superLands = ownedState?.superLands || [];
 
-            const availPlants = ownedState.plants.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
-            const availLands  = ownedState.lands.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
-            const availSuperLands = ownedState.superLands.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
+            const stakedPlantNums = plants.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
+            const stakedLandNums  = lands.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
+            const stakedSuperLandNums = superLands.filter((t: any) => t.staked).map((t: any) => Number(t.tokenId));
+
+            const availPlants = plants.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
+            const availLands  = lands.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
+            const availSuperLands = superLands.filter((t: any) => !t.staked).map((t: any) => Number(t.tokenId));
+
+            console.log("[NewStaking] NFT counts:", {
+                stakedPlants: stakedPlantNums.length,
+                stakedLands: stakedLandNums.length,
+                stakedSuperLands: stakedSuperLandNums.length,
+                availPlants: availPlants.length,
+                availLands: availLands.length,
+                availSuperLands: availSuperLands.length
+            });
 
             // ---- multicall new staking
             const iface = new ethers.utils.Interface(STAKING_ABI);
@@ -1145,8 +1217,9 @@ export default function Home()
                 ];
 
             const res = await multicallTry(readProvider, calls);
+            console.log("[NewStaking] Multicall results:", res.map(r => r.success));
 
-            const pendingRaw = decode1(iface, "pending", res[0]);
+            const pendingRaw = decode1(iface, "pending", res[0]) ?? ethers.BigNumber.from(0);
 
             const tokensPerDay = decode1(iface, "tokensPerPlantPerDay", res[1]) ?? ethers.BigNumber.from(0);
             const totalBoostBps = decode1(iface, "getBoostBps", res[2]) ?? ethers.BigNumber.from(10_000);
@@ -1155,11 +1228,6 @@ export default function Home()
             const claimEnabled = decode1(iface, "claimEnabled", res[4]) ?? false;
             const landEnabled = decode1(iface, "landStakingEnabled", res[5]) ?? false;
             const superLandEnabled = decode1(iface, "superLandStakingEnabled", res[6]) ?? false;
-
-            if (!pendingRaw)
-            {
-                throw new Error("New staking: failed to fetch users/pending");
-            }
 
             const plantsStaked = stakedPlantNums.length;
             const landsStaked  = stakedLandNums.length;
@@ -1205,10 +1273,20 @@ export default function Home()
                     claimEnabled,
                     tokensPerSecond,
             });
+
+            console.log("[NewStaking] Stats set:", {
+                plantsStaked,
+                landsStaked,
+                superLandsStaked,
+                totalSlots,
+                totalBoostPct: boostPct,
+                dailyRewards,
+                claimEnabled
+            });
         }
         catch (err)
         {
-            console.error("New staking refresh failed:", err);
+            console.error("[NewStaking] Refresh failed:", err);
         }
         finally
         {
@@ -1218,12 +1296,22 @@ export default function Home()
     }
 
     useEffect(() => {
-        if (oldStakingOpen) refreshOldStaking();
-    }, [oldStakingOpen]);
+        if (oldStakingOpen) {
+            // Clear cache when address changes to force fresh data
+            ownedCacheRef.current = { addr: null, state: null };
+            refreshOldStakingRef.current = false;
+            refreshOldStaking();
+        }
+    }, [oldStakingOpen, userAddress]);
 
     useEffect(() => {
-        if (newStakingOpen) refreshNewStaking();
-    }, [newStakingOpen]);
+        if (newStakingOpen) {
+            // Clear cache when address changes to force fresh data
+            ownedCacheRef.current = { addr: null, state: null };
+            refreshNewStakingRef.current = false;
+            refreshNewStaking();
+        }
+    }, [newStakingOpen, userAddress]);
 
 
     async function ensureCollectionApproval(collectionAddress: string, stakingAddress: string, ctx: { signer: ethers.Signer; userAddress: string }) {
@@ -1415,7 +1503,7 @@ export default function Home()
     const toggleId = (id: number, list: number[], setter: (v: number[]) => void) => list.includes(id) ? setter(list.filter((x) => x !== id)) : setter([...list, id]);
     const oldTotalAvailable = oldAvailablePlants.length + oldAvailableLands.length;
     const oldTotalStaked = oldStakedPlants.length + oldStakedLands.length;
-    const newTotalAvailable = oldAvailablePlants.length + newAvailableLands.length + newAvailableSuperLands.length;
+    const newTotalAvailable = newAvailablePlants.length + newAvailableLands.length + newAvailableSuperLands.length;
     const newTotalStaked = newStakedPlants.length + newStakedLands.length + newStakedSuperLands.length;
 
     const NftCard = ({ id, img, name, checked, onChange }: { id: number; img: string; name: string; checked: boolean; onChange: () => void }) => (
