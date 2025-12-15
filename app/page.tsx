@@ -358,9 +358,11 @@ export default function Home()
     const crateReelRef = useRef<HTMLDivElement>(null);
     const [crateReelItems, setCrateReelItems] = useState<CrateReward[]>([]);
     const [crateWinItem, setCrateWinItem] = useState<CrateReward | null>(null);
+    const [crateReelPhase, setCrateReelPhase] = useState<'idle' | 'spinning' | 'landing'>('idle');
     const crateTransactionInProgress = useRef(false);
     const lastCrateOpenBlock = useRef(0);
     const processedCrateTxHashes = useRef<Set<string>>(new Set());
+    const crateSpinInterval = useRef<NodeJS.Timeout | null>(null);
 
 
 
@@ -2154,7 +2156,17 @@ export default function Home()
                 return;
             }
 
-            setCrateStatus("Waiting for confirmation...");
+            setCrateStatus("Rolling...");
+
+            const s = [...CRATE_REWARDS].sort(() => Math.random() - 0.5);
+            const spinItems: CrateReward[] = [];
+            for (let i = 0; i < 20; i++) spinItems.push(...s);
+            setCrateReelItems(spinItems);
+            setCrateWinItem(null);
+            setCrateReelOpen(true);
+            setCrateLoading(false);
+            setCrateReelPhase('spinning');
+            setTimeout(() => setCrateSpinning(true), 100);
 
 
 
@@ -2419,7 +2431,7 @@ export default function Home()
                 return;
             }
 
-            console.log("[Crate] Final reward:", { rewardIndex, rewardName, amount: amount.toString(), category });
+            console.log("[Crate] Final reward:", { rewardIndex, rewardName, amount: amount.toString() });
 
             clearTimeout(timeoutId);
             setCrateResultIdx(rewardIndex);
@@ -2464,19 +2476,10 @@ export default function Home()
             }
 
             const winningItem: CrateReward = { id: 999, name: rewardName, amount: winAmount, token: winToken, color: winColor, isNFT: winIsNFT, isJackpot: winIsJackpot };
-
-            const s = [...CRATE_REWARDS].sort(() => Math.random() - 0.5);
-            const items: CrateReward[] = [];
-            for (let i = 0; i < 5; i++) items.push(...s);
-            items.push(winningItem);
-            setCrateReelItems(items);
             setCrateWinItem(winningItem);
-
-            setCrateReelOpen(true);
-            setCrateLoading(false);
+            setCrateReelPhase('landing');
             setCrateStatus("");
             crateTransactionInProgress.current = false;
-            setTimeout(() => setCrateSpinning(true), 100);
 
 
 
@@ -2498,24 +2501,16 @@ export default function Home()
     };
 
     const onCrateSpinDone = async () => {
-        setCrateSpinning(false);
-        setTimeout(() => setCrateShowWin(true), 300);
-
-
-        if (crateResultData) {
-            const r = CRATE_REWARDS[crateResultData.rewardIndex];
-            if (r) {
-                setCrateUserStats(p => {
-                    const u = { ...p, opened: p.opened + 1 };
-                    if (r.token === 'DUST') u.dust += crateResultData.amount.toNumber();
-                    else if (r.token === 'FCWEED') u.fcweed += parseFloat(ethers.utils.formatUnits(crateResultData.amount, 18));
-                    else if (r.token === 'USDC') u.usdc += parseFloat(ethers.utils.formatUnits(crateResultData.amount, 6));
-                    else if (r.isNFT) u.nfts += 1;
-                    return u;
-                });
-            }
+        if (crateWinItem && crateResultData) {
+            setCrateUserStats(p => {
+                const u = { ...p, opened: p.opened + 1 };
+                if (crateWinItem.token === 'DUST') u.dust += crateResultData.amount.toNumber();
+                else if (crateWinItem.token === 'FCWEED') u.fcweed += parseFloat(ethers.utils.formatUnits(crateResultData.amount, 18));
+                else if (crateWinItem.token === 'USDC') u.usdc += parseFloat(ethers.utils.formatUnits(crateResultData.amount, 6));
+                else if (crateWinItem.isNFT) u.nfts += 1;
+                return u;
+            });
         }
-
 
         if (userAddress) {
             try {
@@ -2536,29 +2531,90 @@ export default function Home()
         setCrateResultIdx(null);
         setCrateResultData(null);
         setCrateWinItem(null);
+        setCrateReelPhase('idle');
     };
 
-
     useEffect(() => {
-        if (!crateSpinning || !crateReelRef.current) return;
-        const w = 130, final = (crateReelItems.length - 1) * w - (window.innerWidth / 2) + 65;
-        crateReelRef.current.style.transition = 'none';
-        crateReelRef.current.style.transform = 'translateX(0)';
-        setTimeout(() => {
-            if (crateReelRef.current) {
-                crateReelRef.current.style.transition = 'transform 4s cubic-bezier(0.15, 0.85, 0.3, 1)';
-                crateReelRef.current.style.transform = `translateX(-${final}px)`;
+        if (!crateReelRef.current) return;
+
+        if (crateReelPhase === 'spinning' && crateSpinning) {
+            const itemWidth = 130;
+            const totalWidth = crateReelItems.length * itemWidth;
+            let pos = 0;
+
+            crateReelRef.current.style.transition = 'none';
+            crateReelRef.current.style.transform = 'translateX(0)';
+
+            if (crateSpinInterval.current) clearInterval(crateSpinInterval.current);
+
+            crateSpinInterval.current = setInterval(() => {
+                if (!crateReelRef.current) return;
+                pos += 15;
+                if (pos >= totalWidth / 2) pos = 0;
+                crateReelRef.current.style.transform = `translateX(-${pos}px)`;
+            }, 16);
+        }
+
+        if (crateReelPhase === 'landing' && crateWinItem) {
+            if (crateSpinInterval.current) {
+                clearInterval(crateSpinInterval.current);
+                crateSpinInterval.current = null;
             }
-        }, 50);
-        const t = setTimeout(onCrateSpinDone, 4000);
-        return () => clearTimeout(t);
-    }, [crateSpinning, crateReelItems]);
+
+            const newItems = [...CRATE_REWARDS].sort(() => Math.random() - 0.5);
+            const landingItems: CrateReward[] = [];
+            for (let i = 0; i < 4; i++) landingItems.push(...newItems);
+            landingItems.push(crateWinItem);
+            setCrateReelItems(landingItems);
+
+            setTimeout(() => {
+                if (!crateReelRef.current) return;
+                const container = crateReelRef.current.parentElement;
+                if (!container) return;
+                const containerWidth = container.offsetWidth;
+                const itemWidth = 130;
+                const lastItemIndex = landingItems.length - 1;
+                const lastItemCenter = lastItemIndex * itemWidth + (itemWidth / 2);
+                const containerCenter = containerWidth / 2;
+                const final = lastItemCenter - containerCenter;
+
+                crateReelRef.current.style.transition = 'none';
+                crateReelRef.current.style.transform = 'translateX(0)';
+
+                setTimeout(() => {
+                    if (crateReelRef.current) {
+                        crateReelRef.current.style.transition = 'transform 3s cubic-bezier(0.15, 0.85, 0.25, 1)';
+                        crateReelRef.current.style.transform = `translateX(-${final}px)`;
+                    }
+                }, 50);
+
+                setTimeout(() => {
+                    setCrateSpinning(false);
+                    setCrateReelPhase('idle');
+                    setTimeout(() => setCrateShowWin(true), 300);
+                }, 3100);
+            }, 50);
+        }
+
+        return () => {
+            if (crateSpinInterval.current) {
+                clearInterval(crateSpinInterval.current);
+                crateSpinInterval.current = null;
+            }
+        };
+    }, [crateReelPhase, crateSpinning, crateWinItem]);
 
     const crateWon = crateWinItem;
     const dustRewards = CRATE_REWARDS.filter(r => r.token === 'DUST');
     const fcweedRewards = CRATE_REWARDS.filter(r => r.token === 'FCWEED');
     const usdcRewards = CRATE_REWARDS.filter(r => r.token === 'USDC');
     const nftRewards = CRATE_REWARDS.filter(r => r.isNFT);
+
+    useEffect(() => {
+        if (crateShowWin && crateWinItem) {
+            onCrateSpinDone();
+        }
+    }, [crateShowWin]);
 
    
 
