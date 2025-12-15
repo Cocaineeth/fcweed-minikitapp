@@ -1070,7 +1070,7 @@ export default function Home()
                 console.error("[OldStaking] Failed to query staked NFTs from contract:", err);
             }
 
-            // Get available (unstaked) NFTs from the backend API
+            // Get available (unstaked) NFTs - try API first, then fallback to chain
             let availPlants: number[] = [];
             let availLands: number[] = [];
             let availSuperLands: number[] = [];
@@ -1088,7 +1088,16 @@ export default function Home()
 
                 console.log("[OldStaking] Available from API:", { plants: availPlants.length, lands: availLands.length, superLands: availSuperLands.length });
             } catch (err) {
-                console.error("[OldStaking] Failed to load owned tokens:", err);
+                console.error("[OldStaking] Failed to load owned tokens from API:", err);
+            }
+
+            // If API returned empty, try querying blockchain directly
+            if (availPlants.length === 0 && availLands.length === 0 && availSuperLands.length === 0) {
+                console.log("[OldStaking] API returned empty, trying blockchain query...");
+                const chainNFTs = await queryAvailableNFTsFromChain(addr);
+                availPlants = chainNFTs.plants;
+                availLands = chainNFTs.lands;
+                availSuperLands = chainNFTs.superLands;
             }
 
             console.log("[OldStaking] NFT counts:", {
@@ -1176,6 +1185,93 @@ export default function Home()
 
     const refreshNewStakingRef = useRef(false);
 
+    // Query NFTs directly from blockchain (fallback if API fails)
+    async function queryAvailableNFTsFromChain(addr: string): Promise<{
+        plants: number[];
+        lands: number[];
+        superLands: number[];
+    }> {
+        console.log("[NFT] Querying available NFTs directly from chain for:", addr);
+
+        const plantContract = new ethers.Contract(PLANT_ADDRESS, ERC721_VIEW_ABI, readProvider);
+        const landContract = new ethers.Contract(LAND_ADDRESS, ERC721_VIEW_ABI, readProvider);
+        const superLandContract = new ethers.Contract(SUPER_LAND_ADDRESS, ERC721_VIEW_ABI, readProvider);
+
+        const plants: number[] = [];
+        const lands: number[] = [];
+        const superLands: number[] = [];
+
+        try {
+            // Get balances
+            const [plantBal, landBal, superLandBal] = await Promise.all([
+                plantContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
+                landContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
+                superLandContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
+            ]);
+
+            console.log("[NFT] Balances:", {
+                plants: plantBal.toNumber(),
+                lands: landBal.toNumber(),
+                superLands: superLandBal.toNumber()
+            });
+
+            // For each NFT type, try to get token IDs using tokenOfOwnerByIndex if available
+            // Otherwise we'll need to scan Transfer events or use a different method
+
+            // Try ERC721Enumerable tokenOfOwnerByIndex
+            const erc721EnumAbi = [
+                "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)"
+            ];
+
+            const plantEnum = new ethers.Contract(PLANT_ADDRESS, erc721EnumAbi, readProvider);
+            const landEnum = new ethers.Contract(LAND_ADDRESS, erc721EnumAbi, readProvider);
+            const superLandEnum = new ethers.Contract(SUPER_LAND_ADDRESS, erc721EnumAbi, readProvider);
+
+            // Query plant token IDs
+            const plantPromises = [];
+            for (let i = 0; i < Math.min(plantBal.toNumber(), 100); i++) {
+                plantPromises.push(
+                    plantEnum.tokenOfOwnerByIndex(addr, i)
+                        .then((id: ethers.BigNumber) => id.toNumber())
+                        .catch(() => null)
+                );
+            }
+            const plantResults = await Promise.all(plantPromises);
+            plants.push(...plantResults.filter((id): id is number => id !== null));
+
+            // Query land token IDs
+            const landPromises = [];
+            for (let i = 0; i < Math.min(landBal.toNumber(), 100); i++) {
+                landPromises.push(
+                    landEnum.tokenOfOwnerByIndex(addr, i)
+                        .then((id: ethers.BigNumber) => id.toNumber())
+                        .catch(() => null)
+                );
+            }
+            const landResults = await Promise.all(landPromises);
+            lands.push(...landResults.filter((id): id is number => id !== null));
+
+            // Query super land token IDs
+            const superLandPromises = [];
+            for (let i = 0; i < Math.min(superLandBal.toNumber(), 100); i++) {
+                superLandPromises.push(
+                    superLandEnum.tokenOfOwnerByIndex(addr, i)
+                        .then((id: ethers.BigNumber) => id.toNumber())
+                        .catch(() => null)
+                );
+            }
+            const superLandResults = await Promise.all(superLandPromises);
+            superLands.push(...superLandResults.filter((id): id is number => id !== null));
+
+            console.log("[NFT] Found from chain:", { plants, lands, superLands });
+
+        } catch (err) {
+            console.error("[NFT] Failed to query NFTs from chain:", err);
+        }
+
+        return { plants, lands, superLands };
+    }
+
     async function refreshNewStaking() {
         if (!newStakingOpen || refreshNewStakingRef.current) return;
         refreshNewStakingRef.current = true;
@@ -1224,7 +1320,7 @@ export default function Home()
                 console.error("[NewStaking] Failed to query staked NFTs from contract:", err);
             }
 
-            // Get available (unstaked) NFTs from the backend API
+            // Get available (unstaked) NFTs - try API first, then fallback to chain
             let availPlants: number[] = [];
             let availLands: number[] = [];
             let availSuperLands: number[] = [];
@@ -1246,7 +1342,16 @@ export default function Home()
                     superLands: availSuperLands.length
                 });
             } catch (err) {
-                console.error("[NewStaking] Failed to load owned tokens:", err);
+                console.error("[NewStaking] Failed to load owned tokens from API:", err);
+            }
+
+            // If API returned empty, try querying blockchain directly
+            if (availPlants.length === 0 && availLands.length === 0 && availSuperLands.length === 0) {
+                console.log("[NewStaking] API returned empty, trying blockchain query...");
+                const chainNFTs = await queryAvailableNFTsFromChain(addr);
+                availPlants = chainNFTs.plants;
+                availLands = chainNFTs.lands;
+                availSuperLands = chainNFTs.superLands;
             }
 
             console.log("[NewStaking] NFT counts:", {
@@ -1370,6 +1475,98 @@ export default function Home()
             refreshNewStaking();
         }
     }, [newStakingOpen, userAddress]);
+
+    // Real-time pending rewards update for NEW staking
+    useEffect(() => {
+        if (!newStakingOpen || !newStakingStats) return;
+
+        const { pendingRaw, tokensPerSecond, plantsStaked, totalBoostPct } = newStakingStats;
+        if (!pendingRaw || !tokensPerSecond || plantsStaked === 0) return;
+
+        console.log("[Pending] Starting real-time update, tokensPerSecond:", tokensPerSecond.toString());
+
+        let currentPending = pendingRaw;
+        const boostMultiplier = totalBoostPct / 100; // e.g., 112% -> 1.12
+
+        // Calculate tokens per second with boost
+        const effectiveTokensPerSecond = tokensPerSecond.mul(plantsStaked).mul(Math.floor(boostMultiplier * 100)).div(100);
+
+        const interval = setInterval(() => {
+            currentPending = currentPending.add(effectiveTokensPerSecond);
+            const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
+
+            let display: string;
+            if (formatted >= 1_000_000) {
+                display = (formatted / 1_000_000).toFixed(4) + "M";
+            } else if (formatted >= 1000) {
+                display = (formatted / 1000).toFixed(2) + "K";
+            } else {
+                display = formatted.toFixed(2);
+            }
+
+            setRealTimePending(display);
+        }, 1000);
+
+        // Set initial value
+        const initialFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
+        let initialDisplay: string;
+        if (initialFormatted >= 1_000_000) {
+            initialDisplay = (initialFormatted / 1_000_000).toFixed(4) + "M";
+        } else if (initialFormatted >= 1000) {
+            initialDisplay = (initialFormatted / 1000).toFixed(2) + "K";
+        } else {
+            initialDisplay = initialFormatted.toFixed(2);
+        }
+        setRealTimePending(initialDisplay);
+
+        return () => clearInterval(interval);
+    }, [newStakingOpen, newStakingStats]);
+
+    // Real-time pending rewards update for OLD staking
+    useEffect(() => {
+        if (!oldStakingOpen || !oldStakingStats) return;
+
+        const { pendingRaw, tokensPerSecond, plantsStaked, landBoostPct } = oldStakingStats;
+        if (!pendingRaw || !tokensPerSecond || plantsStaked === 0) return;
+
+        console.log("[OldPending] Starting real-time update");
+
+        let currentPending = pendingRaw;
+        const boostMultiplier = 1 + (landBoostPct / 100); // e.g., 12% -> 1.12
+
+        // Calculate tokens per second with boost
+        const effectiveTokensPerSecond = tokensPerSecond.mul(plantsStaked).mul(Math.floor(boostMultiplier * 100)).div(100);
+
+        const interval = setInterval(() => {
+            currentPending = currentPending.add(effectiveTokensPerSecond);
+            const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
+
+            let display: string;
+            if (formatted >= 1_000_000) {
+                display = (formatted / 1_000_000).toFixed(4) + "M";
+            } else if (formatted >= 1000) {
+                display = (formatted / 1000).toFixed(2) + "K";
+            } else {
+                display = formatted.toFixed(2);
+            }
+
+            setOldRealTimePending(display);
+        }, 1000);
+
+        // Set initial value
+        const initialFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
+        let initialDisplay: string;
+        if (initialFormatted >= 1_000_000) {
+            initialDisplay = (initialFormatted / 1_000_000).toFixed(4) + "M";
+        } else if (initialFormatted >= 1000) {
+            initialDisplay = (initialFormatted / 1000).toFixed(2) + "K";
+        } else {
+            initialDisplay = initialFormatted.toFixed(2);
+        }
+        setOldRealTimePending(initialDisplay);
+
+        return () => clearInterval(interval);
+    }, [oldStakingOpen, oldStakingStats]);
 
 
     async function ensureCollectionApproval(collectionAddress: string, stakingAddress: string, ctx: { signer: ethers.Signer; userAddress: string }) {
