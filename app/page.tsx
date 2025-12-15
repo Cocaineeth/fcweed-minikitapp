@@ -362,6 +362,7 @@ export default function Home()
     const [crateReelItems, setCrateReelItems] = useState<CrateReward[]>([]);
     const crateTransactionInProgress = useRef(false);
     const lastCrateOpenBlock = useRef(0);
+    const processedCrateTxHashes = useRef<Set<string>>(new Set());
 
     // const ladder = useLeaderboard({ readProvider, userAddress, usingMiniApp, topN: 10, });
 
@@ -2165,19 +2166,87 @@ export default function Home()
 
             console.log("[Crate] Transaction hash:", txHash, "isValid:", isValidHash);
 
+            // Create event interface for parsing
+            const eventInterface = new ethers.utils.Interface([
+                "event CrateOpened(address indexed player, uint256 indexed rewardIndex, string rewardName, uint8 category, uint256 amount, uint256 nftTokenId, uint256 timestamp)"
+            ]);
+            const crateOpenedTopic = eventInterface.getEventTopic("CrateOpened");
+            const userTopic = ethers.utils.hexZeroPad(ctx.userAddress.toLowerCase(), 32);
+
             if (isValidHash) {
                 console.log("[Crate] Waiting for tx:", txHash);
-                // Poll for receipt using readProvider to ensure we get logs
-                for (let i = 0; i < 45; i++) {
+                // Poll for receipt - Base is fast, so use shorter intervals
+                // First try: Quick check (10 seconds)
+                let found = false;
+                for (let i = 0; i < 5; i++) {
                     await new Promise(resolve => setTimeout(resolve, 2000));
                     try {
                         receipt = await readProvider.getTransactionReceipt(txHash);
-                        if (receipt && receipt.confirmations > 0) {
-                            console.log("[Crate] Got receipt with", receipt.logs?.length, "logs");
+                        if (receipt) {
+                            console.log("[Crate] Got receipt with", receipt.logs?.length, "logs, status:", receipt.status);
+                            processedCrateTxHashes.current.add(txHash);
+                            found = true;
                             break;
                         }
                     } catch (err) {
                         console.log("[Crate] Polling for receipt...", i);
+                    }
+                }
+
+                // If not found after 10 seconds, the transaction likely failed to submit
+                if (!found) {
+                    console.log("[Crate] Transaction not found after 10s, checking if it was submitted...");
+                    setCrateStatus("Checking transaction...");
+
+                    // Try a few more times but also check for events in case tx went through differently
+                    for (let i = 0; i < 10; i++) {
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+
+                        // Check for receipt
+                        try {
+                            receipt = await readProvider.getTransactionReceipt(txHash);
+                            if (receipt) {
+                                console.log("[Crate] Found receipt on extended search");
+                                processedCrateTxHashes.current.add(txHash);
+                                found = true;
+                                break;
+                            }
+                        } catch {}
+
+                        // Also check for events
+                        try {
+                            const currentBlock = await readProvider.getBlockNumber();
+                            const logs = await readProvider.getLogs({
+                                address: CRATE_VAULT_ADDRESS,
+                                topics: [crateOpenedTopic, userTopic],
+                                fromBlock: blockBeforeTx > 0 ? blockBeforeTx : currentBlock - 15,
+                                toBlock: currentBlock,
+                            });
+
+                            if (logs.length > 0) {
+                                // Find the most recent log that we haven't already processed
+                                for (let j = logs.length - 1; j >= 0; j--) {
+                                    const log = logs[j];
+                                    if (!processedCrateTxHashes.current.has(log.transactionHash)) {
+                                        console.log("[Crate] Found new event via fallback search:", log.transactionHash);
+                                        processedCrateTxHashes.current.add(log.transactionHash);
+                                        receipt = { logs: [log], confirmations: 1, transactionHash: log.transactionHash } as any;
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (found) break;
+                            }
+                        } catch {}
+                    }
+
+                    if (!found) {
+                        clearTimeout(timeoutId);
+                        crateTransactionInProgress.current = false;
+                        setCrateError("Transaction failed or not submitted. Please try again.");
+                        setCrateLoading(false);
+                        setCrateStatus("");
+                        return;
                     }
                 }
             } else {
@@ -2186,23 +2255,16 @@ export default function Home()
                 console.log("[Crate] No valid tx hash, searching for recent CrateOpened events...");
                 setCrateStatus("Rolling Prizes...");
 
-                const eventInterface = new ethers.utils.Interface([
-                    "event CrateOpened(address indexed player, uint256 indexed rewardIndex, string rewardName, uint8 category, uint256 amount, uint256 nftTokenId, uint256 timestamp)"
-                ]);
-
-                // Get the topic for CrateOpened event
-                const crateOpenedTopic = eventInterface.getEventTopic("CrateOpened");
-                const userTopic = ethers.utils.hexZeroPad(ctx.userAddress.toLowerCase(), 32);
-
-                // Use the block we recorded before sending tx, or search last 20 blocks
+                // Use the block we recorded before sending tx
                 const searchFromBlock = blockBeforeTx > 0 ? blockBeforeTx : 0;
 
-                // Poll for recent events
-                for (let i = 0; i < 60; i++) {
+                // Quick initial check (10 seconds) - Base is fast
+                let found = false;
+                for (let i = 0; i < 5; i++) {
                     await new Promise(resolve => setTimeout(resolve, 2000));
                     try {
                         const currentBlock = await readProvider.getBlockNumber();
-                        const fromBlock = searchFromBlock > 0 ? searchFromBlock : currentBlock - 20;
+                        const fromBlock = searchFromBlock > 0 ? searchFromBlock : currentBlock - 15;
 
                         console.log("[Crate] Searching blocks", fromBlock, "to", currentBlock);
 
@@ -2214,21 +2276,69 @@ export default function Home()
                         });
 
                         if (logs.length > 0) {
-                            // Get the most recent log
-                            const latestLog = logs[logs.length - 1];
-                            console.log("[Crate] Found CrateOpened event via log search:", latestLog);
-
-                            // Create a fake receipt with just this log
-                            receipt = {
-                                logs: [latestLog],
-                                confirmations: 1,
-                                transactionHash: latestLog.transactionHash,
-                            } as any;
-                            break;
+                            // Find the most recent log that we haven't already processed
+                            for (let j = logs.length - 1; j >= 0; j--) {
+                                const log = logs[j];
+                                if (!processedCrateTxHashes.current.has(log.transactionHash)) {
+                                    console.log("[Crate] Found new CrateOpened event:", log.transactionHash);
+                                    processedCrateTxHashes.current.add(log.transactionHash);
+                                    receipt = { logs: [log], confirmations: 1, transactionHash: log.transactionHash } as any;
+                                    found = true;
+                                    break;
+                                } else {
+                                    console.log("[Crate] Skipping already processed tx:", log.transactionHash);
+                                }
+                            }
+                            if (found) break;
                         }
-                        console.log("[Crate] Searching for event...", i, "found", logs.length, "logs");
+                        console.log("[Crate] Searching for event...", i);
                     } catch (err) {
                         console.log("[Crate] Event search error:", err);
+                    }
+                }
+
+                // If not found after 10 seconds, transaction likely failed
+                if (!found) {
+                    setCrateStatus("Checking transaction...");
+
+                    // Extended search (20 more seconds)
+                    for (let i = 0; i < 10; i++) {
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        try {
+                            const currentBlock = await readProvider.getBlockNumber();
+                            const fromBlock = searchFromBlock > 0 ? searchFromBlock : currentBlock - 20;
+
+                            const logs = await readProvider.getLogs({
+                                address: CRATE_VAULT_ADDRESS,
+                                topics: [crateOpenedTopic, userTopic],
+                                fromBlock: fromBlock,
+                                toBlock: currentBlock,
+                            });
+
+                            if (logs.length > 0) {
+                                // Find the most recent log that we haven't already processed
+                                for (let j = logs.length - 1; j >= 0; j--) {
+                                    const log = logs[j];
+                                    if (!processedCrateTxHashes.current.has(log.transactionHash)) {
+                                        console.log("[Crate] Found new CrateOpened event on extended search:", log.transactionHash);
+                                        processedCrateTxHashes.current.add(log.transactionHash);
+                                        receipt = { logs: [log], confirmations: 1, transactionHash: log.transactionHash } as any;
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (found) break;
+                            }
+                        } catch {}
+                    }
+
+                    if (!found) {
+                        clearTimeout(timeoutId);
+                        crateTransactionInProgress.current = false;
+                        setCrateError("Transaction failed or not confirmed. Please try again.");
+                        setCrateLoading(false);
+                        setCrateStatus("");
+                        return;
                     }
                 }
             }
@@ -2239,11 +2349,6 @@ export default function Home()
             let amount = ethers.BigNumber.from(100);
             let nftTokenId = 0;
             let eventFound = false;
-
-            // Create interface specifically for parsing the event
-            const eventInterface = new ethers.utils.Interface([
-                "event CrateOpened(address indexed player, uint256 indexed rewardIndex, string rewardName, uint8 category, uint256 amount, uint256 nftTokenId, uint256 timestamp)"
-            ]);
 
             console.log("[Crate] Receipt:", receipt);
             console.log("[Crate] Logs count:", receipt?.logs?.length);
