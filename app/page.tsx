@@ -2002,20 +2002,32 @@ export default function Home()
 
             let tx: ethers.providers.TransactionResponse | null = null;
 
+            // Create a minimal interface just for openCrate to ensure clean encoding
+            const openCrateAbi = ["function openCrate() external"];
+            const openCrateInterface = new ethers.utils.Interface(openCrateAbi);
+            const openCrateData = openCrateInterface.encodeFunctionData("openCrate", []);
+
+            console.log("[Crate] openCrate encoded data:", openCrateData);
+            console.log("[Crate] Target contract:", CRATE_VAULT_ADDRESS);
+
             if (isFarcasterWallet && farcasterProvider) {
                 // Farcaster wallet
                 console.log("[Crate] Using Farcaster wallet for openCrate");
                 tx = await sendWalletCalls(
                     ctx.userAddress,
                     CRATE_VAULT_ADDRESS,
-                    vaultInterface.encodeFunctionData("openCrate", [])
+                    openCrateData
                 );
             } else {
                 // External wallet (MetaMask, Coinbase Wallet, etc.)
                 console.log("[Crate] Using external wallet for openCrate");
                 try {
-                    const vaultWrite = new ethers.Contract(CRATE_VAULT_ADDRESS, CRATE_VAULT_ABI, ctx.signer);
-                    tx = await vaultWrite.openCrate();
+                    // Use sendTransaction directly for cleaner transaction
+                    tx = await ctx.signer.sendTransaction({
+                        to: CRATE_VAULT_ADDRESS,
+                        data: openCrateData,
+                        value: 0,
+                    });
                 } catch (openErr: any) {
                     console.error("[Crate] OpenCrate error:", openErr);
                     if (openErr?.code === 4001 || openErr?.code === "ACTION_REJECTED") {
