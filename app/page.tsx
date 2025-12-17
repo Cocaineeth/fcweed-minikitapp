@@ -1973,7 +1973,7 @@ export default function Home()
         try {
             const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
 
-            // Fetch user data and staked token IDs
+
             const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, avgHealth] = await Promise.all([
                 v3Contract.users(userAddress),
                 v3Contract.pending(userAddress),
@@ -1988,7 +1988,7 @@ export default function Home()
             const superLandsCount = Number(userData.superLands);
             const water = userData.waterBalance;
 
-            // Convert staked IDs to numbers
+
             const stakedPlantNums = stakedPlantIds.map((id: any) => Number(id));
             const stakedLandNums = stakedLandIds.map((id: any) => Number(id));
 
@@ -1996,7 +1996,7 @@ export default function Home()
             console.log("[V3Staking] Staked lands from contract:", stakedLandNums);
             console.log("[V3Staking] User data - plants:", plantsCount, "lands:", landsCount, "superLands:", superLandsCount);
 
-            // Get plant health and water needed for staked plants
+
             const healthMap: Record<number, number> = {};
             const waterNeededMap: Record<number, number> = {};
 
@@ -2021,7 +2021,7 @@ export default function Home()
                     console.log("[V3Staking] Plant healths:", healthMap);
                 } catch (err) {
                     console.error("[V3Staking] Failed to get plant health:", err);
-                    // Default to 100% health if query fails
+
                     stakedPlantNums.forEach((id: number) => {
                         healthMap[id] = 100;
                         waterNeededMap[id] = 0;
@@ -2034,11 +2034,11 @@ export default function Home()
             setV3StakedPlants(stakedPlantNums);
             setV3StakedLands(stakedLandNums);
 
-            // Get owned NFTs (not staked)
+
             const owned = await getOwnedState(userAddress);
             console.log("[V3Staking] Owned state:", owned);
 
-            // Filter out already staked NFTs from available
+
             const availPlants = owned.plants
                 .filter((t: any) => !stakedPlantNums.includes(Number(t.tokenId)))
                 .map((t: any) => Number(t.tokenId));
@@ -2046,7 +2046,7 @@ export default function Home()
                 .filter((t: any) => !stakedLandNums.includes(Number(t.tokenId)))
                 .map((t: any) => Number(t.tokenId));
 
-            // Handle super lands - check staker mapping
+
             const allOwnedSuperLandIds = owned.superLands.map((t: any) => Number(t.tokenId));
             const stakedSuperLandNums: number[] = [];
             const availSuperLandNums: number[] = [];
@@ -2055,7 +2055,7 @@ export default function Home()
 
             if (superLandsCount > 0) {
                 try {
-                    // Use multicall for faster super land detection
+
                     const ids = Array.from({ length: 100 }, (_, i) => i + 1);
                     const stakerCalls = ids.map(id => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
                     const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
@@ -2072,7 +2072,7 @@ export default function Home()
                     console.log("[V3Staking] Found staked super lands:", stakedSuperLandNums);
                 } catch (err) {
                     console.error("[V3Staking] Multicall failed, trying individual calls:", err);
-                    // Fallback to individual calls
+
                     const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
                     const ids = Array.from({ length: 100 }, (_, i) => i + 1);
                     const stakerPromises = ids.map(id => v3Contract.superLandStakerOf(id).catch(() => ethers.constants.AddressZero));
@@ -2231,7 +2231,7 @@ export default function Home()
 
             if (superLandsCount > 0) {
                 try {
-                    // Use multicall for faster super land detection
+
                     const ids = Array.from({ length: 100 }, (_, i) => i + 1);
                     const stakerCalls = ids.map(id => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
                     const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
@@ -2248,7 +2248,7 @@ export default function Home()
                     console.log("[V4Staking] Found staked super lands:", stakedSuperLandNums);
                 } catch (err) {
                     console.error("[V4Staking] Multicall failed, trying individual calls:", err);
-                    // Fallback to individual calls
+
                     const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
                     const ids = Array.from({ length: 100 }, (_, i) => i + 1);
                     const stakerPromises = ids.map(id => v4Contract.superLandStakerOf(id).catch(() => ethers.constants.AddressZero));
@@ -2275,11 +2275,9 @@ export default function Home()
             setV4AvailableLands(availLands);
             setV4AvailableSuperLands(availSuperLandNums);
 
-            // Calculate boost and daily earnings
-            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
-            let tokensPerDay = 100000; // Default
-            let landBoostBps = 500; // Default 5%
-            let superLandBoostBps = 1200; // Default 12%
+            let tokensPerDay = 100000;
+            let landBoostBps = 500;
+            let superLandBoostBps = 1200;
             try {
                 const [tpd, lbb, slbb] = await Promise.all([
                     v4Contract.tokensPerPlantPerDay(),
@@ -2709,7 +2707,7 @@ export default function Home()
 
     const BACKEND_API_URL = "https://wars.x420ponzi.com";
 
-    // Wars functions
+
     async function loadWarsPlayerStats() {
         if (!userAddress) return;
         try {
@@ -2726,20 +2724,20 @@ export default function Home()
                 bestStreak: stats.bestStreak.toNumber(),
             });
 
-            // Check cooldown
+
             const cooldown = await battlesContract.getAttackCooldownRemaining(userAddress);
             setWarsCooldown(cooldown.toNumber());
 
-            // Get search fee
+
             const fee = await battlesContract.searchFee();
             const feeFormatted = parseFloat(ethers.utils.formatUnits(fee, 18));
             setWarsSearchFee(feeFormatted >= 1000 ? (feeFormatted / 1000).toFixed(0) + "K" : feeFormatted.toFixed(0));
 
-            // Check for active search
+
             const activeSearch = await battlesContract.getActiveSearch(userAddress);
             if (activeSearch.isValid && activeSearch.target !== ethers.constants.AddressZero) {
                 setWarsTarget(activeSearch.target);
-                // Load target stats
+
                 const targetStats = await battlesContract.getTargetStats(activeSearch.target);
                 setWarsTargetStats({
                     plants: targetStats.plants.toNumber(),
@@ -2750,7 +2748,7 @@ export default function Home()
                     battlePower: targetStats.battlePower.toNumber(),
                     hasShield: targetStats.hasShield,
                 });
-                // Get battle odds
+
                 const odds = await battlesContract.estimateBattleOdds(userAddress, activeSearch.target);
                 setWarsOdds({
                     attackerPower: odds.attackerPower.toNumber(),
@@ -2759,7 +2757,7 @@ export default function Home()
                 });
             }
 
-            // Check if attacker has a shield
+
             const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
             const hasShield = await v3Contract.hasRaidShield(userAddress);
             setWarsPlayerStats((prev: any) => prev ? { ...prev, hasShield } : null);
@@ -2858,7 +2856,7 @@ export default function Home()
 
             setWarsStatus("Initiating search (confirm in wallet)...");
 
-            // Call searchForTarget on the contract
+
             const searchTx = await sendContractTx(
                 V3_BATTLES_ADDRESS,
                 v3BattlesInterface.encodeFunctionData("searchForTarget", [target, nonce, signature])
@@ -2922,7 +2920,7 @@ export default function Home()
                 return;
             }
 
-            // Call attack function
+
             const tx = await sendContractTx(V3_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("attack", []));
             if (!tx) {
                 setWarsStatus("Transaction rejected");
@@ -2933,10 +2931,10 @@ export default function Home()
 
             setWarsStatus("Battle in progress...");
 
-            // Wait for transaction and parse events
+
             const receipt = await waitForTx(tx, readProvider);
 
-            // Parse BattleResult event
+
             const battleResultTopic = v3BattlesInterface.getEventTopic("BattleResult");
             let battleResult: any = null;
 
@@ -2958,7 +2956,7 @@ export default function Home()
                 }
             }
 
-            // If we couldn't parse from receipt, try to get from logs
+
             if (!battleResult && tx.hash) {
                 try {
                     const fullReceipt = await readProvider.getTransactionReceipt(tx.hash);
