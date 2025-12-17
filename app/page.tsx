@@ -2421,13 +2421,14 @@ export default function Home()
             let targetAddress: string | null = null;
             let attempts = 0;
             const maxAttempts = Math.min(totalStakers.toNumber(), 20);
+            const currentUserAddress = userAddress!; // Already checked ctx exists above
 
             while (!targetAddress && attempts < maxAttempts) {
                 const randomIndex = Math.floor(Math.random() * totalStakers.toNumber());
                 try {
                     const potentialTarget = await v3Contract.getStakerAtIndex(randomIndex);
 
-                    if (potentialTarget.toLowerCase() === userAddress.toLowerCase()) {
+                    if (potentialTarget.toLowerCase() === currentUserAddress.toLowerCase()) {
                         attempts++;
                         continue;
                     }
