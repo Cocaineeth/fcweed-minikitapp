@@ -2157,7 +2157,6 @@ export default function Home()
         return () => clearInterval(interval);
     }, [v3StakingOpen, v3StakingStats]);
 
-    // Live health decay update for V3 - refresh health every 30 seconds
     useEffect(() => {
         if (!v3StakingOpen || v3StakedPlants.length === 0) return;
         const healthInterval = setInterval(async () => {
@@ -2173,7 +2172,6 @@ export default function Home()
                     newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
                 });
                 setV3PlantHealths(newHealthMap);
-                // Update avg health in stats
                 if (v3StakedPlants.length > 0) {
                     const avgHealth = Math.round(Object.values(newHealthMap).reduce((a, b) => a + b, 0) / v3StakedPlants.length);
                     setV3StakingStats((prev: any) => prev ? { ...prev, avgHealth } : prev);
@@ -2181,7 +2179,7 @@ export default function Home()
             } catch (err) {
                 console.error("[V3] Health update failed:", err);
             }
-        }, 30000); // Update every 30 seconds
+        }, 30000);
         return () => clearInterval(healthInterval);
     }, [v3StakingOpen, v3StakedPlants]);
 
@@ -2348,7 +2346,6 @@ export default function Home()
         return () => clearInterval(interval);
     }, [v4StakingOpen, v4StakingStats]);
 
-    // Live health decay update for V4 - refresh health every 30 seconds
     useEffect(() => {
         if (!v4StakingOpen || v4StakedPlants.length === 0 || !V4_STAKING_ADDRESS) return;
         const healthInterval = setInterval(async () => {
@@ -2364,7 +2361,6 @@ export default function Home()
                     newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
                 });
                 setV4PlantHealths(newHealthMap);
-                // Update avg health in stats
                 if (v4StakedPlants.length > 0) {
                     const avgHealth = Math.round(Object.values(newHealthMap).reduce((a, b) => a + b, 0) / v4StakedPlants.length);
                     setV4StakingStats((prev: any) => prev ? { ...prev, avgHealth } : prev);
@@ -2372,7 +2368,7 @@ export default function Home()
             } catch (err) {
                 console.error("[V4] Health update failed:", err);
             }
-        }, 30000); // Update every 30 seconds
+        }, 30000);
         return () => clearInterval(healthInterval);
     }, [v4StakingOpen, v4StakedPlants]);
 
