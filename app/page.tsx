@@ -2162,17 +2162,24 @@ export default function Home()
         const healthInterval = setInterval(async () => {
             try {
                 const healthCalls = v3StakedPlants.map((id: number) => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
+                const waterCalls = v3StakedPlants.map((id: number) => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
                 const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
                 const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
+                const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
                 const newHealthMap: Record<number, number> = {};
-                v3StakedPlants.forEach((id: number, i: number) => { newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber(); });
+                const newWaterMap: Record<number, number> = {};
+                v3StakedPlants.forEach((id: number, i: number) => {
+                    newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
+                    newWaterMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i]), 18));
+                });
                 setV3PlantHealths(newHealthMap);
+                setV3WaterNeeded(newWaterMap);
                 if (v3StakedPlants.length > 0) {
                     const avgHealth = Math.round(Object.values(newHealthMap).reduce((a, b) => a + b, 0) / v3StakedPlants.length);
                     setV3StakingStats((prev: any) => prev ? { ...prev, avgHealth } : prev);
                 }
             } catch (err) { console.error("[V3] Health update failed:", err); }
-        }, 30000);
+        }, 10000);
         return () => clearInterval(healthInterval);
     }, [v3StakingOpen, v3StakedPlants]);
 
@@ -2275,17 +2282,24 @@ export default function Home()
         const healthInterval = setInterval(async () => {
             try {
                 const healthCalls = v4StakedPlants.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
+                const waterCalls = v4StakedPlants.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
                 const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
                 const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
+                const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
                 const newHealthMap: Record<number, number> = {};
-                v4StakedPlants.forEach((id: number, i: number) => { newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber(); });
+                const newWaterMap: Record<number, number> = {};
+                v4StakedPlants.forEach((id: number, i: number) => {
+                    newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
+                    newWaterMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i]), 18));
+                });
                 setV4PlantHealths(newHealthMap);
+                setV4WaterNeeded(newWaterMap);
                 if (v4StakedPlants.length > 0) {
                     const avgHealth = Math.round(Object.values(newHealthMap).reduce((a, b) => a + b, 0) / v4StakedPlants.length);
                     setV4StakingStats((prev: any) => prev ? { ...prev, avgHealth } : prev);
                 }
             } catch (err) { console.error("[V4] Health update failed:", err); }
-        }, 30000);
+        }, 10000);
         return () => clearInterval(healthInterval);
     }, [v4StakingOpen, v4StakedPlants]);
 
@@ -2345,8 +2359,12 @@ export default function Home()
 
     async function handleV3UnstakePlants() {
         if (selectedV3StakedPlants.length === 0) return;
-        const unhealthy = selectedV3StakedPlants.filter(id => v3PlantHealths[id] !== 100);
-        if (unhealthy.length > 0) { setV3ActionStatus("Plants must have 100% health to unstake!"); return; }
+        const unhealthy = selectedV3StakedPlants.filter(id => (v3PlantHealths[id] ?? 0) < 100);
+        if (unhealthy.length > 0) {
+            const healthList = unhealthy.map(id => `#${id}: ${v3PlantHealths[id] ?? 0}%`).join(", ");
+            setV3ActionStatus(`Water plants first! ${healthList}`);
+            return;
+        }
         try {
             setActionLoading(true); setV3ActionStatus("Unstaking plants...");
             const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakePlants", [selectedV3StakedPlants]));
@@ -2356,7 +2374,13 @@ export default function Home()
             setSelectedV3StakedPlants([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
-        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
+        } catch (err: any) {
+            if (err.message?.includes("!healthy") || err.reason?.includes("!healthy")) {
+                setV3ActionStatus("Plants need 100% health! Water them first.");
+            } else {
+                setV3ActionStatus("Error: " + (err.reason || err.message || err));
+            }
+        }
         finally { setActionLoading(false); }
     }
 
@@ -2418,24 +2442,37 @@ export default function Home()
         finally { setActionLoading(false); }
     }
 
+    async function handleV4WaterPlants() {
+        if (selectedV4PlantsToWater.length === 0) return;
+        try {
+            setActionLoading(true); setV4ActionStatus("Watering plants...");
+            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV4ActionStatus("Plants watered!");
+            setSelectedV4PlantsToWater([]);
+            setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
+        } catch (err: any) { setV4ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
     async function loadWaterShopInfo() {
         try {
-            const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
             const [isOpen, shopTimeInfo, dailyRemaining, walletRemaining, pricePerLiter, shopEnabled, walletLimit] = await Promise.all([
-                v3Contract.isShopOpen(),
-                v3Contract.getShopTimeInfo(),
-                v3Contract.getDailyWaterRemaining(),
-                userAddress ? v3Contract.getWalletWaterRemaining(userAddress) : ethers.BigNumber.from(0),
-                v3Contract.waterPricePerLiter(),
-                v3Contract.waterShopEnabled(),
-                userAddress ? v3Contract.getWalletWaterLimit(userAddress) : ethers.BigNumber.from(0),
+                v4Contract.isShopOpen(),
+                v4Contract.getShopTimeInfo(),
+                v4Contract.getDailyWaterRemaining(),
+                userAddress ? v4Contract.getWalletWaterRemaining(userAddress) : ethers.BigNumber.from(0),
+                v4Contract.waterPricePerLiter(),
+                v4Contract.waterShopEnabled(),
+                userAddress ? v4Contract.getWalletWaterLimit(userAddress) : ethers.BigNumber.from(0),
             ]);
 
-            // Also get user's staked plants count for display
             let stakedPlantsCount = 0;
             if (userAddress) {
                 try {
-                    const userData = await v3Contract.users(userAddress);
+                    const userData = await v4Contract.users(userAddress);
                     stakedPlantsCount = Number(userData.plants);
                 } catch {}
             }
@@ -2464,24 +2501,27 @@ export default function Home()
             const ctx = await ensureWallet(); if (!ctx) return;
             const cost = ethers.utils.parseUnits((waterBuyAmount * (waterShopInfo?.pricePerLiter || 75000)).toString(), 18);
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            const allowance = await tokenContract.allowance(userAddress, V3_STAKING_ADDRESS);
+            const allowance = await tokenContract.allowance(userAddress, V4_STAKING_ADDRESS);
             if (allowance.lt(cost)) {
-                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V3_STAKING_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V4_STAKING_ADDRESS, ethers.constants.MaxUint256]));
                 if (!approveTx) throw new Error("Approval rejected");
                 await waitForTx(approveTx);
             }
             setWaterStatus("Buying water...");
-            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("buyWater", [waterBuyAmount]));
+            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("buyWater", [waterBuyAmount]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setWaterStatus("Water purchased!");
-            setTimeout(() => { loadWaterShopInfo(); refreshV3StakingRef.current = false; refreshV3Staking(); setWaterStatus(""); }, 2000);
+            setTimeout(() => { loadWaterShopInfo(); refreshV4StakingRef.current = false; refreshV4Staking(); setWaterStatus(""); }, 2000);
         } catch (err: any) { setWaterStatus("Error: " + (err.message || err)); }
         finally { setWaterLoading(false); }
     }
 
     const plantsNeedingWater = useMemo(() => v3StakedPlants.filter(id => v3PlantHealths[id] !== undefined && v3PlantHealths[id] < 100), [v3StakedPlants, v3PlantHealths]);
     const totalWaterNeededForSelected = useMemo(() => selectedPlantsToWater.reduce((sum, id) => sum + (v3WaterNeeded[id] || 0), 0), [selectedPlantsToWater, v3WaterNeeded]);
+
+    const v4PlantsNeedingWater = useMemo(() => v4StakedPlants.filter(id => v4PlantHealths[id] !== undefined && v4PlantHealths[id] < 100), [v4StakedPlants, v4PlantHealths]);
+    const v4TotalWaterNeededForSelected = useMemo(() => selectedV4PlantsToWater.reduce((sum, id) => sum + (v4WaterNeeded[id] || 0), 0), [selectedV4PlantsToWater, v4WaterNeeded]);
 
     const BACKEND_API_URL = "https://wars.x420ponzi.com";
 
@@ -3806,9 +3846,9 @@ export default function Home()
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                             <button type="button" className={styles.btnPrimary} onClick={() => setV4StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #7c3aed, #a855f7)" }}>🚀 Staking V4 (TEST)</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setV3StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #059669, #10b981)" }}>🌿 Staking V3 (STAKE)</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setNewStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>📦 Staking V2 (Unstake)</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setOldStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #4b5563, #6b7280)" }}>📦 Staking V1 (Unstake)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setV3StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #059669, #10b981)" }}>🌿 Staking V3 (UNSTAKE)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setNewStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>📦 Staking V2 (STAKE)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setOldStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #4b5563, #6b7280)" }}>📦 Staking V1 (UNSTAKE)</button>
                         </div>
                         <div style={{ marginTop: 12, padding: 10, background: "rgba(124,58,237,0.1)", borderRadius: 10, border: "1px solid rgba(124,58,237,0.3)" }}>
                             <p style={{ fontSize: 11, color: "#a855f7", margin: 0, fontWeight: 600 }}>🚀 Staking V4 (TEST) - New contract testing!</p>
@@ -4459,7 +4499,7 @@ export default function Home()
                                                 <input type="checkbox" checked={selectedPlantsToWater.includes(id)} onChange={() => { if (selectedPlantsToWater.includes(id)) { setSelectedPlantsToWater(selectedPlantsToWater.filter(x => x !== id)); } else { setSelectedPlantsToWater([...selectedPlantsToWater, id]); } }} style={{ marginBottom: 2 }} />
                                                 <div style={{ fontSize: 8 }}>#{id}</div>
                                                 <div style={{ fontSize: 10, color: (v3PlantHealths[id] || 100) >= 80 ? "#10b981" : (v3PlantHealths[id] || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v3PlantHealths[id] || 100}%</div>
-                                                <div style={{ fontSize: 8, color: "#60a5fa" }}>{((v3WaterNeeded[id] || 0) / 1e18).toFixed(1)}L</div>
+                                                <div style={{ fontSize: 8, color: "#60a5fa" }}>{(v3WaterNeeded[id] || 0).toFixed(1)}L</div>
                                             </label>
                                         ))
                                     )}
@@ -4573,6 +4613,29 @@ export default function Home()
                                                 )}
                                             </div>
                                         </div>
+
+                                        {v4PlantsNeedingWater.length > 0 && (
+                                            <div style={{ marginBottom: 10, padding: 10, background: "rgba(59,130,246,0.1)", borderRadius: 8, border: "1px solid rgba(59,130,246,0.3)" }}>
+                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                                                    <span style={{ fontSize: 11, fontWeight: 600, color: "#60a5fa" }}>💧 Water Plants ({v4PlantsNeedingWater.length} need water)</span>
+                                                    <span style={{ fontSize: 10, color: "#9ca3af" }}>Your Water: {v4StakingStats?.water ? parseFloat(ethers.utils.formatUnits(v4StakingStats.water, 18)).toFixed(1) : "0"}L</span>
+                                                </div>
+                                                <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
+                                                    {v4PlantsNeedingWater.map((id) => <NftCard key={"v4wp-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV4PlantsToWater.includes(id)} onChange={() => toggleId(id, selectedV4PlantsToWater, setSelectedV4PlantsToWater)} health={v4PlantHealths[id]} />)}
+                                                </div>
+                                                {selectedV4PlantsToWater.length > 0 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleV4WaterPlants}
+                                                        disabled={actionLoading || !connected}
+                                                        className={styles.btnPrimary}
+                                                        style={{ width: "100%", marginTop: 8, padding: 8, fontSize: 11, background: actionLoading ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)" }}
+                                                    >
+                                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedV4PlantsToWater.length} Plant${selectedV4PlantsToWater.length > 1 ? "s" : ""} (${v4TotalWaterNeededForSelected.toFixed(1)}L)`}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
                                     </>
                                 )}
                                 <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
