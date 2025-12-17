@@ -2254,7 +2254,7 @@ export default function Home()
                     if (stakedPlantNums.length > 0) {
                         const totalHealth = Object.values(healthMap).reduce((a, b) => a + b, 0);
                         const calculatedAvgHealth = Math.round(totalHealth / stakedPlantNums.length);
-                        setV4StakingStats(prev => prev ? { ...prev, avgHealth: calculatedAvgHealth } : prev);
+                        setV4StakingStats((prev: any) => prev ? { ...prev, avgHealth: calculatedAvgHealth } : prev);
                     }
                 } catch (err) { stakedPlantNums.forEach((id: number) => { healthMap[id] = 100; waterNeededMap[id] = 0; }); }
             }
