@@ -923,21 +923,23 @@ export default function Home()
 
     async function sendContractTx(
         to: string,
-        data: string
+        data: string,
+        gasLimit: string = "0x1E8480"
     ): Promise<ethers.providers.TransactionResponse | null> {
         const ctx = await ensureWallet();
         if (!ctx) return null;
 
-        console.log("[TX] sendContractTx:", { to, isMini: ctx.isMini, usingMiniApp });
+        console.log("[TX] sendContractTx:", { to, isMini: ctx.isMini, usingMiniApp, gasLimit });
 
         try {
             if (ctx.isMini && miniAppEthProvider) {
-                return await sendWalletCalls(ctx.userAddress, to, data);
+                return await sendWalletCalls(ctx.userAddress, to, data, gasLimit);
             } else {
                 const tx = await ctx.signer.sendTransaction({
                     to,
                     data,
                     value: 0,
+                    gasLimit: ethers.BigNumber.from(gasLimit),
                 });
                 return tx;
             }
@@ -2700,10 +2702,10 @@ export default function Home()
     }
 
     const plantsNeedingWater = useMemo(() => v3StakedPlants.filter(id => (v3WaterNeeded[id] || 0) > 0 || (v3PlantHealths[id] !== undefined && v3PlantHealths[id] < 100)), [v3StakedPlants, v3PlantHealths, v3WaterNeeded]);
-    const totalWaterNeededForSelected = useMemo(() => selectedPlantsToWater.reduce((sum, id) => sum + (v3WaterNeeded[id] || 0), 0), [selectedPlantsToWater, v3WaterNeeded]);
+    const totalWaterNeededForSelected = useMemo(() => selectedPlantsToWater.reduce((sum, id) => sum + Math.max(1, v3WaterNeeded[id] || 0), 0), [selectedPlantsToWater, v3WaterNeeded]);
 
     const v4PlantsNeedingWater = useMemo(() => v4StakedPlants.filter(id => (v4WaterNeeded[id] || 0) > 0 || (v4PlantHealths[id] !== undefined && v4PlantHealths[id] < 100)), [v4StakedPlants, v4PlantHealths, v4WaterNeeded]);
-    const v4TotalWaterNeededForSelected = useMemo(() => selectedV4PlantsToWater.reduce((sum, id) => sum + (v4WaterNeeded[id] || 0), 0), [selectedV4PlantsToWater, v4WaterNeeded]);
+    const v4TotalWaterNeededForSelected = useMemo(() => selectedV4PlantsToWater.reduce((sum, id) => sum + Math.max(1, v4WaterNeeded[id] || 0), 0), [selectedV4PlantsToWater, v4WaterNeeded]);
 
     const BACKEND_API_URL = "https://wars.x420ponzi.com";
 
@@ -2856,10 +2858,10 @@ export default function Home()
 
             setWarsStatus("Initiating search (confirm in wallet)...");
 
-
             const searchTx = await sendContractTx(
                 V3_BATTLES_ADDRESS,
-                v3BattlesInterface.encodeFunctionData("searchForTarget", [target, nonce, signature])
+                v3BattlesInterface.encodeFunctionData("searchForTarget", [target, nonce, signature]),
+                "0x1E8480"
             );
 
             if (!searchTx) {
@@ -2921,7 +2923,7 @@ export default function Home()
             }
 
 
-            const tx = await sendContractTx(V3_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("attack", []));
+            const tx = await sendContractTx(V3_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("attack", []), "0x1E8480");
             if (!tx) {
                 setWarsStatus("Transaction rejected");
                 setWarsAttacking(false);
@@ -3023,7 +3025,7 @@ export default function Home()
         const activeSearch = await battlesContract.getActiveSearch(ctx.userAddress);
         if (activeSearch.isValid) {
             setWarsStatus("Cancelling current search...");
-            const cancelTx = await sendContractTx(V3_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("cancelSearch", []));
+            const cancelTx = await sendContractTx(V3_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("cancelSearch", []), "0x1E8480");
             if (cancelTx) await waitForTx(cancelTx, readProvider);
         }
 
@@ -4319,9 +4321,10 @@ export default function Home()
                                             type="button"
                                             onClick={handleNextOpponent}
                                             disabled={warsSearching || warsAttacking}
-                                            style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #374151", background: "transparent", color: "#9ca3af", cursor: "pointer", fontSize: 10 }}
+                                            className={styles.btnPrimary}
+                                            style={{ flex: 1, padding: 10, fontSize: 11, background: warsSearching ? "#374151" : "linear-gradient(135deg, #6366f1, #8b5cf6)" }}
                                         >
-                                            🔄 Next ({warsSearchFee})
+                                            {warsSearching ? "🔄 Searching..." : `🔄 Next (${warsSearchFee})`}
                                         </button>
                                         <button
                                             type="button"
@@ -4334,7 +4337,7 @@ export default function Home()
                                         </button>
                                     </div>
                                     <div style={{ fontSize: 9, color: "#6b7280", textAlign: "center" }}>
-                                        Next opponent costs {warsSearchFee} FCWEED (no refund)
+                                        Find different opponent for {warsSearchFee} FCWEED (resets 10min timer)
                                     </div>
                                 </div>
                             </div>
@@ -4676,7 +4679,7 @@ export default function Home()
                                             <input type="checkbox" checked={selectedPlantsToWater.includes(id)} onChange={() => { if (selectedPlantsToWater.includes(id)) { setSelectedPlantsToWater(selectedPlantsToWater.filter(x => x !== id)); } else { setSelectedPlantsToWater([...selectedPlantsToWater, id]); } }} style={{ marginBottom: 2 }} />
                                             <div style={{ fontSize: 8 }}>#{id}</div>
                                             <div style={{ fontSize: 10, color: (v3PlantHealths[id] ?? 100) >= 100 ? "#10b981" : (v3PlantHealths[id] ?? 100) >= 80 ? "#22c55e" : (v3PlantHealths[id] ?? 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v3PlantHealths[id] ?? "?"}%</div>
-                                            <div style={{ fontSize: 8, color: "#60a5fa" }}>{(v3WaterNeeded[id] || 0).toFixed(2)}L</div>
+                                            <div style={{ fontSize: 8, color: "#60a5fa" }}>{Math.max(1, v3WaterNeeded[id] || 0).toFixed(1)}L</div>
                                         </label>
                                     ))}
                                 </div>
@@ -4688,7 +4691,7 @@ export default function Home()
                                         className={styles.btnPrimary}
                                         style={{ width: "100%", marginTop: 8, padding: 8, fontSize: 11, background: actionLoading ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)" }}
                                     >
-                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedPlantsToWater.length} Plant${selectedPlantsToWater.length > 1 ? "s" : ""} (${totalWaterNeededForSelected.toFixed(2)}L)`}
+                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedPlantsToWater.length} Plant${selectedPlantsToWater.length > 1 ? "s" : ""} (${totalWaterNeededForSelected.toFixed(1)}L)`}
                                     </button>
                                 )}
                                 {v3ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v3ActionStatus}</p>}
@@ -4807,7 +4810,7 @@ export default function Home()
                                                             <input type="checkbox" checked={selectedV4PlantsToWater.includes(id)} onChange={() => toggleId(id, selectedV4PlantsToWater, setSelectedV4PlantsToWater)} style={{ marginBottom: 2 }} />
                                                             <div style={{ fontSize: 8 }}>#{id}</div>
                                                             <div style={{ fontSize: 10, color: (v4PlantHealths[id] ?? 100) >= 100 ? "#10b981" : (v4PlantHealths[id] ?? 100) >= 80 ? "#22c55e" : (v4PlantHealths[id] ?? 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v4PlantHealths[id] ?? "?"}%</div>
-                                                            <div style={{ fontSize: 8, color: "#60a5fa" }}>{(v4WaterNeeded[id] || 0).toFixed(2)}L</div>
+                                                            <div style={{ fontSize: 8, color: "#60a5fa" }}>{Math.max(1, v4WaterNeeded[id] || 0).toFixed(1)}L</div>
                                                         </label>
                                                     ))}
                                                 </div>
@@ -4819,7 +4822,7 @@ export default function Home()
                                                         className={styles.btnPrimary}
                                                         style={{ width: "100%", marginTop: 8, padding: 8, fontSize: 11, background: actionLoading ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)" }}
                                                     >
-                                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedV4PlantsToWater.length} Plant${selectedV4PlantsToWater.length > 1 ? "s" : ""} (${v4TotalWaterNeededForSelected.toFixed(2)}L)`}
+                                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedV4PlantsToWater.length} Plant${selectedV4PlantsToWater.length > 1 ? "s" : ""} (${v4TotalWaterNeededForSelected.toFixed(1)}L)`}
                                                     </button>
                                                 )}
                                                 {v4ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v4ActionStatus}</p>}
