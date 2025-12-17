@@ -2768,8 +2768,8 @@ export default function Home()
             }
 
 
-            const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
-            const hasShield = await v3Contract.hasRaidShield(userAddress);
+            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+            const hasShield = await v4Contract.hasRaidShield(userAddress).catch(() => false);
             setWarsPlayerStats((prev: any) => prev ? { ...prev, hasShield } : null);
 
         } catch (err) {
@@ -2821,8 +2821,8 @@ export default function Home()
                 return;
             }
 
-            const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
-            const hasShield = await v3Contract.hasRaidShield(ctx.userAddress);
+            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+            const hasShield = await v4Contract.hasRaidShield(ctx.userAddress).catch(() => false);
             if (hasShield) {
                 const confirmAttack = window.confirm("⚠️ WARNING: You have an active Raid Shield!\n\nAttacking another player will REMOVE your shield protection.\n\nDo you want to continue?");
                 if (!confirmAttack) {
@@ -2835,11 +2835,15 @@ export default function Home()
 
             setWarsStatus("Finding target...");
 
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+
             const response = await fetch(`${BACKEND_API_URL}/api/search`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ attacker: ctx.userAddress }),
-            });
+                signal: controller.signal,
+            }).finally(() => clearTimeout(timeoutId));
 
             const data = await response.json();
 
@@ -2904,7 +2908,9 @@ export default function Home()
 
         } catch (err: any) {
             console.error("[Wars] Search failed:", err);
-            if (err.message?.includes("backend") || err.message?.includes("fetch")) {
+            if (err.name === "AbortError") {
+                setWarsStatus("Search timed out. Backend may be down - please try again.");
+            } else if (err.message?.includes("backend") || err.message?.includes("fetch") || err.message?.includes("network")) {
                 setWarsStatus("Backend API unavailable. Please try again later.");
             } else {
                 setWarsStatus("Search failed: " + (err.reason || err.message || err).toString().slice(0, 50));
@@ -4401,8 +4407,54 @@ export default function Home()
                             </div>
                         )}
 
-                        <div style={{ background: "rgba(107,114,128,0.1)", border: "1px solid rgba(107,114,128,0.2)", borderRadius: 8, padding: 10 }}>
+                        <div style={{ background: "rgba(107,114,128,0.1)", border: "1px solid rgba(107,114,128,0.2)", borderRadius: 8, padding: 10, marginBottom: 12 }}>
                             <div style={{ fontSize: 9, color: "#9ca3af" }}>💡 TIP: Higher plant health = more battle power. Buy a Raid Shield from the Item Shop to protect your farm!</div>
+                        </div>
+
+                        {/* How It Works Section */}
+                        <div style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.08))", border: "1px solid rgba(139,92,246,0.3)", borderRadius: 12, padding: 14, textAlign: "left" }}>
+                            <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700, marginBottom: 10, textAlign: "center" }}>📖 HOW CARTEL WARS WORKS</div>
+
+                            <div style={{ fontSize: 10, color: "#c0c9f4", marginBottom: 10 }}>
+                                <div style={{ fontWeight: 600, color: "#60a5fa", marginBottom: 4 }}>🔍 SEARCHING</div>
+                                <div style={{ paddingLeft: 8, lineHeight: 1.5 }}>
+                                    • Pay <span style={{ color: "#fbbf24" }}>50K FCWEED</span> to search for a target<br/>
+                                    • Targets must have <span style={{ color: "#10b981" }}>200K+ pending rewards</span><br/>
+                                    • Don't like the target? Pay another 50K to skip<br/>
+                                    • Search expires after <span style={{ color: "#fbbf24" }}>10 minutes</span>
+                                </div>
+                            </div>
+
+                            <div style={{ fontSize: 10, color: "#c0c9f4", marginBottom: 10 }}>
+                                <div style={{ fontWeight: 600, color: "#60a5fa", marginBottom: 4 }}>⚔️ BATTLE MECHANICS</div>
+                                <div style={{ paddingLeft: 8, lineHeight: 1.5 }}>
+                                    • <span style={{ color: "#10b981" }}>Combat Power</span> = Plants × Avg Health × Boosts<br/>
+                                    • Higher health = higher win chance<br/>
+                                    • Win chance shown before you attack<br/>
+                                    • Outcome has some randomness (±10%)
+                                </div>
+                            </div>
+
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                                <div style={{ background: "rgba(16,185,129,0.1)", borderRadius: 8, padding: 8 }}>
+                                    <div style={{ fontSize: 9, color: "#10b981", fontWeight: 600, marginBottom: 4 }}>🏆 IF YOU WIN</div>
+                                    <div style={{ fontSize: 9, color: "#c0c9f4", lineHeight: 1.4 }}>
+                                        • Steal <span style={{ color: "#10b981" }}>up to 50%</span> of their pending<br/>
+                                        • Deal <span style={{ color: "#fbbf24" }}>10-15%</span> damage to their plants<br/>
+                                        • Get your 50K search fee back<br/>
+                                        • <span style={{ color: "#fbbf24" }}>6 hour cooldown</span> before next attack
+                                    </div>
+                                </div>
+                                <div style={{ background: "rgba(239,68,68,0.1)", borderRadius: 8, padding: 8 }}>
+                                    <div style={{ fontSize: 9, color: "#ef4444", fontWeight: 600, marginBottom: 4 }}>💀 IF YOU LOSE</div>
+                                    <div style={{ fontSize: 9, color: "#c0c9f4", lineHeight: 1.4 }}>
+                                        • Lose <span style={{ color: "#ef4444" }}>up to 50%</span> of YOUR pending<br/>
+                                        • Take <span style={{ color: "#fbbf24" }}>10-15%</span> damage to your plants<br/>
+                                        • Defender gets <span style={{ color: "#10b981" }}>25K bonus</span><br/>
+                                        • Search fee goes to treasury
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </section>
                 )}
