@@ -1971,7 +1971,7 @@ export default function Home()
         try {
             const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
 
-
+            // Fetch user data and staked token IDs
             const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, avgHealth] = await Promise.all([
                 v3Contract.users(userAddress),
                 v3Contract.pending(userAddress),
@@ -1986,7 +1986,7 @@ export default function Home()
             const superLandsCount = Number(userData.superLands);
             const water = userData.waterBalance;
 
-
+            // Convert staked IDs to numbers
             const stakedPlantNums = stakedPlantIds.map((id: any) => Number(id));
             const stakedLandNums = stakedLandIds.map((id: any) => Number(id));
 
@@ -1994,7 +1994,7 @@ export default function Home()
             console.log("[V3Staking] Staked lands from contract:", stakedLandNums);
             console.log("[V3Staking] User data - plants:", plantsCount, "lands:", landsCount, "superLands:", superLandsCount);
 
-
+            // Get plant health and water needed for staked plants
             const healthMap: Record<number, number> = {};
             const waterNeededMap: Record<number, number> = {};
 
@@ -2019,7 +2019,7 @@ export default function Home()
                     console.log("[V3Staking] Plant healths:", healthMap);
                 } catch (err) {
                     console.error("[V3Staking] Failed to get plant health:", err);
-
+                    // Default to 100% health if query fails
                     stakedPlantNums.forEach((id: number) => {
                         healthMap[id] = 100;
                         waterNeededMap[id] = 0;
@@ -2032,11 +2032,11 @@ export default function Home()
             setV3StakedPlants(stakedPlantNums);
             setV3StakedLands(stakedLandNums);
 
-
+            // Get owned NFTs (not staked)
             const owned = await getOwnedState(userAddress);
             console.log("[V3Staking] Owned state:", owned);
 
-
+            // Filter out already staked NFTs from available
             const availPlants = owned.plants
                 .filter((t: any) => !stakedPlantNums.includes(Number(t.tokenId)))
                 .map((t: any) => Number(t.tokenId));
@@ -2044,21 +2044,21 @@ export default function Home()
                 .filter((t: any) => !stakedLandNums.includes(Number(t.tokenId)))
                 .map((t: any) => Number(t.tokenId));
 
-
+            // Handle super lands - check staker mapping
             const allOwnedSuperLandIds = owned.superLands.map((t: any) => Number(t.tokenId));
             const stakedSuperLandNums: number[] = [];
             const availSuperLandNums: number[] = [];
 
             if (allOwnedSuperLandIds.length > 0 || superLandsCount > 0) {
                 try {
-
-
+                    // If user has staked super lands but we don't know which ones,
+                    // we need to check all super lands they might own
                     const superLandIdsToCheck = [...allOwnedSuperLandIds];
 
-
-
+                    // Also try to find staked super lands by checking a range
+                    // This is a fallback if the owned state doesn't include staked ones
                     if (superLandsCount > 0 && superLandIdsToCheck.length < superLandsCount) {
-
+                        // Try checking IDs 1-100 for this user's staked super lands
                         for (let i = 1; i <= 100; i++) {
                             if (!superLandIdsToCheck.includes(i)) {
                                 superLandIdsToCheck.push(i);
@@ -2089,7 +2089,7 @@ export default function Home()
                     console.log("[V3Staking] Available super lands:", availSuperLandNums);
                 } catch (err) {
                     console.error("[V3Staking] Failed to check super land stakers:", err);
-
+                    // If multicall fails, assume owned super lands are available
                     availSuperLandNums.push(...allOwnedSuperLandIds);
                 }
             }
@@ -2161,24 +2161,17 @@ export default function Home()
         if (!v3StakingOpen || v3StakedPlants.length === 0) return;
         const healthInterval = setInterval(async () => {
             try {
-                const healthCalls = v3StakedPlants.map((id: number) => ({
-                    target: V3_STAKING_ADDRESS,
-                    callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id])
-                }));
+                const healthCalls = v3StakedPlants.map((id: number) => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
                 const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
                 const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
                 const newHealthMap: Record<number, number> = {};
-                v3StakedPlants.forEach((id: number, i: number) => {
-                    newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
-                });
+                v3StakedPlants.forEach((id: number, i: number) => { newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber(); });
                 setV3PlantHealths(newHealthMap);
                 if (v3StakedPlants.length > 0) {
                     const avgHealth = Math.round(Object.values(newHealthMap).reduce((a, b) => a + b, 0) / v3StakedPlants.length);
                     setV3StakingStats((prev: any) => prev ? { ...prev, avgHealth } : prev);
                 }
-            } catch (err) {
-                console.error("[V3] Health update failed:", err);
-            }
+            } catch (err) { console.error("[V3] Health update failed:", err); }
         }, 30000);
         return () => clearInterval(healthInterval);
     }, [v3StakingOpen, v3StakedPlants]);
@@ -2189,42 +2182,24 @@ export default function Home()
         if (refreshV4StakingRef.current || !userAddress || !V4_STAKING_ADDRESS) return;
         refreshV4StakingRef.current = true;
         setLoadingV4Staking(true);
-        console.log("[V4Staking] Starting refresh for:", userAddress);
         try {
             const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
-
             const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, avgHealth] = await Promise.all([
-                v4Contract.users(userAddress),
-                v4Contract.pending(userAddress),
-                v4Contract.capacityOf(userAddress),
-                v4Contract.plantsOf(userAddress),
-                v4Contract.landsOf(userAddress),
-                v4Contract.getAverageHealth(userAddress),
+                v4Contract.users(userAddress), v4Contract.pending(userAddress), v4Contract.capacityOf(userAddress),
+                v4Contract.plantsOf(userAddress), v4Contract.landsOf(userAddress), v4Contract.getAverageHealth(userAddress),
             ]);
-
             const plantsCount = Number(userData.plants);
             const landsCount = Number(userData.lands);
             const superLandsCount = Number(userData.superLands);
             const water = userData.waterBalance;
-
             const stakedPlantNums = stakedPlantIds.map((id: any) => Number(id));
             const stakedLandNums = stakedLandIds.map((id: any) => Number(id));
-
-            console.log("[V4Staking] User data - plants:", plantsCount, "lands:", landsCount, "superLands:", superLandsCount);
-
             const healthMap: Record<number, number> = {};
             const waterNeededMap: Record<number, number> = {};
-
             if (stakedPlantNums.length > 0) {
                 try {
-                    const healthCalls = stakedPlantNums.map((id: number) => ({
-                        target: V4_STAKING_ADDRESS,
-                        callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id])
-                    }));
-                    const waterCalls = stakedPlantNums.map((id: number) => ({
-                        target: V4_STAKING_ADDRESS,
-                        callData: v3StakingInterface.encodeFunctionData("getWaterNeeded", [id])
-                    }));
+                    const healthCalls = stakedPlantNums.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
+                    const waterCalls = stakedPlantNums.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
                     const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
                     const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
                     const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
@@ -2232,99 +2207,48 @@ export default function Home()
                         healthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
                         waterNeededMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i]), 18));
                     });
-                } catch (err) {
-                    console.error("[V4Staking] Failed to get plant health:", err);
-                    stakedPlantNums.forEach((id: number) => { healthMap[id] = 100; waterNeededMap[id] = 0; });
-                }
+                } catch (err) { stakedPlantNums.forEach((id: number) => { healthMap[id] = 100; waterNeededMap[id] = 0; }); }
             }
-
             setV4PlantHealths(healthMap);
             setV4WaterNeeded(waterNeededMap);
             setV4StakedPlants(stakedPlantNums);
             setV4StakedLands(stakedLandNums);
-
             const owned = await getOwnedState(userAddress);
-
-            const availPlants = owned.plants
-                .filter((t: any) => !stakedPlantNums.includes(Number(t.tokenId)))
-                .map((t: any) => Number(t.tokenId));
-            const availLands = owned.lands
-                .filter((t: any) => !stakedLandNums.includes(Number(t.tokenId)))
-                .map((t: any) => Number(t.tokenId));
-
+            const availPlants = owned.plants.filter((t: any) => !stakedPlantNums.includes(Number(t.tokenId))).map((t: any) => Number(t.tokenId));
+            const availLands = owned.lands.filter((t: any) => !stakedLandNums.includes(Number(t.tokenId))).map((t: any) => Number(t.tokenId));
             const allOwnedSuperLandIds = owned.superLands.map((t: any) => Number(t.tokenId));
             const stakedSuperLandNums: number[] = [];
             const availSuperLandNums: number[] = [];
-
             if (allOwnedSuperLandIds.length > 0 || superLandsCount > 0) {
                 try {
                     const superLandIdsToCheck = [...allOwnedSuperLandIds];
                     if (superLandsCount > 0 && superLandIdsToCheck.length < superLandsCount) {
-                        for (let i = 1; i <= 100; i++) {
-                            if (!superLandIdsToCheck.includes(i)) superLandIdsToCheck.push(i);
-                        }
+                        for (let i = 1; i <= 100; i++) { if (!superLandIdsToCheck.includes(i)) superLandIdsToCheck.push(i); }
                     }
-
                     if (superLandIdsToCheck.length > 0) {
-                        const stakerCalls = superLandIdsToCheck.map((id: number) => ({
-                            target: V4_STAKING_ADDRESS,
-                            callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id])
-                        }));
+                        const stakerCalls = superLandIdsToCheck.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
                         const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
                         const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
-
                         superLandIdsToCheck.forEach((id: number, i: number) => {
                             try {
                                 const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
-                                if (staker.toLowerCase() === userAddress.toLowerCase()) {
-                                    stakedSuperLandNums.push(id);
-                                } else if (staker === ethers.constants.AddressZero && allOwnedSuperLandIds.includes(id)) {
-                                    availSuperLandNums.push(id);
-                                }
+                                if (staker.toLowerCase() === userAddress.toLowerCase()) { stakedSuperLandNums.push(id); }
+                                else if (staker === ethers.constants.AddressZero && allOwnedSuperLandIds.includes(id)) { availSuperLandNums.push(id); }
                             } catch {}
                         });
                     }
-                    console.log("[V4Staking] Staked super lands:", stakedSuperLandNums);
-                } catch (err) {
-                    console.error("[V4Staking] Failed to check super land stakers:", err);
-                    availSuperLandNums.push(...allOwnedSuperLandIds);
-                }
+                } catch (err) { availSuperLandNums.push(...allOwnedSuperLandIds); }
             }
-
             setV4StakedSuperLands(stakedSuperLandNums);
             setV4AvailablePlants(availPlants);
             setV4AvailableLands(availLands);
             setV4AvailableSuperLands(availSuperLandNums);
-
             const pendingFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
-            const capacityNum = capacity.toNumber();
-            const avgHealthNum = avgHealth.toNumber();
-
-            setV4StakingStats({
-                plants: plantsCount,
-                lands: landsCount,
-                superLands: superLandsCount,
-                capacity: capacityNum,
-                avgHealth: avgHealthNum,
-                water,
-                pendingRaw,
-                pendingFormatted
-            });
-
-            const display = pendingFormatted >= 1e6 ? (pendingFormatted / 1e6).toFixed(4) + "M" :
-                           pendingFormatted >= 1e3 ? (pendingFormatted / 1e3).toFixed(2) + "K" :
-                           pendingFormatted.toFixed(2);
+            setV4StakingStats({ plants: plantsCount, lands: landsCount, superLands: superLandsCount, capacity: capacity.toNumber(), avgHealth: avgHealth.toNumber(), water, pendingRaw, pendingFormatted });
+            const display = pendingFormatted >= 1e6 ? (pendingFormatted / 1e6).toFixed(4) + "M" : pendingFormatted >= 1e3 ? (pendingFormatted / 1e3).toFixed(2) + "K" : pendingFormatted.toFixed(2);
             setV4RealTimePending(display);
-
-            console.log("[V4Staking] Refresh complete");
-
-        } catch (err) {
-            console.error("[V4Staking] Error:", err);
-        }
-        finally {
-            refreshV4StakingRef.current = false;
-            setLoadingV4Staking(false);
-        }
+        } catch (err) { console.error("[V4Staking] Error:", err); }
+        finally { refreshV4StakingRef.current = false; setLoadingV4Staking(false); }
     }
 
     useEffect(() => {
@@ -2350,24 +2274,17 @@ export default function Home()
         if (!v4StakingOpen || v4StakedPlants.length === 0 || !V4_STAKING_ADDRESS) return;
         const healthInterval = setInterval(async () => {
             try {
-                const healthCalls = v4StakedPlants.map((id: number) => ({
-                    target: V4_STAKING_ADDRESS,
-                    callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id])
-                }));
+                const healthCalls = v4StakedPlants.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
                 const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
                 const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
                 const newHealthMap: Record<number, number> = {};
-                v4StakedPlants.forEach((id: number, i: number) => {
-                    newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
-                });
+                v4StakedPlants.forEach((id: number, i: number) => { newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber(); });
                 setV4PlantHealths(newHealthMap);
                 if (v4StakedPlants.length > 0) {
                     const avgHealth = Math.round(Object.values(newHealthMap).reduce((a, b) => a + b, 0) / v4StakedPlants.length);
                     setV4StakingStats((prev: any) => prev ? { ...prev, avgHealth } : prev);
                 }
-            } catch (err) {
-                console.error("[V4] Health update failed:", err);
-            }
+            } catch (err) { console.error("[V4] Health update failed:", err); }
         }, 30000);
         return () => clearInterval(healthInterval);
     }, [v4StakingOpen, v4StakedPlants]);
@@ -2514,7 +2431,7 @@ export default function Home()
                 userAddress ? v3Contract.getWalletWaterLimit(userAddress) : ethers.BigNumber.from(0),
             ]);
 
-
+            // Also get user's staked plants count for display
             let stakedPlantsCount = 0;
             if (userAddress) {
                 try {
@@ -2568,7 +2485,7 @@ export default function Home()
 
     const BACKEND_API_URL = "https://wars.x420ponzi.com";
 
-
+    // Wars functions
     async function loadWarsPlayerStats() {
         if (!userAddress) return;
         try {
@@ -2585,20 +2502,20 @@ export default function Home()
                 bestStreak: stats.bestStreak.toNumber(),
             });
 
-
+            // Check cooldown
             const cooldown = await battlesContract.getAttackCooldownRemaining(userAddress);
             setWarsCooldown(cooldown.toNumber());
 
-
+            // Get search fee
             const fee = await battlesContract.searchFee();
             const feeFormatted = parseFloat(ethers.utils.formatUnits(fee, 18));
             setWarsSearchFee(feeFormatted >= 1000 ? (feeFormatted / 1000).toFixed(0) + "K" : feeFormatted.toFixed(0));
 
-
+            // Check for active search
             const activeSearch = await battlesContract.getActiveSearch(userAddress);
             if (activeSearch.isValid && activeSearch.target !== ethers.constants.AddressZero) {
                 setWarsTarget(activeSearch.target);
-
+                // Load target stats
                 const targetStats = await battlesContract.getTargetStats(activeSearch.target);
                 setWarsTargetStats({
                     plants: targetStats.plants.toNumber(),
@@ -2609,7 +2526,7 @@ export default function Home()
                     battlePower: targetStats.battlePower.toNumber(),
                     hasShield: targetStats.hasShield,
                 });
-
+                // Get battle odds
                 const odds = await battlesContract.estimateBattleOdds(userAddress, activeSearch.target);
                 setWarsOdds({
                     attackerPower: odds.attackerPower.toNumber(),
@@ -2618,7 +2535,7 @@ export default function Home()
                 });
             }
 
-
+            // Check if attacker has a shield
             const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
             const hasShield = await v3Contract.hasRaidShield(userAddress);
             setWarsPlayerStats((prev: any) => prev ? { ...prev, hasShield } : null);
@@ -2717,7 +2634,7 @@ export default function Home()
 
             setWarsStatus("Initiating search (confirm in wallet)...");
 
-
+            // Call searchForTarget on the contract
             const searchTx = await sendContractTx(
                 V3_BATTLES_ADDRESS,
                 v3BattlesInterface.encodeFunctionData("searchForTarget", [target, nonce, signature])
@@ -2781,7 +2698,7 @@ export default function Home()
                 return;
             }
 
-
+            // Call attack function
             const tx = await sendContractTx(V3_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("attack", []));
             if (!tx) {
                 setWarsStatus("Transaction rejected");
@@ -2792,10 +2709,10 @@ export default function Home()
 
             setWarsStatus("Battle in progress...");
 
-
+            // Wait for transaction and parse events
             const receipt = await waitForTx(tx, readProvider);
 
-
+            // Parse BattleResult event
             const battleResultTopic = v3BattlesInterface.getEventTopic("BattleResult");
             let battleResult: any = null;
 
@@ -2817,7 +2734,7 @@ export default function Home()
                 }
             }
 
-
+            // If we couldn't parse from receipt, try to get from logs
             if (!battleResult && tx.hash) {
                 try {
                     const fullReceipt = await readProvider.getTransactionReceipt(tx.hash);
@@ -4512,8 +4429,6 @@ export default function Home()
                         )}
 
                         <div style={{ padding: "8px 12px", background: "rgba(16,185,129,0.1)", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>✨ Plant Health, Water Shop, Cartel Wars & more!</p>
-                        </div>
                             <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>✨ Plant Health, Water Shop, Cartel Wars & more!</p>
                         </div>
 
