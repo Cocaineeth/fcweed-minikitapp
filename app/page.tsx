@@ -2242,7 +2242,7 @@ export default function Home()
             console.log("[V4Staking] stakedPlantNums:", stakedPlantNums);
             console.log("[V4Staking] plantsCount from userData:", plantsCount);
             console.log("[V4Staking] avgHealth from contract:", avgHealth.toNumber());
-
+            
             const healthMap: Record<number, number> = {};
             const waterNeededMap: Record<number, number> = {};
             if (stakedPlantNums.length > 0) {
@@ -2811,53 +2811,73 @@ export default function Home()
                 setWarsTarget(activeSearch.target);
                 setWarsTargetLocked(true); // Already paid
                 setWarsSearchExpiry(activeSearch.expiry.toNumber());
-                const targetStats = await battlesContract.getTargetStats(activeSearch.target);
-                const tPlants = targetStats.plants.toNumber();
-                const tLands = targetStats.lands.toNumber();
-                const tSuperLands = targetStats.superLands.toNumber();
-                const tAvgHealth = targetStats.avgHealth.toNumber();
+                
+                // Fetch target stats directly from V4 staking (more reliable)
+                const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, [
+                    "function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)",
+                    "function hasRaidShield(address) external view returns (bool)"
+                ], readProvider);
+                
+                let tPlants = 0, tLands = 0, tSuperLands = 0, tAvgHealth = 100, tPending = ethers.BigNumber.from(0);
+                try {
+                    const targetStats = await v4Contract.getUserBattleStats(activeSearch.target);
+                    tPlants = targetStats[0].toNumber();
+                    tLands = targetStats[1].toNumber();
+                    tSuperLands = targetStats[2].toNumber();
+                    tAvgHealth = targetStats[3].toNumber();
+                    tPending = targetStats[4];
+                    console.log("[Wars] Target stats from V4 - Plants:", tPlants, "Lands:", tLands, "SuperLands:", tSuperLands, "AvgHealth:", tAvgHealth);
+                } catch (e) {
+                    console.error("[Wars] Failed to get target stats:", e);
+                }
+                
+                let hasShield = false;
+                try {
+                    hasShield = await v4Contract.hasRaidShield(activeSearch.target);
+                } catch (e) {}
+                
+                const defenderPower = Math.round((tPlants * 100 + tLands * 50 + tSuperLands * 150) * tAvgHealth / 100);
+                
                 setWarsTargetStats({
                     plants: tPlants,
                     lands: tLands,
                     superLands: tSuperLands,
                     avgHealth: tAvgHealth,
-                    pendingRewards: targetStats.pendingRewards,
-                    battlePower: targetStats.battlePower.toNumber(),
-                    hasShield: targetStats.hasShield,
+                    pendingRewards: tPending,
+                    battlePower: defenderPower,
+                    hasShield: hasShield,
                 });
-
-                // Calculate odds manually for reliability
-                const defenderPower = Math.round((tPlants * 100 + tLands * 50 + tSuperLands * 150) * tAvgHealth / 100);
-
-                // Get attacker power from V4 staking contract (always fetch fresh to avoid stale state)
+                
+                // Get attacker power from V4 staking contract
                 let attackerPower = 0;
                 const attackerAddress = ctx.userAddress;
                 console.log("[Wars] Calculating attacker power for:", attackerAddress);
-
+                console.log("[Wars] Target address was:", activeSearch.target);
+                console.log("[Wars] V4_STAKING_ADDRESS:", V4_STAKING_ADDRESS);
+                
                 try {
-                    const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, [
-                        "function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)"
-                    ], readProvider);
-
+                    console.log("[Wars] Calling getUserBattleStats for attacker...");
                     const userStats = await v4Contract.getUserBattleStats(attackerAddress);
+                    console.log("[Wars] Raw userStats response:", userStats);
                     const aPlants = userStats[0].toNumber();
                     const aLands = userStats[1].toNumber();
                     const aSuperLands = userStats[2].toNumber();
                     const aAvgHealth = userStats[3].toNumber();
-
-                    console.log("[Wars] V4 Contract stats - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
+                    
+                    console.log("[Wars] Attacker stats from V4 - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
                     attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
                     console.log("[Wars] Calculated attacker power:", attackerPower);
-
+                    
                 } catch (e) {
                     console.error("[Wars] Failed to get attacker power:", e);
+                    console.error("[Wars] Error details:", JSON.stringify(e, null, 2));
                 }
-
+                
                 console.log("[Wars] Final - Attacker:", attackerPower, "Defender:", defenderPower);
-
+                
                 const total = attackerPower + defenderPower;
                 const estimatedWinChance = total > 0 ? Math.round((attackerPower * 100) / total) : 50;
-
+                
                 setWarsOdds({
                     attackerPower,
                     defenderPower,
@@ -2990,29 +3010,29 @@ export default function Home()
 
             // Calculate battle power manually from stats (more reliable than contract call)
             const defenderPower = Math.round((stats.plants * 100 + stats.lands * 50 + stats.superLands * 150) * stats.avgHealth / 100);
-
+            
             // Get attacker power from V4 staking contract (always fetch fresh)
             let attackerPower = 0;
             console.log("[Wars] Lock - Calculating attacker power for:", ctx.userAddress);
-
+            
             try {
                 const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, [
                     "function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)"
                 ], readProvider);
-
+                
                 const userStats = await v4Contract.getUserBattleStats(ctx.userAddress);
                 const aPlants = userStats[0].toNumber();
                 const aLands = userStats[1].toNumber();
                 const aSuperLands = userStats[2].toNumber();
                 const aAvgHealth = userStats[3].toNumber();
-
+                
                 console.log("[Wars] Lock - V4 stats - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
                 attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
                 console.log("[Wars] Lock - Calculated attacker power:", attackerPower);
             } catch (e) {
                 console.error("[Wars] Lock - Failed to get attacker power:", e);
             }
-
+            
             console.log("[Wars] Lock - Attacker:", attackerPower, "Defender:", defenderPower);
 
             // Calculate win chance
@@ -4516,10 +4536,10 @@ export default function Home()
                                             </button>
                                         </div>
                                     )}
-
+                                    
                                     <div style={{ fontSize: 9, color: "#6b7280", textAlign: "center" }}>
-                                        {!warsTargetLocked
-                                            ? `Pay ${warsSearchFee} FCWEED to reveal stats and fight, or find another opponent`
+                                        {!warsTargetLocked 
+                                            ? `Pay ${warsSearchFee} FCWEED to reveal stats and fight, or find another opponent` 
                                             : `Find different opponent for ${warsSearchFee} FCWEED (resets 10min timer)`
                                         }
                                     </div>
