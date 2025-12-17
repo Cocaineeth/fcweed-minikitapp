@@ -3605,8 +3605,8 @@ export default function Home()
                             <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setV3StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #059669, #10b981)" }}>🌿 Staking V3 (STAKE)</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setNewStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>📦 Staking V2 (Unstake)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setV3StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #059669, #10b981)" }}>🌿 Staking V3 (TEST)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setNewStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>📦 Staking V2 (Stake)</button>
                             <button type="button" className={styles.btnPrimary} onClick={() => setOldStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #4b5563, #6b7280)" }}>📦 Staking V1 (Unstake)</button>
                         </div>
                         <div style={{ marginTop: 12, padding: 10, background: "rgba(16,185,129,0.1)", borderRadius: 10, border: "1px solid rgba(16,185,129,0.3)" }}>
