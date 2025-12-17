@@ -2052,18 +2052,14 @@ export default function Home()
             if (allOwnedSuperLandIds.length > 0 || superLandsCount > 0) {
                 try {
                     // If user has staked super lands but we don't know which ones,
-                    // we need to check all super lands they might own
-                    const superLandIdsToCheck = [...allOwnedSuperLandIds];
+                    const superLandIdsToCheck: number[] = [];
 
-                    // Also try to find staked super lands by checking a range
-                    // This is a fallback if the owned state doesn't include staked ones
-                    if (superLandsCount > 0 && superLandIdsToCheck.length < superLandsCount) {
-                        // Try checking IDs 1-100 for this user's staked super lands
+                    if (superLandsCount > 0) {
                         for (let i = 1; i <= 100; i++) {
-                            if (!superLandIdsToCheck.includes(i)) {
-                                superLandIdsToCheck.push(i);
-                            }
+                            superLandIdsToCheck.push(i);
                         }
+                    } else {
+                        superLandIdsToCheck.push(...allOwnedSuperLandIds);
                     }
 
                     if (superLandIdsToCheck.length > 0) {
@@ -2228,9 +2224,11 @@ export default function Home()
             const availSuperLandNums: number[] = [];
             if (allOwnedSuperLandIds.length > 0 || superLandsCount > 0) {
                 try {
-                    const superLandIdsToCheck = [...allOwnedSuperLandIds];
-                    if (superLandsCount > 0 && superLandIdsToCheck.length < superLandsCount) {
-                        for (let i = 1; i <= 100; i++) { if (!superLandIdsToCheck.includes(i)) superLandIdsToCheck.push(i); }
+                    const superLandIdsToCheck: number[] = [];
+                    if (superLandsCount > 0) {
+                        for (let i = 1; i <= 100; i++) { superLandIdsToCheck.push(i); }
+                    } else {
+                        superLandIdsToCheck.push(...allOwnedSuperLandIds);
                     }
                     if (superLandIdsToCheck.length > 0) {
                         const stakerCalls = superLandIdsToCheck.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
@@ -3911,11 +3909,10 @@ export default function Home()
                                 <li>Each Super Land grants <b style={{ color: "#fbbf24" }}>+12% token boost</b>.</li>
                                 <li style={{ color: "#fbbf24" }}><b>NEW: Open Crates</b> for Prizes by spending <b>200,000 $FCWEED</b>!</li>
                                 <li style={{ color: "#ef4444", marginTop: 8 }}><b>NEW: Cartel Wars</b> — Battle other farmers!</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Plants have <b>Health</b> that decays 10% daily</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Low health = lower earnings. 0% health = no earnings!</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Attack other farmers to steal 10-20% of pending rewards</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Losing battles damages your plants 10-15%</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Must have 100% health to unstake plants</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Search for opponents (50K FCWEED fee, refunded on win)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Attack other farmers to steal <b>up to 50%</b> of their pending rewards</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Losing battles damages your plants 10-15% and you lose up to 50% of pending</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Defenders get 25K bonus when attackers lose</li>
                                 <li style={{ color: "#10b981", marginTop: 8 }}><b>NEW: Item Shop</b> — Buy Water!</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> restores plant health to 100%</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Water Shop open <b>12PM-6PM EST</b> daily with limited supply</li>
@@ -3970,15 +3967,15 @@ export default function Home()
                             <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setV4StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #7c3aed, #a855f7)" }}>🚀 Staking V4 (TEST)</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setV3StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #059669, #10b981)" }}>🌿 Staking V3 (UNSTAKE)</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setNewStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>📦 Staking V2 (Stake)</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setOldStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #4b5563, #6b7280)" }}>📦 Staking V1 (Unstake)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setV4StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #7c3aed, #a855f7)" }}>🚀 Staking V4 (NEW - LIVE)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setV3StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>🌿 Staking V3 (UNSTAKE ONLY)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setNewStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #4b5563, #6b7280)" }}>📦 Staking V2 (UNSTAKE ONLY)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setOldStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #374151, #4b5563)" }}>📦 Staking V1 (UNSTAKE ONLY)</button>
                         </div>
                         <div style={{ marginTop: 12, padding: 10, background: "rgba(124,58,237,0.1)", borderRadius: 10, border: "1px solid rgba(124,58,237,0.3)" }}>
-                            <p style={{ fontSize: 11, color: "#a855f7", margin: 0, fontWeight: 600 }}>🚀 Staking V4 (TEST) - New contract testing!</p>
-                            <p style={{ fontSize: 10, color: "#fbbf24", margin: "6px 0 0", fontWeight: 500 }}>⚠️ Unstake & Claim from V1/V2, then stake on V3 or V4</p>
-                            <p style={{ fontSize: 10, color: "#9ca3af", margin: "6px 0 0" }}>V4 features: Same as V3 with treasury-based rewards!</p>
+                            <p style={{ fontSize: 11, color: "#a855f7", margin: 0, fontWeight: 600 }}>🚀 Staking V4 is LIVE! Stake your NFTs in V4 for rewards!</p>
+                            <p style={{ fontSize: 10, color: "#fbbf24", margin: "6px 0 0", fontWeight: 500 }}>⚠️ V1/V2/V3 are deprecated - Unstake & Claim, then stake in V4!</p>
+                            <p style={{ fontSize: 10, color: "#9ca3af", margin: "6px 0 0" }}>V4 features: Plant health, Water shop, Cartel Wars & treasury-based rewards!</p>
                         </div>
                     </section>
                 )}
@@ -4196,16 +4193,16 @@ export default function Home()
                                     <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 8, padding: 10 }}>
                                         <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>IF YOU WIN</div>
                                         <ul style={{ fontSize: 10, color: "#10b981", textAlign: "left", margin: 0, paddingLeft: 16 }}>
-                                            <li>Steal 10-20% of their pending</li>
-                                            <li>Search fee refunded</li>
+                                            <li>Steal up to 50% of their pending</li>
+                                            <li>Search fee refunded (50K)</li>
                                             <li>Their plants take 10-15% damage</li>
                                         </ul>
                                     </div>
                                     <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 8, padding: 10 }}>
                                         <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>IF YOU LOSE</div>
                                         <ul style={{ fontSize: 10, color: "#ef4444", textAlign: "left", margin: 0, paddingLeft: 16 }}>
-                                            <li>Lose 10-20% of your pending</li>
-                                            <li>Search fee goes to treasury</li>
+                                            <li>Lose up to 50% of your pending</li>
+                                            <li>Defender gets 25K bonus</li>
                                             <li>Your plants take 10-15% damage</li>
                                         </ul>
                                     </div>
@@ -4466,7 +4463,7 @@ export default function Home()
                             <button type="button" className={styles.modalClose} onClick={() => setOldStakingOpen(false)}>✕</button>
                         </header>
                         <div style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V1 is deprecated. Please unstake, claim, and move to Staking V3!</p>
+                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V1 is deprecated. Please unstake, claim, and move to Staking V4!</p>
                         </div>
                         <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
@@ -4503,7 +4500,7 @@ export default function Home()
                             </>
                         )}
                         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                            <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading} onClick={handleOldStakeSelected} style={{ flex: 1, padding: 10, fontSize: 12 }}>Stake</button>
+                            <button type="button" className={styles.btnPrimary} disabled={true} style={{ flex: 1, padding: 10, fontSize: 12, opacity: 0.5 }}>Stake (Disabled)</button>
                             <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading} onClick={handleOldUnstakeSelected} style={{ flex: 1, padding: 10, fontSize: 12 }}>Unstake</button>
                             <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !oldStakingStats?.claimEnabled} onClick={handleOldClaim} style={{ flex: 1, padding: 10, fontSize: 12 }}>Claim</button>
                         </div>
@@ -4521,14 +4518,14 @@ export default function Home()
 
                         <button
                             type="button"
-                            onClick={() => { setNewStakingOpen(false); setV3StakingOpen(true); }}
-                            style={{ width: "100%", padding: "10px", marginBottom: 10, background: "linear-gradient(135deg, #059669, #10b981)", border: "none", borderRadius: 8, color: "#fff", fontWeight: 600, fontSize: 12, cursor: "pointer" }}
+                            onClick={() => { setNewStakingOpen(false); setV4StakingOpen(true); }}
+                            style={{ width: "100%", padding: "10px", marginBottom: 10, background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", borderRadius: 8, color: "#fff", fontWeight: 600, fontSize: 12, cursor: "pointer" }}
                         >
-                            ⬆️ Go to V3 Staking (Recommended) - Plant Health, Water Shop, Cartel Wars!
+                            🚀 Go to V4 Staking (NEW - LIVE) - Plant Health, Water Shop, Cartel Wars!
                         </button>
 
                         <div style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V2 is deprecated. Please unstake, claim, and move to Staking V3!</p>
+                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V2 is deprecated. Please unstake, claim, and move to Staking V4!</p>
                         </div>
                         <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
@@ -4567,7 +4564,7 @@ export default function Home()
                             </>
                         )}
                         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                            <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading} onClick={handleNewStakeSelected} style={{ flex: 1, padding: 10, fontSize: 12 }}>Stake</button>
+                            <button type="button" className={styles.btnPrimary} disabled={true} style={{ flex: 1, padding: 10, fontSize: 12, opacity: 0.5 }}>Stake (Disabled)</button>
                             <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading} onClick={handleNewUnstakeSelected} style={{ flex: 1, padding: 10, fontSize: 12 }}>Unstake</button>
                             <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !newStakingStats?.claimEnabled} onClick={handleNewClaim} style={{ flex: 1, padding: 10, fontSize: 12 }}>Claim</button>
                         </div>
@@ -4579,22 +4576,20 @@ export default function Home()
                 <div className={styles.modalBackdrop}>
                     <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto" }}>
                         <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle}>🌿 Staking V3</h2>
+                            <h2 className={styles.modalTitle}>🌿 Staking V3 (Unstake Only)</h2>
                             <button type="button" className={styles.modalClose} onClick={() => setV3StakingOpen(false)}>✕</button>
                         </header>
 
-                        {(v4StakedPlants.length > 0 || v4StakedLands.length > 0 || v4StakedSuperLands.length > 0) && (
-                            <button
-                                type="button"
-                                onClick={() => { setV3StakingOpen(false); setV4StakingOpen(true); }}
-                                style={{ width: "100%", padding: "10px", marginBottom: 10, background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", borderRadius: 8, color: "#fff", fontWeight: 600, fontSize: 12, cursor: "pointer" }}
-                            >
-                                ⬆️ V4 Staking (UNSTAKE ONLY) - {v4StakedPlants.length} Plants, {v4StakedLands.length} Lands, {v4StakedSuperLands.length} Super Lands
-                            </button>
-                        )}
+                        <button
+                            type="button"
+                            onClick={() => { setV3StakingOpen(false); setV4StakingOpen(true); }}
+                            style={{ width: "100%", padding: "10px", marginBottom: 10, background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", borderRadius: 8, color: "#fff", fontWeight: 600, fontSize: 12, cursor: "pointer" }}
+                        >
+                            🚀 Go to V4 Staking (NEW - LIVE) - Plant Health, Water Shop, Cartel Wars!
+                        </button>
 
-                        <div style={{ padding: "8px 12px", background: "rgba(16,185,129,0.1)", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>✨ Plant Health, Water Shop, Cartel Wars & more!</p>
+                        <div style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", marginBottom: 10 }}>
+                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V3 is deprecated. Please unstake, claim, and move to Staking V4!</p>
                         </div>
 
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
@@ -4670,7 +4665,7 @@ export default function Home()
                             </>
                         )}
                         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                            <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || (selectedV3AvailPlants.length + selectedV3AvailLands.length + selectedV3AvailSuperLands.length === 0)} onClick={async () => { if (selectedV3AvailPlants.length > 0) await handleV3StakePlants(); if (selectedV3AvailLands.length > 0) await handleV3StakeLands(); if (selectedV3AvailSuperLands.length > 0) await handleV3StakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12, background: "linear-gradient(to right, #059669, #10b981)" }}>{actionLoading ? "Staking..." : "Stake"}</button>
+                            <button type="button" className={styles.btnPrimary} disabled={true} style={{ flex: 1, padding: 10, fontSize: 12, opacity: 0.5 }}>Stake (Disabled)</button>
                             <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || (selectedV3StakedPlants.length + selectedV3StakedLands.length + selectedV3StakedSuperLands.length === 0)} onClick={async () => { if (selectedV3StakedPlants.length > 0) await handleV3UnstakePlants(); if (selectedV3StakedLands.length > 0) await handleV3UnstakeLands(); if (selectedV3StakedSuperLands.length > 0) await handleV3UnstakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Unstaking..." : "Unstake"}</button>
                             <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !v3StakingStats || v3StakingStats.pendingFormatted <= 0} onClick={handleV3Claim} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Claiming..." : "Claim"}</button>
                         </div>
@@ -4684,12 +4679,12 @@ export default function Home()
                 <div className={styles.modalBackdrop}>
                     <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto" }}>
                         <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle}>🚀 Staking V4 (TEST)</h2>
+                            <h2 className={styles.modalTitle}>🚀 Staking V4 (NEW - LIVE)</h2>
                             <button type="button" className={styles.modalClose} onClick={() => setV4StakingOpen(false)}>✕</button>
                         </header>
 
                         <div style={{ padding: "8px 12px", background: "rgba(124,58,237,0.1)", borderRadius: 8, border: "1px solid rgba(124,58,237,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#a855f7", margin: 0, fontWeight: 600 }}>🧪 Testing new treasury-based reward system!</p>
+                            <p style={{ fontSize: 10, color: "#a855f7", margin: 0, fontWeight: 600 }}>🚀 V4 is LIVE! Plant Health, Water Shop, Cartel Wars & treasury-based rewards!</p>
                         </div>
 
                         {!V4_STAKING_ADDRESS ? (
