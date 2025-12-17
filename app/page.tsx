@@ -4263,25 +4263,6 @@ export default function Home()
                                     </button>
                                     {warsStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 8 }}>{warsStatus}</p>}
                                 </div>
-
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
-                                    <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 8, padding: 10 }}>
-                                        <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>IF YOU WIN</div>
-                                        <ul style={{ fontSize: 10, color: "#10b981", textAlign: "left", margin: 0, paddingLeft: 16 }}>
-                                            <li>Steal up to 50% of their pending</li>
-                                            <li>Search fee refunded (50K)</li>
-                                            <li>Their plants take 10-15% damage</li>
-                                        </ul>
-                                    </div>
-                                    <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 8, padding: 10 }}>
-                                        <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>IF YOU LOSE</div>
-                                        <ul style={{ fontSize: 10, color: "#ef4444", textAlign: "left", margin: 0, paddingLeft: 16 }}>
-                                            <li>Lose up to 50% of your pending</li>
-                                            <li>Defender gets 25K bonus</li>
-                                            <li>Your plants take 10-15% damage</li>
-                                        </ul>
-                                    </div>
-                                </div>
                             </div>
                         ) : (
                             <div style={{ marginBottom: 12 }}>
