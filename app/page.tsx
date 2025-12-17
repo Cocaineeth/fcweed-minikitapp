@@ -2517,10 +2517,10 @@ export default function Home()
         finally { setWaterLoading(false); }
     }
 
-    const plantsNeedingWater = useMemo(() => v3StakedPlants.filter(id => v3PlantHealths[id] !== undefined && v3PlantHealths[id] < 100), [v3StakedPlants, v3PlantHealths]);
+    const plantsNeedingWater = useMemo(() => v3StakedPlants.filter(id => (v3WaterNeeded[id] || 0) > 0 || (v3PlantHealths[id] !== undefined && v3PlantHealths[id] < 100)), [v3StakedPlants, v3PlantHealths, v3WaterNeeded]);
     const totalWaterNeededForSelected = useMemo(() => selectedPlantsToWater.reduce((sum, id) => sum + (v3WaterNeeded[id] || 0), 0), [selectedPlantsToWater, v3WaterNeeded]);
 
-    const v4PlantsNeedingWater = useMemo(() => v4StakedPlants.filter(id => v4PlantHealths[id] !== undefined && v4PlantHealths[id] < 100), [v4StakedPlants, v4PlantHealths]);
+    const v4PlantsNeedingWater = useMemo(() => v4StakedPlants.filter(id => (v4WaterNeeded[id] || 0) > 0 || (v4PlantHealths[id] !== undefined && v4PlantHealths[id] < 100)), [v4StakedPlants, v4PlantHealths, v4WaterNeeded]);
     const v4TotalWaterNeededForSelected = useMemo(() => selectedV4PlantsToWater.reduce((sum, id) => sum + (v4WaterNeeded[id] || 0), 0), [selectedV4PlantsToWater, v4WaterNeeded]);
 
     const BACKEND_API_URL = "https://wars.x420ponzi.com";
@@ -4487,19 +4487,19 @@ export default function Home()
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                                     <span style={{ fontSize: 10, color: "#60a5fa", fontWeight: 600 }}>💧 Water Plants</span>
                                     <label style={{ fontSize: 9, display: "flex", alignItems: "center", gap: 3 }}>
-                                        <input type="checkbox" checked={selectedPlantsToWater.length === v3StakedPlants.filter(id => (v3PlantHealths[id] || 100) < 100).length && selectedPlantsToWater.length > 0} onChange={() => { const needWater = v3StakedPlants.filter(id => (v3PlantHealths[id] || 100) < 100); if (selectedPlantsToWater.length === needWater.length) { setSelectedPlantsToWater([]); } else { setSelectedPlantsToWater(needWater); } }} />All needing water
+                                        <input type="checkbox" checked={selectedPlantsToWater.length === v3StakedPlants.filter(id => (v3WaterNeeded[id] || 0) > 0 || (v3PlantHealths[id] !== undefined && v3PlantHealths[id] < 100)).length && selectedPlantsToWater.length > 0} onChange={() => { const needWater = v3StakedPlants.filter(id => (v3WaterNeeded[id] || 0) > 0 || (v3PlantHealths[id] !== undefined && v3PlantHealths[id] < 100)); if (selectedPlantsToWater.length === needWater.length) { setSelectedPlantsToWater([]); } else { setSelectedPlantsToWater(needWater); } }} />All needing water
                                     </label>
                                 </div>
                                 <div style={{ display: "flex", overflowX: "auto", gap: 4, padding: "4px 0", minHeight: 60 }}>
-                                    {v3StakedPlants.filter(id => (v3PlantHealths[id] || 100) < 100).length === 0 ? (
+                                    {v3StakedPlants.filter(id => (v3WaterNeeded[id] || 0) > 0 || (v3PlantHealths[id] !== undefined && v3PlantHealths[id] < 100)).length === 0 ? (
                                         <span style={{ fontSize: 10, color: "#10b981", margin: "auto" }}>✓ All plants at 100% health!</span>
                                     ) : (
-                                        v3StakedPlants.filter(id => (v3PlantHealths[id] || 100) < 100).map(id => (
+                                        v3StakedPlants.filter(id => (v3WaterNeeded[id] || 0) > 0 || (v3PlantHealths[id] !== undefined && v3PlantHealths[id] < 100)).map(id => (
                                             <label key={"water-" + id} style={{ minWidth: 60, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}>
                                                 <input type="checkbox" checked={selectedPlantsToWater.includes(id)} onChange={() => { if (selectedPlantsToWater.includes(id)) { setSelectedPlantsToWater(selectedPlantsToWater.filter(x => x !== id)); } else { setSelectedPlantsToWater([...selectedPlantsToWater, id]); } }} style={{ marginBottom: 2 }} />
                                                 <div style={{ fontSize: 8 }}>#{id}</div>
-                                                <div style={{ fontSize: 10, color: (v3PlantHealths[id] || 100) >= 80 ? "#10b981" : (v3PlantHealths[id] || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v3PlantHealths[id] || 100}%</div>
-                                                <div style={{ fontSize: 8, color: "#60a5fa" }}>{(v3WaterNeeded[id] || 0).toFixed(1)}L</div>
+                                                <div style={{ fontSize: 10, color: (v3PlantHealths[id] ?? 100) >= 100 ? "#10b981" : (v3PlantHealths[id] ?? 100) >= 80 ? "#22c55e" : (v3PlantHealths[id] ?? 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v3PlantHealths[id] ?? 100}%</div>
+                                                <div style={{ fontSize: 8, color: "#60a5fa" }}>{(v3WaterNeeded[id] || 0).toFixed(2)}L</div>
                                             </label>
                                         ))
                                     )}
@@ -4512,7 +4512,7 @@ export default function Home()
                                         className={styles.btnPrimary}
                                         style={{ width: "100%", marginTop: 8, padding: 8, fontSize: 11, background: actionLoading ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)" }}
                                     >
-                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedPlantsToWater.length} Plant${selectedPlantsToWater.length > 1 ? "s" : ""} (${totalWaterNeededForSelected.toFixed(1)}L)`}
+                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedPlantsToWater.length} Plant${selectedPlantsToWater.length > 1 ? "s" : ""} (${totalWaterNeededForSelected.toFixed(2)}L)`}
                                     </button>
                                 )}
                                 {v3ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v3ActionStatus}</p>}
@@ -4618,10 +4618,20 @@ export default function Home()
                                             <div style={{ marginBottom: 10, padding: 10, background: "rgba(59,130,246,0.1)", borderRadius: 8, border: "1px solid rgba(59,130,246,0.3)" }}>
                                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                                                     <span style={{ fontSize: 11, fontWeight: 600, color: "#60a5fa" }}>💧 Water Plants ({v4PlantsNeedingWater.length} need water)</span>
-                                                    <span style={{ fontSize: 10, color: "#9ca3af" }}>Your Water: {v4StakingStats?.water ? parseFloat(ethers.utils.formatUnits(v4StakingStats.water, 18)).toFixed(1) : "0"}L</span>
+                                                    <label style={{ fontSize: 9, display: "flex", alignItems: "center", gap: 3 }}>
+                                                        <input type="checkbox" checked={selectedV4PlantsToWater.length === v4PlantsNeedingWater.length && selectedV4PlantsToWater.length > 0} onChange={() => { if (selectedV4PlantsToWater.length === v4PlantsNeedingWater.length) { setSelectedV4PlantsToWater([]); } else { setSelectedV4PlantsToWater(v4PlantsNeedingWater); } }} />All
+                                                    </label>
                                                 </div>
-                                                <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                                    {v4PlantsNeedingWater.map((id) => <NftCard key={"v4wp-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV4PlantsToWater.includes(id)} onChange={() => toggleId(id, selectedV4PlantsToWater, setSelectedV4PlantsToWater)} health={v4PlantHealths[id]} />)}
+                                                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 6 }}>Your Water: {v4StakingStats?.water ? parseFloat(ethers.utils.formatUnits(v4StakingStats.water, 18)).toFixed(2) : "0"}L</div>
+                                                <div style={{ display: "flex", overflowX: "auto", gap: 4, padding: "4px 0", minHeight: 60 }}>
+                                                    {v4PlantsNeedingWater.map((id) => (
+                                                        <label key={"v4water-" + id} style={{ minWidth: 60, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}>
+                                                            <input type="checkbox" checked={selectedV4PlantsToWater.includes(id)} onChange={() => toggleId(id, selectedV4PlantsToWater, setSelectedV4PlantsToWater)} style={{ marginBottom: 2 }} />
+                                                            <div style={{ fontSize: 8 }}>#{id}</div>
+                                                            <div style={{ fontSize: 10, color: (v4PlantHealths[id] ?? 100) >= 100 ? "#10b981" : (v4PlantHealths[id] ?? 100) >= 80 ? "#22c55e" : (v4PlantHealths[id] ?? 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v4PlantHealths[id] ?? 100}%</div>
+                                                            <div style={{ fontSize: 8, color: "#60a5fa" }}>{(v4WaterNeeded[id] || 0).toFixed(2)}L</div>
+                                                        </label>
+                                                    ))}
                                                 </div>
                                                 {selectedV4PlantsToWater.length > 0 && (
                                                     <button
@@ -4631,9 +4641,10 @@ export default function Home()
                                                         className={styles.btnPrimary}
                                                         style={{ width: "100%", marginTop: 8, padding: 8, fontSize: 11, background: actionLoading ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)" }}
                                                     >
-                                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedV4PlantsToWater.length} Plant${selectedV4PlantsToWater.length > 1 ? "s" : ""} (${v4TotalWaterNeededForSelected.toFixed(1)}L)`}
+                                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedV4PlantsToWater.length} Plant${selectedV4PlantsToWater.length > 1 ? "s" : ""} (${v4TotalWaterNeededForSelected.toFixed(2)}L)`}
                                                     </button>
                                                 )}
+                                                {v4ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v4ActionStatus}</p>}
                                             </div>
                                         )}
                                     </>
