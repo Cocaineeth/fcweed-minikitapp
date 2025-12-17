@@ -4315,7 +4315,6 @@ export default function Home()
                                     >
                                         {warsSearching ? "🔍 Searching..." : `🔍 Search for Opponent (${warsSearchFee})`}
                                     </button>
-                                    </button>
                                     {warsStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 8 }}>{warsStatus}</p>}
                                 </div>
                             </div>
