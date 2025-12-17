@@ -94,6 +94,8 @@ const V3_STAKING_ABI = [
     "function getWalletWaterRemaining(address wallet) external view returns (uint256)",
     "function waterPricePerLiter() external view returns (uint256)",
     "function tokensPerPlantPerDay() external view returns (uint256)",
+    "function landBoostBps() external view returns (uint256)",
+    "function superLandBoostBps() external view returns (uint256)",
     "function claimEnabled() external view returns (bool)",
     "function waterShopEnabled() external view returns (bool)",
     "function plantStakingEnabled() external view returns (bool)",
@@ -2050,24 +2052,37 @@ export default function Home()
             const availSuperLandNums: number[] = [];
 
             console.log("[V3Staking] superLandsCount from contract:", superLandsCount);
-            console.log("[V3Staking] allOwnedSuperLandIds from API:", allOwnedSuperLandIds);
 
             if (superLandsCount > 0) {
                 try {
+                    // Use multicall for faster super land detection
+                    const ids = Array.from({ length: 100 }, (_, i) => i + 1);
+                    const stakerCalls = ids.map(id => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
+                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+                    const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
+
+                    ids.forEach((id, i) => {
+                        try {
+                            const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
+                            if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
+                                stakedSuperLandNums.push(id);
+                            }
+                        } catch {}
+                    });
+                    console.log("[V3Staking] Found staked super lands:", stakedSuperLandNums);
+                } catch (err) {
+                    console.error("[V3Staking] Multicall failed, trying individual calls:", err);
+                    // Fallback to individual calls
                     const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
                     const ids = Array.from({ length: 100 }, (_, i) => i + 1);
                     const stakerPromises = ids.map(id => v3Contract.superLandStakerOf(id).catch(() => ethers.constants.AddressZero));
                     const stakers = await Promise.all(stakerPromises);
-
                     ids.forEach((id, i) => {
                         const staker = stakers[i];
                         if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
                             stakedSuperLandNums.push(id);
-                            console.log("[V3Staking] Found staked super land:", id);
                         }
                     });
-                } catch (err) {
-                    console.error("[V3Staking] Failed to check super lands:", err);
                 }
 
                 allOwnedSuperLandIds.forEach((id: number) => {
@@ -2075,9 +2090,6 @@ export default function Home()
                         availSuperLandNums.push(id);
                     }
                 });
-
-                console.log("[V3Staking] Final staked super lands:", stakedSuperLandNums);
-                console.log("[V3Staking] Final available super lands:", availSuperLandNums);
             } else if (allOwnedSuperLandIds.length > 0) {
                 availSuperLandNums.push(...allOwnedSuperLandIds);
             }
@@ -2216,24 +2228,37 @@ export default function Home()
             const availSuperLandNums: number[] = [];
 
             console.log("[V4Staking] superLandsCount from contract:", superLandsCount);
-            console.log("[V4Staking] allOwnedSuperLandIds from API:", allOwnedSuperLandIds);
 
             if (superLandsCount > 0) {
                 try {
+                    // Use multicall for faster super land detection
+                    const ids = Array.from({ length: 100 }, (_, i) => i + 1);
+                    const stakerCalls = ids.map(id => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
+                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+                    const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
+
+                    ids.forEach((id, i) => {
+                        try {
+                            const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
+                            if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
+                                stakedSuperLandNums.push(id);
+                            }
+                        } catch {}
+                    });
+                    console.log("[V4Staking] Found staked super lands:", stakedSuperLandNums);
+                } catch (err) {
+                    console.error("[V4Staking] Multicall failed, trying individual calls:", err);
+                    // Fallback to individual calls
                     const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
                     const ids = Array.from({ length: 100 }, (_, i) => i + 1);
                     const stakerPromises = ids.map(id => v4Contract.superLandStakerOf(id).catch(() => ethers.constants.AddressZero));
                     const stakers = await Promise.all(stakerPromises);
-
                     ids.forEach((id, i) => {
                         const staker = stakers[i];
                         if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
                             stakedSuperLandNums.push(id);
-                            console.log("[V4Staking] Found staked super land:", id);
                         }
                     });
-                } catch (err) {
-                    console.error("[V4Staking] Failed to check super lands:", err);
                 }
 
                 allOwnedSuperLandIds.forEach((id: number) => {
@@ -2241,9 +2266,6 @@ export default function Home()
                         availSuperLandNums.push(id);
                     }
                 });
-
-                console.log("[V4Staking] Final staked super lands:", stakedSuperLandNums);
-                console.log("[V4Staking] Final available super lands:", availSuperLandNums);
             } else if (allOwnedSuperLandIds.length > 0) {
                 availSuperLandNums.push(...allOwnedSuperLandIds);
             }
@@ -2252,8 +2274,43 @@ export default function Home()
             setV4AvailablePlants(availPlants);
             setV4AvailableLands(availLands);
             setV4AvailableSuperLands(availSuperLandNums);
+
+            // Calculate boost and daily earnings
+            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+            let tokensPerDay = 100000; // Default
+            let landBoostBps = 500; // Default 5%
+            let superLandBoostBps = 1200; // Default 12%
+            try {
+                const [tpd, lbb, slbb] = await Promise.all([
+                    v4Contract.tokensPerPlantPerDay(),
+                    v4Contract.landBoostBps(),
+                    v4Contract.superLandBoostBps()
+                ]);
+                tokensPerDay = parseFloat(ethers.utils.formatUnits(tpd, 18));
+                landBoostBps = lbb.toNumber();
+                superLandBoostBps = slbb.toNumber();
+            } catch {}
+
+            const landBoostPct = (landsCount * landBoostBps) / 100;
+            const superLandBoostPct = (superLandsCount * superLandBoostBps) / 100;
+            const totalBoostPct = 100 + landBoostPct + superLandBoostPct;
+            const dailyBase = plantsCount * tokensPerDay;
+            const dailyWithBoost = dailyBase * totalBoostPct / 100;
+            const dailyDisplay = dailyWithBoost >= 1e6 ? (dailyWithBoost / 1e6).toFixed(2) + "M" : dailyWithBoost >= 1e3 ? (dailyWithBoost / 1e3).toFixed(1) + "K" : dailyWithBoost.toFixed(0);
+
             const pendingFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
-            setV4StakingStats({ plants: plantsCount, lands: landsCount, superLands: superLandsCount, capacity: capacity.toNumber(), avgHealth: avgHealth.toNumber(), water, pendingRaw, pendingFormatted });
+            setV4StakingStats({
+                plants: plantsCount,
+                lands: landsCount,
+                superLands: superLandsCount,
+                capacity: capacity.toNumber(),
+                avgHealth: avgHealth.toNumber(),
+                water,
+                pendingRaw,
+                pendingFormatted,
+                boostPct: totalBoostPct - 100,
+                dailyRewards: dailyDisplay
+            });
             const display = pendingFormatted >= 1e6 ? (pendingFormatted / 1e6).toFixed(4) + "M" : pendingFormatted >= 1e3 ? (pendingFormatted / 1e3).toFixed(2) + "K" : pendingFormatted.toFixed(2);
             setV4RealTimePending(display);
         } catch (err) { console.error("[V4Staking] Error:", err); }
@@ -4703,8 +4760,10 @@ export default function Home()
                                     <div className={styles.statCard}><span className={styles.statLabel}>Lands</span><span className={styles.statValue}>{v4StakingStats?.lands || 0}</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Super Lands</span><span className={styles.statValue}>{v4StakingStats?.superLands || 0}</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Capacity</span><span className={styles.statValue}>{v4StakingStats ? `${v4StakingStats.plants}/${v4StakingStats.capacity}` : "0/1"}</span></div>
+                                    <div className={styles.statCard}><span className={styles.statLabel}>Boost</span><span className={styles.statValue} style={{ color: "#a855f7" }}>+{v4StakingStats?.boostPct?.toFixed(1) || 0}%</span></div>
+                                    <div className={styles.statCard}><span className={styles.statLabel}>Daily</span><span className={styles.statValue}>{v4StakingStats?.dailyRewards || "0"}</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Avg Health</span><span className={styles.statValue} style={{ color: (v4StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v4StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v4StakingStats?.avgHealth || 100}%</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v4StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(v4StakingStats.water, 18))).toFixed(1) : "0"}L</span></div>
+                                    <div className={styles.statCard} style={{ gridColumn: "span 2" }}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v4StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(v4StakingStats.water, 18))).toFixed(1) : "0"}L</span></div>
                                     <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #581c87, #7c3aed)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#c4b5fd", fontSize: 16 }}>{v4RealTimePending}</span></div>
                                 </div>
 
