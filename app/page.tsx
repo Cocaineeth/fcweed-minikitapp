@@ -4387,7 +4387,6 @@ export default function Home()
                                             >
                                                 {warsSearching ? "🔄 Searching..." : `🔄 Find Another (${warsSearchFee})`}
                                             </button>
-                                            </button>
                                             <button
                                                 type="button"
                                                 onClick={handleLockAndFight}
