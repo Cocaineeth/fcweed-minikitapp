@@ -3061,11 +3061,14 @@ export default function Home()
             setWarsTargetStats(null);
             setWarsOdds(null);
             setWarsSearchExpiry(0);
+            setWarsTargetLocked(false);
+            setWarsPreviewData(null);
 
+            // Refresh V4 staking data to show updated health and pending rewards
             setTimeout(() => {
                 loadWarsPlayerStats();
-                refreshV3StakingRef.current = false;
-                refreshV3Staking();
+                refreshV4StakingRef.current = false;
+                refreshV4Staking();
             }, 3000);
 
         } catch (err: any) {
