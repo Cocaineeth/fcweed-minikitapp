@@ -2806,20 +2806,50 @@ export default function Home()
                 setWarsTargetLocked(true); // Already paid
                 setWarsSearchExpiry(activeSearch.expiry.toNumber());
                 const targetStats = await battlesContract.getTargetStats(activeSearch.target);
+                const tPlants = targetStats.plants.toNumber();
+                const tLands = targetStats.lands.toNumber();
+                const tSuperLands = targetStats.superLands.toNumber();
+                const tAvgHealth = targetStats.avgHealth.toNumber();
                 setWarsTargetStats({
-                    plants: targetStats.plants.toNumber(),
-                    lands: targetStats.lands.toNumber(),
-                    superLands: targetStats.superLands.toNumber(),
-                    avgHealth: targetStats.avgHealth.toNumber(),
+                    plants: tPlants,
+                    lands: tLands,
+                    superLands: tSuperLands,
+                    avgHealth: tAvgHealth,
                     pendingRewards: targetStats.pendingRewards,
                     battlePower: targetStats.battlePower.toNumber(),
                     hasShield: targetStats.hasShield,
                 });
-                const odds = await battlesContract.estimateBattleOdds(ctx.userAddress, activeSearch.target);
+
+                // Calculate odds manually for reliability
+                const defenderPower = Math.round((tPlants * 100 + tLands * 50 + tSuperLands * 150) * tAvgHealth / 100);
+
+                // Get attacker power from V4 staking
+                let attackerPower = 0;
+                try {
+                    const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, ["function calculateBattlePower(address) external view returns (uint256)", "function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)"], readProvider);
+                    const power = await v4Contract.calculateBattlePower(ctx.userAddress);
+                    attackerPower = power.toNumber();
+
+                    // If still 0, try manual calculation
+                    if (attackerPower === 0) {
+                        const userStats = await v4Contract.getUserBattleStats(ctx.userAddress);
+                        const plants = userStats[0].toNumber();
+                        const lands = userStats[1].toNumber();
+                        const superLands = userStats[2].toNumber();
+                        const avgHealth = userStats[3].toNumber();
+                        attackerPower = Math.round((plants * 100 + lands * 50 + superLands * 150) * avgHealth / 100);
+                    }
+                } catch (e) {
+                    console.warn("[Wars] Failed to get attacker power:", e);
+                }
+
+                const total = attackerPower + defenderPower;
+                const estimatedWinChance = total > 0 ? Math.round((attackerPower * 100) / total) : 50;
+
                 setWarsOdds({
-                    attackerPower: odds.attackerPower.toNumber(),
-                    defenderPower: odds.defenderPower.toNumber(),
-                    estimatedWinChance: odds.estimatedWinChance.toNumber(),
+                    attackerPower,
+                    defenderPower,
+                    estimatedWinChance,
                 });
                 setWarsStatus("");
                 setWarsSearching(false);
@@ -2946,11 +2976,39 @@ export default function Home()
             });
             setWarsSearchExpiry(Math.floor(Date.now() / 1000) + 600);
 
-            const odds = await battlesContract.estimateBattleOdds(ctx.userAddress, target);
+            // Calculate battle power manually from stats (more reliable than contract call)
+            const defenderPower = Math.round((stats.plants * 100 + stats.lands * 50 + stats.superLands * 150) * stats.avgHealth / 100);
+
+            // Get attacker power from V4 staking contract
+            let attackerPower = 0;
+            try {
+                const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, ["function calculateBattlePower(address) external view returns (uint256)"], readProvider);
+                const power = await v4Contract.calculateBattlePower(ctx.userAddress);
+                attackerPower = power.toNumber();
+            } catch (e) {
+                console.warn("[Wars] Failed to get attacker power from contract, calculating manually");
+                // Fallback: try to get user stats and calculate manually
+                try {
+                    const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, ["function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)"], readProvider);
+                    const userStats = await v4Contract.getUserBattleStats(ctx.userAddress);
+                    const plants = userStats[0].toNumber();
+                    const lands = userStats[1].toNumber();
+                    const superLands = userStats[2].toNumber();
+                    const avgHealth = userStats[3].toNumber();
+                    attackerPower = Math.round((plants * 100 + lands * 50 + superLands * 150) * avgHealth / 100);
+                } catch (e2) {
+                    console.warn("[Wars] Failed to calculate attacker power:", e2);
+                }
+            }
+
+            // Calculate win chance
+            const total = attackerPower + defenderPower;
+            const estimatedWinChance = total > 0 ? Math.round((attackerPower * 100) / total) : 50;
+
             setWarsOdds({
-                attackerPower: odds.attackerPower.toNumber(),
-                defenderPower: odds.defenderPower.toNumber(),
-                estimatedWinChance: odds.estimatedWinChance.toNumber(),
+                attackerPower,
+                defenderPower,
+                estimatedWinChance,
             });
 
             setWarsStatus("Target locked! Ready to attack.");
@@ -3073,7 +3131,28 @@ export default function Home()
 
         } catch (err: any) {
             console.error("[Wars] Attack failed:", err);
-            setWarsStatus("Attack failed: " + (err.reason || err.message || err).toString().slice(0, 50));
+            const errMsg = (err.reason || err.message || err).toString().toLowerCase();
+            if (errMsg.includes("no attack power")) {
+                setWarsStatus("❌ No attack power! Your plants may be at 0% health. Water them first!");
+            } else if (errMsg.includes("no defense power")) {
+                setWarsStatus("❌ Target has no defense power. Try a different opponent.");
+            } else if (errMsg.includes("search expired")) {
+                setWarsStatus("❌ Search expired! Please search for a new target.");
+                setWarsTarget(null);
+                setWarsTargetStats(null);
+                setWarsTargetLocked(false);
+            } else if (errMsg.includes("no active search")) {
+                setWarsStatus("❌ No active search. Please search for a target first.");
+                setWarsTarget(null);
+                setWarsTargetStats(null);
+                setWarsTargetLocked(false);
+            } else if (errMsg.includes("target has immunity")) {
+                setWarsStatus("❌ Target has immunity! They were recently attacked.");
+            } else if (errMsg.includes("target has shield")) {
+                setWarsStatus("❌ Target has a raid shield active!");
+            } else {
+                setWarsStatus("Attack failed: " + (err.reason || err.message || err).toString().slice(0, 60));
+            }
         } finally {
             setWarsAttacking(false);
             warsTransactionInProgress.current = false;
