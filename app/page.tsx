@@ -2197,14 +2197,44 @@ export default function Home()
         setLoadingV4Staking(true);
         try {
             const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
-            const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, avgHealth] = await Promise.all([
+            const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, avgHealth, tokensPerDayRaw, landBoostBpsRaw, superLandBoostBpsRaw] = await Promise.all([
                 v4Contract.users(userAddress), v4Contract.pending(userAddress), v4Contract.capacityOf(userAddress),
-                v4Contract.plantsOf(userAddress), v4Contract.landsOf(userAddress), v4Contract.getAverageHealth(userAddress),
+                v4Contract.plantsOf(userAddress), v4Contract.landsOf(userAddress), v4Contract.getAverageHealth(userAddress).catch(() => ethers.BigNumber.from(100)),
+                v4Contract.tokensPerPlantPerDay(), v4Contract.landBoostBps(), v4Contract.superLandBoostBps()
             ]);
             const plantsCount = Number(userData.plants);
             const landsCount = Number(userData.lands);
             const superLandsCount = Number(userData.superLands);
             const water = userData.waterBalance;
+
+            // Calculate boost and daily immediately
+            const tokensPerDay = parseFloat(ethers.utils.formatUnits(tokensPerDayRaw, 18));
+            const landBoostBps = landBoostBpsRaw.toNumber();
+            const superLandBoostBps = superLandBoostBpsRaw.toNumber();
+            const landBoostPct = (landsCount * landBoostBps) / 100;
+            const superLandBoostPct = (superLandsCount * superLandBoostBps) / 100;
+            const totalBoostPct = 100 + landBoostPct + superLandBoostPct;
+            const dailyBase = plantsCount * tokensPerDay;
+            const dailyWithBoost = dailyBase * totalBoostPct / 100;
+            const dailyDisplay = dailyWithBoost >= 1e6 ? (dailyWithBoost / 1e6).toFixed(2) + "M" : dailyWithBoost >= 1e3 ? (dailyWithBoost / 1e3).toFixed(1) + "K" : dailyWithBoost.toFixed(0);
+            const pendingFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
+
+            // Set stats immediately so UI updates right away
+            setV4StakingStats({
+                plants: plantsCount,
+                lands: landsCount,
+                superLands: superLandsCount,
+                capacity: capacity.toNumber(),
+                avgHealth: avgHealth.toNumber(),
+                water,
+                pendingRaw,
+                pendingFormatted,
+                boostPct: totalBoostPct - 100,
+                dailyRewards: dailyDisplay
+            });
+            const display = pendingFormatted >= 1e6 ? (pendingFormatted / 1e6).toFixed(4) + "M" : pendingFormatted >= 1e3 ? (pendingFormatted / 1e3).toFixed(2) + "K" : pendingFormatted.toFixed(2);
+            setV4RealTimePending(display);
+
             const stakedPlantNums = stakedPlantIds.map((id: any) => Number(id));
             const stakedLandNums = stakedLandIds.map((id: any) => Number(id));
             const healthMap: Record<number, number> = {};
@@ -2220,6 +2250,12 @@ export default function Home()
                         healthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
                         waterNeededMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i]), 18));
                     });
+                    // Update avg health with actual calculated value
+                    if (stakedPlantNums.length > 0) {
+                        const totalHealth = Object.values(healthMap).reduce((a, b) => a + b, 0);
+                        const calculatedAvgHealth = Math.round(totalHealth / stakedPlantNums.length);
+                        setV4StakingStats(prev => prev ? { ...prev, avgHealth: calculatedAvgHealth } : prev);
+                    }
                 } catch (err) { stakedPlantNums.forEach((id: number) => { healthMap[id] = 100; waterNeededMap[id] = 0; }); }
             }
             setV4PlantHealths(healthMap);
@@ -2285,42 +2321,6 @@ export default function Home()
             setV4AvailableLands(availLands);
             setV4AvailableSuperLands(availSuperLandNums);
 
-            let tokensPerDay = 100000;
-            let landBoostBps = 500;
-            let superLandBoostBps = 1200;
-            try {
-                const [tpd, lbb, slbb] = await Promise.all([
-                    v4Contract.tokensPerPlantPerDay(),
-                    v4Contract.landBoostBps(),
-                    v4Contract.superLandBoostBps()
-                ]);
-                tokensPerDay = parseFloat(ethers.utils.formatUnits(tpd, 18));
-                landBoostBps = lbb.toNumber();
-                superLandBoostBps = slbb.toNumber();
-            } catch {}
-
-            const landBoostPct = (landsCount * landBoostBps) / 100;
-            const superLandBoostPct = (superLandsCount * superLandBoostBps) / 100;
-            const totalBoostPct = 100 + landBoostPct + superLandBoostPct;
-            const dailyBase = plantsCount * tokensPerDay;
-            const dailyWithBoost = dailyBase * totalBoostPct / 100;
-            const dailyDisplay = dailyWithBoost >= 1e6 ? (dailyWithBoost / 1e6).toFixed(2) + "M" : dailyWithBoost >= 1e3 ? (dailyWithBoost / 1e3).toFixed(1) + "K" : dailyWithBoost.toFixed(0);
-
-            const pendingFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
-            setV4StakingStats({
-                plants: plantsCount,
-                lands: landsCount,
-                superLands: superLandsCount,
-                capacity: capacity.toNumber(),
-                avgHealth: avgHealth.toNumber(),
-                water,
-                pendingRaw,
-                pendingFormatted,
-                boostPct: totalBoostPct - 100,
-                dailyRewards: dailyDisplay
-            });
-            const display = pendingFormatted >= 1e6 ? (pendingFormatted / 1e6).toFixed(4) + "M" : pendingFormatted >= 1e3 ? (pendingFormatted / 1e3).toFixed(2) + "K" : pendingFormatted.toFixed(2);
-            setV4RealTimePending(display);
         } catch (err) { console.error("[V4Staking] Error:", err); }
         finally { refreshV4StakingRef.current = false; setLoadingV4Staking(false); }
     }
