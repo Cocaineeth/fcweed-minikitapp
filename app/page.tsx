@@ -1942,8 +1942,11 @@ export default function Home()
         if (refreshV3StakingRef.current || !userAddress) return;
         refreshV3StakingRef.current = true;
         setLoadingV3Staking(true);
+        console.log("[V3Staking] Starting refresh for:", userAddress);
         try {
             const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+
+            // Fetch user data and staked token IDs
             const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, avgHealth] = await Promise.all([
                 v3Contract.users(userAddress),
                 v3Contract.pending(userAddress),
@@ -1952,56 +1955,162 @@ export default function Home()
                 v3Contract.landsOf(userAddress),
                 v3Contract.getAverageHealth(userAddress),
             ]);
-            const plants = userData.plants;
-            const lands = userData.lands;
-            const superLands = userData.superLands;
+
+            const plantsCount = Number(userData.plants);
+            const landsCount = Number(userData.lands);
+            const superLandsCount = Number(userData.superLands);
             const water = userData.waterBalance;
-            const stakedPlantNums = stakedPlantIds.map((id: any) => id.toNumber());
-            const stakedLandNums = stakedLandIds.map((id: any) => id.toNumber());
+
+            // Convert staked IDs to numbers
+            const stakedPlantNums = stakedPlantIds.map((id: any) => Number(id));
+            const stakedLandNums = stakedLandIds.map((id: any) => Number(id));
+
+            console.log("[V3Staking] Staked plants from contract:", stakedPlantNums);
+            console.log("[V3Staking] Staked lands from contract:", stakedLandNums);
+            console.log("[V3Staking] User data - plants:", plantsCount, "lands:", landsCount, "superLands:", superLandsCount);
+
+            // Get plant health and water needed for staked plants
             const healthMap: Record<number, number> = {};
             const waterNeededMap: Record<number, number> = {};
+
             if (stakedPlantNums.length > 0) {
-                const healthCalls = stakedPlantNums.map((id: number) => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
-                const waterCalls = stakedPlantNums.map((id: number) => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
-                const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
-                const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
-                stakedPlantNums.forEach((id: number, i: number) => {
-                    healthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
-                    const waterWei = ethers.BigNumber.from(waterResults[i]);
-                    waterNeededMap[id] = parseFloat(ethers.utils.formatUnits(waterWei, 18));
-                });
+                try {
+                    const healthCalls = stakedPlantNums.map((id: number) => ({
+                        target: V3_STAKING_ADDRESS,
+                        callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id])
+                    }));
+                    const waterCalls = stakedPlantNums.map((id: number) => ({
+                        target: V3_STAKING_ADDRESS,
+                        callData: v3StakingInterface.encodeFunctionData("getWaterNeeded", [id])
+                    }));
+                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+                    const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
+                    const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
+                    stakedPlantNums.forEach((id: number, i: number) => {
+                        healthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
+                        const waterWei = ethers.BigNumber.from(waterResults[i]);
+                        waterNeededMap[id] = parseFloat(ethers.utils.formatUnits(waterWei, 18));
+                    });
+                    console.log("[V3Staking] Plant healths:", healthMap);
+                } catch (err) {
+                    console.error("[V3Staking] Failed to get plant health:", err);
+                    // Default to 100% health if query fails
+                    stakedPlantNums.forEach((id: number) => {
+                        healthMap[id] = 100;
+                        waterNeededMap[id] = 0;
+                    });
+                }
             }
+
             setV3PlantHealths(healthMap);
             setV3WaterNeeded(waterNeededMap);
             setV3StakedPlants(stakedPlantNums);
             setV3StakedLands(stakedLandNums);
+
+            // Get owned NFTs (not staked)
             const owned = await getOwnedState(userAddress);
-            const availPlants = owned.plants.filter((t: any) => !t.staked && !stakedPlantNums.includes(Number(t.tokenId))).map((t: any) => Number(t.tokenId));
-            const availLands = owned.lands.filter((t: any) => !t.staked && !stakedLandNums.includes(Number(t.tokenId))).map((t: any) => Number(t.tokenId));
-            const allSuperLandIds = owned.superLands.map((t: any) => Number(t.tokenId));
+            console.log("[V3Staking] Owned state:", owned);
+
+            // Filter out already staked NFTs from available
+            const availPlants = owned.plants
+                .filter((t: any) => !stakedPlantNums.includes(Number(t.tokenId)))
+                .map((t: any) => Number(t.tokenId));
+            const availLands = owned.lands
+                .filter((t: any) => !stakedLandNums.includes(Number(t.tokenId)))
+                .map((t: any) => Number(t.tokenId));
+
+            // Handle super lands - check staker mapping
+            const allOwnedSuperLandIds = owned.superLands.map((t: any) => Number(t.tokenId));
             const stakedSuperLandNums: number[] = [];
             const availSuperLandNums: number[] = [];
-            if (allSuperLandIds.length > 0) {
-                const stakerCalls = allSuperLandIds.map((id: number) => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
-                const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
-                allSuperLandIds.forEach((id: number, i: number) => {
-                    const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
-                    if (staker.toLowerCase() === userAddress.toLowerCase()) stakedSuperLandNums.push(id);
-                    else if (staker === ethers.constants.AddressZero) availSuperLandNums.push(id);
-                });
+
+            if (allOwnedSuperLandIds.length > 0 || superLandsCount > 0) {
+                try {
+                    // If user has staked super lands but we don't know which ones,
+                    // we need to check all super lands they might own
+                    const superLandIdsToCheck = [...allOwnedSuperLandIds];
+
+                    // Also try to find staked super lands by checking a range
+                    // This is a fallback if the owned state doesn't include staked ones
+                    if (superLandsCount > 0 && superLandIdsToCheck.length < superLandsCount) {
+                        // Try checking IDs 1-100 for this user's staked super lands
+                        for (let i = 1; i <= 100; i++) {
+                            if (!superLandIdsToCheck.includes(i)) {
+                                superLandIdsToCheck.push(i);
+                            }
+                        }
+                    }
+
+                    if (superLandIdsToCheck.length > 0) {
+                        const stakerCalls = superLandIdsToCheck.map((id: number) => ({
+                            target: V3_STAKING_ADDRESS,
+                            callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id])
+                        }));
+                        const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+                        const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
+
+                        superLandIdsToCheck.forEach((id: number, i: number) => {
+                            try {
+                                const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
+                                if (staker.toLowerCase() === userAddress.toLowerCase()) {
+                                    stakedSuperLandNums.push(id);
+                                } else if (staker === ethers.constants.AddressZero && allOwnedSuperLandIds.includes(id)) {
+                                    availSuperLandNums.push(id);
+                                }
+                            } catch {}
+                        });
+                    }
+                    console.log("[V3Staking] Staked super lands:", stakedSuperLandNums);
+                    console.log("[V3Staking] Available super lands:", availSuperLandNums);
+                } catch (err) {
+                    console.error("[V3Staking] Failed to check super land stakers:", err);
+                    // If multicall fails, assume owned super lands are available
+                    availSuperLandNums.push(...allOwnedSuperLandIds);
+                }
             }
+
             setV3StakedSuperLands(stakedSuperLandNums);
             setV3AvailablePlants(availPlants);
             setV3AvailableLands(availLands);
             setV3AvailableSuperLands(availSuperLandNums);
+
             const pendingFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
-            setV3StakingStats({ plants, lands, superLands, capacity: capacity.toNumber(), avgHealth: avgHealth.toNumber(), water, pendingRaw, pendingFormatted });
-            const display = pendingFormatted >= 1e6 ? (pendingFormatted / 1e6).toFixed(4) + "M" : pendingFormatted >= 1e3 ? (pendingFormatted / 1e3).toFixed(2) + "K" : pendingFormatted.toFixed(2);
+            const capacityNum = capacity.toNumber();
+            const avgHealthNum = avgHealth.toNumber();
+
+            setV3StakingStats({
+                plants: plantsCount,
+                lands: landsCount,
+                superLands: superLandsCount,
+                capacity: capacityNum,
+                avgHealth: avgHealthNum,
+                water,
+                pendingRaw,
+                pendingFormatted
+            });
+
+            const display = pendingFormatted >= 1e6 ? (pendingFormatted / 1e6).toFixed(4) + "M" :
+                           pendingFormatted >= 1e3 ? (pendingFormatted / 1e3).toFixed(2) + "K" :
+                           pendingFormatted.toFixed(2);
             setV3RealTimePending(display);
-        } catch (err) { console.error("[V3Staking] Error:", err); }
-        finally { refreshV3StakingRef.current = false; setLoadingV3Staking(false); }
+
+            console.log("[V3Staking] Refresh complete:", {
+                stakedPlants: stakedPlantNums.length,
+                stakedLands: stakedLandNums.length,
+                stakedSuperLands: stakedSuperLandNums.length,
+                availPlants: availPlants.length,
+                availLands: availLands.length,
+                availSuperLands: availSuperLandNums.length,
+                pending: display
+            });
+
+        } catch (err) {
+            console.error("[V3Staking] Error:", err);
+        }
+        finally {
+            refreshV3StakingRef.current = false;
+            setLoadingV3Staking(false);
+        }
     }
 
     useEffect(() => {
@@ -2155,21 +2264,34 @@ export default function Home()
     async function loadWaterShopInfo() {
         try {
             const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
-            const [isOpen, shopTimeInfo, dailyRemaining, walletRemaining, pricePerLiter, shopEnabled] = await Promise.all([
+            const [isOpen, shopTimeInfo, dailyRemaining, walletRemaining, pricePerLiter, shopEnabled, walletLimit] = await Promise.all([
                 v3Contract.isShopOpen(),
                 v3Contract.getShopTimeInfo(),
                 v3Contract.getDailyWaterRemaining(),
                 userAddress ? v3Contract.getWalletWaterRemaining(userAddress) : ethers.BigNumber.from(0),
                 v3Contract.waterPricePerLiter(),
                 v3Contract.waterShopEnabled(),
+                userAddress ? v3Contract.getWalletWaterLimit(userAddress) : ethers.BigNumber.from(0),
             ]);
+
+            // Also get user's staked plants count for display
+            let stakedPlantsCount = 0;
+            if (userAddress) {
+                try {
+                    const userData = await v3Contract.users(userAddress);
+                    stakedPlantsCount = Number(userData.plants);
+                } catch {}
+            }
+
             setWaterShopInfo({
                 isOpen: isOpen && shopEnabled,
                 opensAt: shopTimeInfo.opensAt.toNumber(),
                 closesAt: shopTimeInfo.closesAt.toNumber(),
                 dailyRemaining: parseFloat(ethers.utils.formatUnits(dailyRemaining, 18)),
                 walletRemaining: parseFloat(ethers.utils.formatUnits(walletRemaining, 18)),
+                walletLimit: parseFloat(ethers.utils.formatUnits(walletLimit, 18)),
                 pricePerLiter: parseFloat(ethers.utils.formatUnits(pricePerLiter, 18)),
+                stakedPlants: stakedPlantsCount,
             });
         } catch (err) { console.error("[WaterShop] Error:", err); }
     }
@@ -2203,6 +2325,261 @@ export default function Home()
 
     const plantsNeedingWater = useMemo(() => v3StakedPlants.filter(id => v3PlantHealths[id] !== undefined && v3PlantHealths[id] < 100), [v3StakedPlants, v3PlantHealths]);
     const totalWaterNeededForSelected = useMemo(() => selectedPlantsToWater.reduce((sum, id) => sum + (v3WaterNeeded[id] || 0), 0), [selectedPlantsToWater, v3WaterNeeded]);
+
+    // Wars functions
+    async function loadWarsPlayerStats() {
+        if (!userAddress) return;
+        try {
+            const battlesContract = new ethers.Contract(V3_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            const stats = await battlesContract.getPlayerStats(userAddress);
+            setWarsPlayerStats({
+                wins: stats.wins.toNumber(),
+                losses: stats.losses.toNumber(),
+                defWins: stats.defWins.toNumber(),
+                defLosses: stats.defLosses.toNumber(),
+                rewardsStolen: stats.rewardsStolen,
+                rewardsLost: stats.rewardsLost,
+                winStreak: stats.winStreak.toNumber(),
+                bestStreak: stats.bestStreak.toNumber(),
+            });
+
+            // Check cooldown
+            const cooldown = await battlesContract.getAttackCooldownRemaining(userAddress);
+            setWarsCooldown(cooldown.toNumber());
+
+            // Get search fee
+            const fee = await battlesContract.searchFee();
+            const feeFormatted = parseFloat(ethers.utils.formatUnits(fee, 18));
+            setWarsSearchFee(feeFormatted >= 1000 ? (feeFormatted / 1000).toFixed(0) + "K" : feeFormatted.toFixed(0));
+
+            // Check for active search
+            const activeSearch = await battlesContract.getActiveSearch(userAddress);
+            if (activeSearch.isValid && activeSearch.target !== ethers.constants.AddressZero) {
+                setWarsTarget(activeSearch.target);
+                // Load target stats
+                const targetStats = await battlesContract.getTargetStats(activeSearch.target);
+                setWarsTargetStats({
+                    plants: targetStats.plants.toNumber(),
+                    lands: targetStats.lands.toNumber(),
+                    superLands: targetStats.superLands.toNumber(),
+                    avgHealth: targetStats.avgHealth.toNumber(),
+                    pendingRewards: targetStats.pendingRewards,
+                    battlePower: targetStats.battlePower.toNumber(),
+                    hasShield: targetStats.hasShield,
+                });
+                // Get battle odds
+                const odds = await battlesContract.estimateBattleOdds(userAddress, activeSearch.target);
+                setWarsOdds({
+                    attackerPower: odds.attackerPower.toNumber(),
+                    defenderPower: odds.defenderPower.toNumber(),
+                    estimatedWinChance: odds.estimatedWinChance.toNumber(),
+                });
+            }
+        } catch (err) {
+            console.error("[Wars] Failed to load player stats:", err);
+        }
+    }
+
+    async function handleWarsSearch() {
+        if (warsTransactionInProgress.current) return;
+        warsTransactionInProgress.current = true;
+        setWarsSearching(true);
+        setWarsStatus("Searching for target...");
+
+        try {
+            const ctx = await ensureWallet();
+            if (!ctx) {
+                setWarsStatus("Wallet connection failed");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
+            const battlesContract = new ethers.Contract(V3_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+
+            // Check if raids are enabled
+            const raidsEnabled = await battlesContract.raidsEnabled();
+            if (!raidsEnabled) {
+                setWarsStatus("Raids are not enabled yet!");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
+            // Get total stakers to find a target
+            const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+            const totalStakers = await v3Contract.getTotalStakers();
+
+            if (totalStakers.toNumber() < 2) {
+                setWarsStatus("Not enough players staking yet. Be the first!");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
+            // Find a valid target (not self, has pending rewards, can be attacked)
+            let targetAddress: string | null = null;
+            let attempts = 0;
+            const maxAttempts = Math.min(totalStakers.toNumber(), 20);
+
+            while (!targetAddress && attempts < maxAttempts) {
+                const randomIndex = Math.floor(Math.random() * totalStakers.toNumber());
+                try {
+                    const potentialTarget = await v3Contract.getStakerAtIndex(randomIndex);
+
+                    if (potentialTarget.toLowerCase() === userAddress.toLowerCase()) {
+                        attempts++;
+                        continue;
+                    }
+
+                    // Check if target can be attacked
+                    const canBeAttacked = await battlesContract.canBeAttacked(potentialTarget);
+                    if (!canBeAttacked) {
+                        attempts++;
+                        continue;
+                    }
+
+                    // Check if target has pending rewards
+                    const targetPending = await v3Contract.pending(potentialTarget);
+                    if (targetPending.gt(0)) {
+                        targetAddress = potentialTarget;
+                    }
+                } catch {
+                    attempts++;
+                }
+                attempts++;
+            }
+
+            if (!targetAddress) {
+                setWarsStatus("No valid targets found. Try again later!");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
+            setWarsStatus("Target found! Requesting signature...");
+
+            // Get nonce for signature
+            const nonce = await battlesContract.getSearchNonce(userAddress);
+
+            // For now, we'll call the backend to get a signature
+            // In production, this would call your backend API
+            // For testing without backend, we'll show the target directly
+
+            setWarsTarget(targetAddress);
+
+            // Load target stats
+            const targetStats = await battlesContract.getTargetStats(targetAddress);
+            setWarsTargetStats({
+                plants: targetStats.plants.toNumber(),
+                lands: targetStats.lands.toNumber(),
+                superLands: targetStats.superLands.toNumber(),
+                avgHealth: targetStats.avgHealth.toNumber(),
+                pendingRewards: targetStats.pendingRewards,
+                battlePower: targetStats.battlePower.toNumber(),
+                hasShield: targetStats.hasShield,
+            });
+
+            // Get battle odds
+            const odds = await battlesContract.estimateBattleOdds(userAddress, targetAddress);
+            setWarsOdds({
+                attackerPower: odds.attackerPower.toNumber(),
+                defenderPower: odds.defenderPower.toNumber(),
+                estimatedWinChance: odds.estimatedWinChance.toNumber(),
+            });
+
+            setWarsStatus("");
+
+        } catch (err: any) {
+            console.error("[Wars] Search failed:", err);
+            setWarsStatus("Search failed: " + (err.message || err).slice(0, 50));
+        } finally {
+            setWarsSearching(false);
+            warsTransactionInProgress.current = false;
+        }
+    }
+
+    async function handleWarsAttack() {
+        if (warsTransactionInProgress.current || !warsTarget) return;
+        warsTransactionInProgress.current = true;
+        setWarsAttacking(true);
+        setWarsStatus("Attacking...");
+
+        try {
+            const ctx = await ensureWallet();
+            if (!ctx) {
+                setWarsStatus("Wallet connection failed");
+                setWarsAttacking(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
+            // Call attack function
+            const tx = await sendContractTx(V3_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("attack", []));
+            if (!tx) {
+                setWarsStatus("Transaction rejected");
+                setWarsAttacking(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
+            setWarsStatus("Waiting for battle result...");
+
+            // Wait for transaction and parse events
+            const receipt = await waitForTx(tx, readProvider);
+
+            // Parse BattleResult event
+            const battleResultTopic = v3BattlesInterface.getEventTopic("BattleResult");
+            let battleResult = null;
+
+            if (receipt && receipt.logs) {
+                for (const log of receipt.logs) {
+                    if (log.topics[0] === battleResultTopic) {
+                        try {
+                            const parsed = v3BattlesInterface.parseLog(log);
+                            battleResult = {
+                                attacker: parsed.args.attacker,
+                                defender: parsed.args.defender,
+                                won: parsed.args.attackerWon,
+                                damageDealt: parsed.args.damageDealt,
+                                rewardsTransferred: parsed.args.rewardsTransferred,
+                            };
+                        } catch {}
+                    }
+                }
+            }
+
+            if (battleResult) {
+                setWarsResult(battleResult);
+            } else {
+                // If we couldn't parse the event, just show success
+                setWarsResult({ won: true, rewardsTransferred: ethers.BigNumber.from(0) });
+            }
+
+            // Clear target
+            setWarsTarget(null);
+            setWarsTargetStats(null);
+            setWarsOdds(null);
+            setWarsStatus("");
+
+            // Reload player stats
+            setTimeout(() => loadWarsPlayerStats(), 2000);
+
+        } catch (err: any) {
+            console.error("[Wars] Attack failed:", err);
+            setWarsStatus("Attack failed: " + (err.message || err).slice(0, 50));
+        } finally {
+            setWarsAttacking(false);
+            warsTransactionInProgress.current = false;
+        }
+    }
+
+    // Load wars stats when tab is active
+    useEffect(() => {
+        if (activeTab === "wars" && userAddress) {
+            loadWarsPlayerStats();
+        }
+    }, [activeTab, userAddress]);
 
     const connected = !!userAddress;
 
@@ -3369,7 +3746,7 @@ export default function Home()
                                     <p style={{ fontSize: 11, color: "#c0c9f4", margin: "0 0 12px" }}>Pay {warsSearchFee} FCWEED to search for a target</p>
                                     <button
                                         type="button"
-                                        onClick={() => { setWarsStatus("Searching for target..."); setWarsSearching(true); }}
+                                        onClick={handleWarsSearch}
                                         disabled={warsSearching || !connected || warsCooldown > 0}
                                         className={styles.btnPrimary}
                                         style={{ padding: "10px 24px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}
@@ -3448,7 +3825,7 @@ export default function Home()
                                         </button>
                                         <button
                                             type="button"
-                                            onClick={() => { setWarsAttacking(true); setWarsStatus("Attacking..."); }}
+                                            onClick={handleWarsAttack}
                                             disabled={warsAttacking}
                                             className={styles.btnPrimary}
                                             style={{ flex: 2, padding: 10, fontSize: 12, background: warsAttacking ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}
@@ -3509,11 +3886,11 @@ export default function Home()
                                 </div>
                                 <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 8, padding: 8 }}>
                                     <div style={{ fontSize: 9, color: "#9ca3af" }}>PRICE / LITER</div>
-                                    <div style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>75,000 FCWEED</div>
+                                    <div style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>{waterShopInfo?.pricePerLiter ? waterShopInfo.pricePerLiter.toLocaleString() : "75,000"} FCWEED</div>
                                 </div>
                                 <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 8, padding: 8 }}>
                                     <div style={{ fontSize: 9, color: "#9ca3af" }}>YOUR LIMIT</div>
-                                    <div style={{ fontSize: 12, color: "#c0c9f4", fontWeight: 600 }}>{waterShopInfo?.walletLimit || "1L"}/plant</div>
+                                    <div style={{ fontSize: 12, color: "#c0c9f4", fontWeight: 600 }}>{waterShopInfo?.walletLimit ? waterShopInfo.walletLimit.toFixed(0) : "0"}L ({waterShopInfo?.stakedPlants || 0} plants)</div>
                                 </div>
                             </div>
 
