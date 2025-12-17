@@ -2054,42 +2054,30 @@ export default function Home()
 
             if (superLandsCount > 0) {
                 try {
-                    const superLandIdsToCheck: number[] = [];
-                    for (let i = 1; i <= 100; i++) {
-                        superLandIdsToCheck.push(i);
-                    }
+                    const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+                    const ids = Array.from({ length: 100 }, (_, i) => i + 1);
+                    const stakerPromises = ids.map(id => v3Contract.superLandStakerOf(id).catch(() => ethers.constants.AddressZero));
+                    const stakers = await Promise.all(stakerPromises);
 
-                    const stakerCalls = superLandIdsToCheck.map((id: number) => ({
-                        target: V3_STAKING_ADDRESS,
-                        callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id])
-                    }));
-                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                    const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
-
-                    superLandIdsToCheck.forEach((id: number, i: number) => {
-                        try {
-                            const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
-                            if (staker && staker.toLowerCase() === userAddress.toLowerCase()) {
-                                stakedSuperLandNums.push(id);
-                                console.log("[V3Staking] Found staked super land:", id, "staker:", staker);
-                            }
-                        } catch (e) {
-                            console.log("[V3Staking] Failed to decode staker for ID:", id);
+                    ids.forEach((id, i) => {
+                        const staker = stakers[i];
+                        if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
+                            stakedSuperLandNums.push(id);
+                            console.log("[V3Staking] Found staked super land:", id);
                         }
                     });
-
-                    allOwnedSuperLandIds.forEach((id: number) => {
-                        if (!stakedSuperLandNums.includes(id)) {
-                            availSuperLandNums.push(id);
-                        }
-                    });
-
-                    console.log("[V3Staking] Final staked super lands:", stakedSuperLandNums);
-                    console.log("[V3Staking] Final available super lands:", availSuperLandNums);
                 } catch (err) {
-                    console.error("[V3Staking] Failed to check super land stakers:", err);
-                    availSuperLandNums.push(...allOwnedSuperLandIds);
+                    console.error("[V3Staking] Failed to check super lands:", err);
                 }
+
+                allOwnedSuperLandIds.forEach((id: number) => {
+                    if (!stakedSuperLandNums.includes(id)) {
+                        availSuperLandNums.push(id);
+                    }
+                });
+
+                console.log("[V3Staking] Final staked super lands:", stakedSuperLandNums);
+                console.log("[V3Staking] Final available super lands:", availSuperLandNums);
             } else if (allOwnedSuperLandIds.length > 0) {
                 availSuperLandNums.push(...allOwnedSuperLandIds);
             }
@@ -2232,35 +2220,30 @@ export default function Home()
 
             if (superLandsCount > 0) {
                 try {
-                    const superLandIdsToCheck: number[] = [];
-                    for (let i = 1; i <= 100; i++) { superLandIdsToCheck.push(i); }
+                    const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+                    const ids = Array.from({ length: 100 }, (_, i) => i + 1);
+                    const stakerPromises = ids.map(id => v4Contract.superLandStakerOf(id).catch(() => ethers.constants.AddressZero));
+                    const stakers = await Promise.all(stakerPromises);
 
-                    const stakerCalls = superLandIdsToCheck.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
-                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                    const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
-
-                    superLandIdsToCheck.forEach((id: number, i: number) => {
-                        try {
-                            const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
-                            if (staker && staker.toLowerCase() === userAddress.toLowerCase()) {
-                                stakedSuperLandNums.push(id);
-                                console.log("[V4Staking] Found staked super land:", id, "staker:", staker);
-                            }
-                        } catch (e) {}
-                    });
-
-                    allOwnedSuperLandIds.forEach((id: number) => {
-                        if (!stakedSuperLandNums.includes(id)) {
-                            availSuperLandNums.push(id);
+                    ids.forEach((id, i) => {
+                        const staker = stakers[i];
+                        if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
+                            stakedSuperLandNums.push(id);
+                            console.log("[V4Staking] Found staked super land:", id);
                         }
                     });
-
-                    console.log("[V4Staking] Final staked super lands:", stakedSuperLandNums);
-                    console.log("[V4Staking] Final available super lands:", availSuperLandNums);
                 } catch (err) {
-                    console.error("[V4Staking] Super land check failed:", err);
-                    availSuperLandNums.push(...allOwnedSuperLandIds);
+                    console.error("[V4Staking] Failed to check super lands:", err);
                 }
+
+                allOwnedSuperLandIds.forEach((id: number) => {
+                    if (!stakedSuperLandNums.includes(id)) {
+                        availSuperLandNums.push(id);
+                    }
+                });
+
+                console.log("[V4Staking] Final staked super lands:", stakedSuperLandNums);
+                console.log("[V4Staking] Final available super lands:", availSuperLandNums);
             } else if (allOwnedSuperLandIds.length > 0) {
                 availSuperLandNums.push(...allOwnedSuperLandIds);
             }
