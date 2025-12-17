@@ -2381,7 +2381,7 @@ export default function Home()
             // Check if attacker has a shield
             const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
             const hasShield = await v3Contract.hasRaidShield(userAddress);
-            setWarsPlayerStats(prev => prev ? { ...prev, hasShield } : null);
+            setWarsPlayerStats((prev: any) => prev ? { ...prev, hasShield } : null);
 
         } catch (err) {
             console.error("[Wars] Failed to load player stats:", err);
