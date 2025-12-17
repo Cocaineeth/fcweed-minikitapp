@@ -59,6 +59,79 @@ const METADATA_MODE: "local-only" | "hybrid" | "remote-all" = "hybrid";
 const CRATE_VAULT_ADDRESS = "0x63e0F8Bf2670f54b7DB51254cED9B65b2B748B0C";
 const CRATE_COST = ethers.utils.parseUnits("200000", 18);
 
+const V3_STAKING_ADDRESS = "0xEF1b0837D353E709fB9b2d5807b4B16C416e11E8";
+const V3_BATTLES_ADDRESS = "0xB06909631196b04cdBAc05b775Bc3B0CE7E2A4a4";
+const V3_ITEMSHOP_ADDRESS = "0x2aBa0B4F7DCe039c170ec9347DDC634d95E79ee8";
+
+const V3_STAKING_ABI = [
+    "function stakePlants(uint256[] calldata ids) external",
+    "function unstakePlants(uint256[] calldata ids) external",
+    "function stakeLands(uint256[] calldata ids) external",
+    "function unstakeLands(uint256[] calldata ids) external",
+    "function stakeSuperLands(uint256[] calldata ids) external",
+    "function unstakeSuperLands(uint256[] calldata ids) external",
+    "function claim() external",
+    "function pending(address account) external view returns (uint256)",
+    "function capacityOf(address account) external view returns (uint256)",
+    "function plantsOf(address account) external view returns (uint256[])",
+    "function landsOf(address account) external view returns (uint256[])",
+    "function superLandStakerOf(uint256 tokenId) external view returns (address)",
+    "function users(address) external view returns (uint64 last, uint32 plants, uint32 lands, uint32 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay, uint256 stakedTokens, uint256 tokenStakeTime, address referrer, uint256 referralEarnings, uint32 referralCount, uint256 guildId, uint256 earningBoostBps, uint256 earningBoostExpiry, uint256 capacityBoost, uint256 capacityBoostExpiry, uint256 raidShieldExpiry, uint256 raidAttackBoostBps, uint256 raidAttackBoostExpiry, uint256 seasonPoints, uint256 lastSeasonUpdated)",
+    "function getPlantHealth(uint256 tokenId) external view returns (uint256)",
+    "function getAverageHealth(address user) external view returns (uint256)",
+    "function getWaterNeeded(uint256 tokenId) external view returns (uint256)",
+    "function buyWater(uint256 liters) external",
+    "function waterPlant(uint256 tokenId) external",
+    "function waterPlants(uint256[] calldata tokenIds) external",
+    "function isShopOpen() external view returns (bool)",
+    "function getShopTimeInfo() external view returns (bool isOpen, uint256 opensAt, uint256 closesAt)",
+    "function getDailyWaterSupply() external view returns (uint256)",
+    "function getDailyWaterRemaining() external view returns (uint256)",
+    "function getWalletWaterLimit(address wallet) external view returns (uint256)",
+    "function getWalletWaterRemaining(address wallet) external view returns (uint256)",
+    "function waterPricePerLiter() external view returns (uint256)",
+    "function tokensPerPlantPerDay() external view returns (uint256)",
+    "function claimEnabled() external view returns (bool)",
+    "function waterShopEnabled() external view returns (bool)",
+    "function plantStakingEnabled() external view returns (bool)",
+    "function landStakingEnabled() external view returns (bool)",
+    "function superLandStakingEnabled() external view returns (bool)",
+    "function totalPlantsStaked() external view returns (uint256)",
+    "function getUserBattleStats(address account) external view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards)",
+    "function hasRaidShield(address user) external view returns (bool)",
+    "function calculateBattlePower(address account) external view returns (uint256)",
+    "function getTotalStakers() external view returns (uint256)",
+    "function getStakerAtIndex(uint256 index) external view returns (address)",
+    "event Claimed(address indexed user, uint256 amount)",
+    "event WaterPurchased(address indexed user, uint256 liters, uint256 cost)",
+    "event PlantWatered(address indexed user, uint256 tokenId, uint256 litersUsed)",
+    "event PlantsWatered(address indexed user, uint256[] tokenIds, uint256 totalLitersUsed)",
+    "event StakedPlants(address indexed user, uint256[] tokenIds)",
+    "event UnstakedPlants(address indexed user, uint256[] tokenIds)",
+];
+
+const V3_BATTLES_ABI = [
+    "function searchForTarget(address target, uint256 nonce, bytes calldata signature) external",
+    "function attack() external",
+    "function cancelSearch() external",
+    "function getTargetStats(address target) external view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards, uint256 battlePower, bool hasShield)",
+    "function getActiveSearch(address attacker) external view returns (address target, uint256 expiry, bool isValid)",
+    "function canAttack(address attacker) external view returns (bool)",
+    "function canBeAttacked(address defender) external view returns (bool)",
+    "function getAttackCooldownRemaining(address attacker) external view returns (uint256)",
+    "function getDefenseImmunityRemaining(address defender) external view returns (uint256)",
+    "function getPlayerStats(address player) external view returns (uint256 wins, uint256 losses, uint256 defWins, uint256 defLosses, uint256 rewardsStolen, uint256 rewardsLost, uint256 winStreak, uint256 bestStreak)",
+    "function estimateBattleOdds(address attacker, address defender) external view returns (uint256 attackerPower, uint256 defenderPower, uint256 estimatedWinChance)",
+    "function getSearchNonce(address attacker) external view returns (uint256)",
+    "function searchFee() external view returns (uint256)",
+    "function raidsEnabled() external view returns (bool)",
+    "event SearchInitiated(address indexed attacker, address indexed target, uint256 fee)",
+    "event BattleResult(address indexed attacker, address indexed defender, bool attackerWon, uint256 damageDealt, uint256 rewardsTransferred)",
+];
+
+const v3StakingInterface = new ethers.utils.Interface(V3_STAKING_ABI);
+const v3BattlesInterface = new ethers.utils.Interface(V3_BATTLES_ABI);
+
 const CRATE_VAULT_ABI = [
     "function openCrate() external",
     "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent, uint256 lastOpenedAt)",
@@ -172,7 +245,7 @@ function detectMiniAppEnvironment(): { isMiniApp: boolean; isMobile: boolean } {
     const userAgent = navigator.userAgent || "";
     const isMobile = /iPhone|iPad|iPod|Android/i.test(userAgent);
 
-   
+
     const inIframe = window.parent !== window;
     const hasFarcasterContext = !!(window as any).farcaster || !!(window as any).__FARCASTER__;
     const hasWarpcastUA = userAgent.toLowerCase().includes("warpcast");
@@ -181,7 +254,7 @@ function detectMiniAppEnvironment(): { isMiniApp: boolean; isMobile: boolean } {
                         document.referrer.includes("warpcast") ||
                         document.referrer.includes("farcaster");
 
-   
+
     let sdkAvailable = false;
     try {
         sdkAvailable = !!(sdk && sdk.wallet);
@@ -212,8 +285,8 @@ async function waitForTx(
 {
     if (!tx) return;
 
-   
-   
+
+
     if (readProvider && tx.hash) {
         const startTime = Date.now();
         while (Date.now() - startTime < maxWaitMs) {
@@ -223,7 +296,7 @@ async function waitForTx(
                     return receipt;
                 }
             } catch {
-               
+
             }
             await new Promise(resolve => setTimeout(resolve, 2000));
         }
@@ -231,7 +304,7 @@ async function waitForTx(
         return;
     }
 
-   
+
     try {
         await tx.wait();
     } catch (e: any) {
@@ -271,15 +344,52 @@ export default function Home()
         () => new ethers.providers.JsonRpcProvider(PUBLIC_BASE_RPC)
     );
 
-    const [activeTab, setActiveTab] = useState<"info" | "mint" | "stake" | "crates" | "referrals" | "shop">("info");
+    const [activeTab, setActiveTab] = useState<"info" | "mint" | "stake" | "wars" | "crates" | "referrals" | "shop">("info");
     const [mintModalOpen, setMintModalOpen] = useState(false);
     const [stakeModalOpen, setStakeModalOpen] = useState(false);
     const [oldStakingOpen, setOldStakingOpen] = useState(false);
     const [newStakingOpen, setNewStakingOpen] = useState(false);
+    const [v3StakingOpen, setV3StakingOpen] = useState(false);
     const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
 
     const [oldStakingStats, setOldStakingStats] = useState<StakingStats | null>(null);
     const [newStakingStats, setNewStakingStats] = useState<NewStakingStats | null>(null);
+
+    const [v3StakingStats, setV3StakingStats] = useState<any>(null);
+    const [v3StakedPlants, setV3StakedPlants] = useState<number[]>([]);
+    const [v3StakedLands, setV3StakedLands] = useState<number[]>([]);
+    const [v3StakedSuperLands, setV3StakedSuperLands] = useState<number[]>([]);
+    const [v3AvailablePlants, setV3AvailablePlants] = useState<number[]>([]);
+    const [v3AvailableLands, setV3AvailableLands] = useState<number[]>([]);
+    const [v3AvailableSuperLands, setV3AvailableSuperLands] = useState<number[]>([]);
+    const [selectedV3AvailPlants, setSelectedV3AvailPlants] = useState<number[]>([]);
+    const [selectedV3AvailLands, setSelectedV3AvailLands] = useState<number[]>([]);
+    const [selectedV3AvailSuperLands, setSelectedV3AvailSuperLands] = useState<number[]>([]);
+    const [selectedV3StakedPlants, setSelectedV3StakedPlants] = useState<number[]>([]);
+    const [selectedV3StakedLands, setSelectedV3StakedLands] = useState<number[]>([]);
+    const [selectedV3StakedSuperLands, setSelectedV3StakedSuperLands] = useState<number[]>([]);
+    const [loadingV3Staking, setLoadingV3Staking] = useState(false);
+    const [v3RealTimePending, setV3RealTimePending] = useState<string>("0.00");
+    const [v3PlantHealths, setV3PlantHealths] = useState<Record<number, number>>({});
+    const [v3WaterNeeded, setV3WaterNeeded] = useState<Record<number, number>>({});
+    const [selectedPlantsToWater, setSelectedPlantsToWater] = useState<number[]>([]);
+
+    const [waterShopInfo, setWaterShopInfo] = useState<any>(null);
+    const [waterBuyAmount, setWaterBuyAmount] = useState(1);
+    const [waterLoading, setWaterLoading] = useState(false);
+    const [waterStatus, setWaterStatus] = useState("");
+
+    const [warsPlayerStats, setWarsPlayerStats] = useState<any>(null);
+    const [warsTarget, setWarsTarget] = useState<any>(null);
+    const [warsTargetStats, setWarsTargetStats] = useState<any>(null);
+    const [warsSearching, setWarsSearching] = useState(false);
+    const [warsAttacking, setWarsAttacking] = useState(false);
+    const [warsStatus, setWarsStatus] = useState("");
+    const [warsResult, setWarsResult] = useState<any>(null);
+    const [warsOdds, setWarsOdds] = useState<any>(null);
+    const [warsCooldown, setWarsCooldown] = useState(0);
+    const [warsSearchFee, setWarsSearchFee] = useState("50,000");
+    const warsTransactionInProgress = useRef(false);
 
     const [availablePlants, setAvailablePlants] = useState<number[]>([]);
     const [availableLands, setAvailableLands] = useState<number[]>([]);
@@ -338,7 +448,7 @@ export default function Home()
     const [realTimePending, setRealTimePending] = useState<string>("0.00");
     const [oldRealTimePending, setOldRealTimePending] = useState<string>("0.00");
 
-   
+
     const [crateSpinning, setCrateSpinning] = useState(false);
     const [crateResultIdx, setCrateResultIdx] = useState<number | null>(null);
     const [crateResultData, setCrateResultData] = useState<{ rewardIndex: number; rewardName: string; amount: ethers.BigNumber; nftTokenId: number } | null>(null);
@@ -1825,6 +1935,275 @@ export default function Home()
         } catch (err) { console.error(err); } finally { setActionLoading(false); }
     }
 
+    const refreshV3StakingRef = useRef(false);
+    const [v3ActionStatus, setV3ActionStatus] = useState("");
+
+    async function refreshV3Staking() {
+        if (refreshV3StakingRef.current || !userAddress) return;
+        refreshV3StakingRef.current = true;
+        setLoadingV3Staking(true);
+        try {
+            const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+            const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, avgHealth] = await Promise.all([
+                v3Contract.users(userAddress),
+                v3Contract.pending(userAddress),
+                v3Contract.capacityOf(userAddress),
+                v3Contract.plantsOf(userAddress),
+                v3Contract.landsOf(userAddress),
+                v3Contract.getAverageHealth(userAddress),
+            ]);
+            const plants = userData.plants;
+            const lands = userData.lands;
+            const superLands = userData.superLands;
+            const water = userData.waterBalance;
+            const stakedPlantNums = stakedPlantIds.map((id: any) => id.toNumber());
+            const stakedLandNums = stakedLandIds.map((id: any) => id.toNumber());
+            const healthMap: Record<number, number> = {};
+            const waterNeededMap: Record<number, number> = {};
+            if (stakedPlantNums.length > 0) {
+                const healthCalls = stakedPlantNums.map((id: number) => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
+                const waterCalls = stakedPlantNums.map((id: number) => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
+                const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+                const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
+                const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
+                stakedPlantNums.forEach((id: number, i: number) => {
+                    healthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
+                    const waterWei = ethers.BigNumber.from(waterResults[i]);
+                    waterNeededMap[id] = parseFloat(ethers.utils.formatUnits(waterWei, 18));
+                });
+            }
+            setV3PlantHealths(healthMap);
+            setV3WaterNeeded(waterNeededMap);
+            setV3StakedPlants(stakedPlantNums);
+            setV3StakedLands(stakedLandNums);
+            const owned = await getOwnedState(userAddress);
+            const availPlants = owned.plants.filter((t: any) => !t.staked && !stakedPlantNums.includes(Number(t.tokenId))).map((t: any) => Number(t.tokenId));
+            const availLands = owned.lands.filter((t: any) => !t.staked && !stakedLandNums.includes(Number(t.tokenId))).map((t: any) => Number(t.tokenId));
+            const allSuperLandIds = owned.superLands.map((t: any) => Number(t.tokenId));
+            const stakedSuperLandNums: number[] = [];
+            const availSuperLandNums: number[] = [];
+            if (allSuperLandIds.length > 0) {
+                const stakerCalls = allSuperLandIds.map((id: number) => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
+                const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+                const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
+                allSuperLandIds.forEach((id: number, i: number) => {
+                    const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
+                    if (staker.toLowerCase() === userAddress.toLowerCase()) stakedSuperLandNums.push(id);
+                    else if (staker === ethers.constants.AddressZero) availSuperLandNums.push(id);
+                });
+            }
+            setV3StakedSuperLands(stakedSuperLandNums);
+            setV3AvailablePlants(availPlants);
+            setV3AvailableLands(availLands);
+            setV3AvailableSuperLands(availSuperLandNums);
+            const pendingFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
+            setV3StakingStats({ plants, lands, superLands, capacity: capacity.toNumber(), avgHealth: avgHealth.toNumber(), water, pendingRaw, pendingFormatted });
+            const display = pendingFormatted >= 1e6 ? (pendingFormatted / 1e6).toFixed(4) + "M" : pendingFormatted >= 1e3 ? (pendingFormatted / 1e3).toFixed(2) + "K" : pendingFormatted.toFixed(2);
+            setV3RealTimePending(display);
+        } catch (err) { console.error("[V3Staking] Error:", err); }
+        finally { refreshV3StakingRef.current = false; setLoadingV3Staking(false); }
+    }
+
+    useEffect(() => {
+        if (v3StakingOpen && userAddress) { refreshV3StakingRef.current = false; refreshV3Staking(); }
+    }, [v3StakingOpen, userAddress]);
+
+    useEffect(() => {
+        if (!v3StakingOpen || !v3StakingStats) return;
+        const { pendingRaw, plants } = v3StakingStats;
+        if (!pendingRaw || plants === 0) return;
+        let currentPending = pendingRaw;
+        const tokensPerSecond = ethers.utils.parseUnits("300000", 18).div(86400);
+        const effectivePerSecond = tokensPerSecond.mul(plants);
+        const interval = setInterval(() => {
+            currentPending = currentPending.add(effectivePerSecond.mul(v3StakingStats.avgHealth || 100).div(100));
+            const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
+            setV3RealTimePending(formatted >= 1e6 ? (formatted / 1e6).toFixed(4) + "M" : formatted >= 1e3 ? (formatted / 1e3).toFixed(2) + "K" : formatted.toFixed(2));
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [v3StakingOpen, v3StakingStats]);
+
+    async function handleV3StakePlants() {
+        if (selectedV3AvailPlants.length === 0) return;
+        try {
+            setActionLoading(true); setV3ActionStatus("Approving...");
+            const ctx = await ensureWallet(); if (!ctx) return;
+            await ensureCollectionApproval(PLANT_ADDRESS, V3_STAKING_ADDRESS, ctx);
+            setV3ActionStatus("Staking plants...");
+            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakePlants", [selectedV3AvailPlants]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV3ActionStatus("Staked!");
+            setSelectedV3AvailPlants([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
+        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV3StakeLands() {
+        if (selectedV3AvailLands.length === 0) return;
+        try {
+            setActionLoading(true); setV3ActionStatus("Approving...");
+            const ctx = await ensureWallet(); if (!ctx) return;
+            await ensureCollectionApproval(LAND_ADDRESS, V3_STAKING_ADDRESS, ctx);
+            setV3ActionStatus("Staking lands...");
+            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakeLands", [selectedV3AvailLands]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV3ActionStatus("Staked!");
+            setSelectedV3AvailLands([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
+        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV3StakeSuperLands() {
+        if (selectedV3AvailSuperLands.length === 0) return;
+        try {
+            setActionLoading(true); setV3ActionStatus("Approving...");
+            const ctx = await ensureWallet(); if (!ctx) return;
+            await ensureCollectionApproval(SUPER_LAND_ADDRESS, V3_STAKING_ADDRESS, ctx);
+            setV3ActionStatus("Staking super lands...");
+            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV3AvailSuperLands]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV3ActionStatus("Staked!");
+            setSelectedV3AvailSuperLands([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
+        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV3UnstakePlants() {
+        if (selectedV3StakedPlants.length === 0) return;
+        const unhealthy = selectedV3StakedPlants.filter(id => v3PlantHealths[id] !== 100);
+        if (unhealthy.length > 0) { setV3ActionStatus("Plants must have 100% health to unstake!"); return; }
+        try {
+            setActionLoading(true); setV3ActionStatus("Unstaking plants...");
+            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakePlants", [selectedV3StakedPlants]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV3ActionStatus("Unstaked!");
+            setSelectedV3StakedPlants([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
+        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV3UnstakeLands() {
+        if (selectedV3StakedLands.length === 0) return;
+        try {
+            setActionLoading(true); setV3ActionStatus("Unstaking lands...");
+            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakeLands", [selectedV3StakedLands]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV3ActionStatus("Unstaked!");
+            setSelectedV3StakedLands([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
+        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV3UnstakeSuperLands() {
+        if (selectedV3StakedSuperLands.length === 0) return;
+        try {
+            setActionLoading(true); setV3ActionStatus("Unstaking super lands...");
+            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakeSuperLands", [selectedV3StakedSuperLands]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV3ActionStatus("Unstaked!");
+            setSelectedV3StakedSuperLands([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
+        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV3Claim() {
+        if (!v3StakingStats || v3StakingStats.pendingFormatted <= 0) { setV3ActionStatus("No rewards."); return; }
+        try {
+            setActionLoading(true); setV3ActionStatus("Claiming...");
+            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("claim", []));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV3ActionStatus("Claimed!");
+            setV3RealTimePending("0.00");
+            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
+        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleWaterPlants() {
+        if (selectedPlantsToWater.length === 0) return;
+        try {
+            setActionLoading(true); setV3ActionStatus("Watering plants...");
+            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("waterPlants", [selectedPlantsToWater]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV3ActionStatus("Plants watered!");
+            setSelectedPlantsToWater([]);
+            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
+        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function loadWaterShopInfo() {
+        try {
+            const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+            const [isOpen, shopTimeInfo, dailyRemaining, walletRemaining, pricePerLiter, shopEnabled] = await Promise.all([
+                v3Contract.isShopOpen(),
+                v3Contract.getShopTimeInfo(),
+                v3Contract.getDailyWaterRemaining(),
+                userAddress ? v3Contract.getWalletWaterRemaining(userAddress) : ethers.BigNumber.from(0),
+                v3Contract.waterPricePerLiter(),
+                v3Contract.waterShopEnabled(),
+            ]);
+            setWaterShopInfo({
+                isOpen: isOpen && shopEnabled,
+                opensAt: shopTimeInfo.opensAt.toNumber(),
+                closesAt: shopTimeInfo.closesAt.toNumber(),
+                dailyRemaining: parseFloat(ethers.utils.formatUnits(dailyRemaining, 18)),
+                walletRemaining: parseFloat(ethers.utils.formatUnits(walletRemaining, 18)),
+                pricePerLiter: parseFloat(ethers.utils.formatUnits(pricePerLiter, 18)),
+            });
+        } catch (err) { console.error("[WaterShop] Error:", err); }
+    }
+
+    useEffect(() => {
+        if (activeTab === "shop") { loadWaterShopInfo(); }
+    }, [activeTab, userAddress]);
+
+    async function handleBuyWater() {
+        if (waterBuyAmount <= 0) return;
+        try {
+            setWaterLoading(true); setWaterStatus("Approving FCWEED...");
+            const ctx = await ensureWallet(); if (!ctx) return;
+            const cost = ethers.utils.parseUnits((waterBuyAmount * (waterShopInfo?.pricePerLiter || 75000)).toString(), 18);
+            const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+            const allowance = await tokenContract.allowance(userAddress, V3_STAKING_ADDRESS);
+            if (allowance.lt(cost)) {
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V3_STAKING_ADDRESS, ethers.constants.MaxUint256]));
+                if (!approveTx) throw new Error("Approval rejected");
+                await waitForTx(approveTx);
+            }
+            setWaterStatus("Buying water...");
+            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("buyWater", [waterBuyAmount]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setWaterStatus("Water purchased!");
+            setTimeout(() => { loadWaterShopInfo(); refreshV3StakingRef.current = false; refreshV3Staking(); setWaterStatus(""); }, 2000);
+        } catch (err: any) { setWaterStatus("Error: " + (err.message || err)); }
+        finally { setWaterLoading(false); }
+    }
+
+    const plantsNeedingWater = useMemo(() => v3StakedPlants.filter(id => v3PlantHealths[id] !== undefined && v3PlantHealths[id] < 100), [v3StakedPlants, v3PlantHealths]);
+    const totalWaterNeededForSelected = useMemo(() => selectedPlantsToWater.reduce((sum, id) => sum + (v3WaterNeeded[id] || 0), 0), [selectedPlantsToWater, v3WaterNeeded]);
+
     const connected = !!userAddress;
 
 
@@ -2616,20 +2995,26 @@ export default function Home()
         }
     }, [crateShowWin]);
 
-   
 
-    const NftCard = ({ id, img, name, checked, onChange }: { id: number; img: string; name: string; checked: boolean; onChange: () => void }) => (
-        <label style={{ minWidth: 80, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}>
+
+    const NftCard = ({ id, img, name, checked, onChange, health }: { id: number; img: string; name: string; checked: boolean; onChange: () => void; health?: number }) => (
+        <label style={{ minWidth: 80, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer", position: "relative" }}>
             <input type="checkbox" checked={checked} onChange={onChange} style={{ marginBottom: 3 }} />
-            <div style={{ padding: 2, borderRadius: 8, border: checked ? "2px solid #3b82f6" : "1px solid rgba(255,255,255,0.18)", background: "#050814" }}>
+            <div style={{ padding: 2, borderRadius: 8, border: checked ? "2px solid #3b82f6" : "1px solid rgba(255,255,255,0.18)", background: "#050814", position: "relative" }}>
                 <img src={img} alt={name + " #" + id} style={{ width: 55, height: 55, borderRadius: 6, objectFit: "contain" }} loading="lazy" />
+                {health !== undefined && (
+                    <div style={{ position: "absolute", bottom: 2, left: 2, right: 2, height: 4, background: "rgba(0,0,0,0.6)", borderRadius: 2 }}>
+                        <div style={{ height: "100%", width: `${health}%`, background: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444", borderRadius: 2, transition: "width 0.3s" }} />
+                    </div>
+                )}
             </div>
             <div style={{ marginTop: 2, fontSize: 9, fontWeight: 600 }}>{name}</div>
             <div style={{ fontSize: 8, opacity: 0.7 }}>#{id}</div>
+            {health !== undefined && <div style={{ fontSize: 7, color: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444" }}>{health}%</div>}
         </label>
     );
 
-   
+
     const ConnectWalletButton = () => (
         <button
             type="button"
@@ -2720,6 +3105,17 @@ export default function Home()
                                 <li style={{ color: "#fbbf24" }}><b>NEW: Super Land</b> — Burn 1 Land + 2M FCWEED to upgrade!</li>
                                 <li>Each Super Land grants <b style={{ color: "#fbbf24" }}>+12% token boost</b>.</li>
                                 <li style={{ color: "#fbbf24" }}><b>NEW: Open Crates</b> for Prizes by spending <b>200,000 $FCWEED</b>!</li>
+                                <li style={{ color: "#ef4444", marginTop: 8 }}><b>NEW: Cartel Wars</b> — Battle other farmers!</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Plants have <b>Health</b> that decays 10% daily (starts 30min after staking)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Low health = lower earnings. 0% health = no earnings!</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Attack other farmers to steal 10-20% of pending rewards</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Losing battles damages your plants 10-15%</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Must have 100% health to unstake plants</li>
+                                <li style={{ color: "#10b981", marginTop: 8 }}><b>NEW: Item Shop</b> — Buy Water!</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> restores plant health to 100%</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Water Shop open <b>12PM-6PM EST</b> daily with limited supply</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• More decay = more water needed (neglect is expensive!)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Price: 75,000 FCWEED per liter</li>
                             </ul>
                             <h2 className={styles.heading}>Use of Funds</h2>
                             <ul className={styles.bulletList}>
@@ -2737,7 +3133,7 @@ export default function Home()
                             <h2 className={styles.heading}>Coming Soon</h2>
                             <ul className={styles.bulletList}>
                                 <li style={{ color: "#fbbf24" }}>🎁 Referrals — Earn rewards for inviting friends</li>
-                                <li style={{ color: "#fbbf24" }}>🛒 Item Shop — Buy boosts and exclusive items</li>
+                                <li style={{ color: "#fbbf24" }}>🛒 More Shop Items — Boosts, shields, and more</li>
                             </ul>
                         </section>
                     </>
@@ -2770,13 +3166,14 @@ export default function Home()
                             <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setOldStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>📦 Old Staking</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setNewStakingOpen(true)} style={{ width: "100%", padding: 14 }}>⚡ New Staking</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setV3StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #059669, #10b981)" }}>🌿 Staking V3 (STAKE)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setNewStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>📦 Staking V2 (Unstake)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setOldStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #4b5563, #6b7280)" }}>📦 Staking V1 (Unstake)</button>
                         </div>
-                        <div style={{ marginTop: 12, padding: 10, background: "rgba(251,191,36,0.1)", borderRadius: 10, border: "1px solid rgba(251,191,36,0.3)" }}>
-                            <p style={{ fontSize: 11, color: "#fbbf24", margin: 0, fontWeight: 600 }}>⚠️ Migrate to New Staking for Super Land Support</p>
-                            <p style={{ fontSize: 10, color: "#38e0a3", margin: "6px 0 0", fontWeight: 500 }}>✓ No tokens will be lost and no NFTs will be lost</p>
-                            <p style={{ fontSize: 10, color: "#9ca3af", margin: "6px 0 0" }}>Claiming FCWEED on New Staking will resume after everyone has claimed and unstaked from Old Staking, by <b>5 PM EST on 12/14/2025</b>.</p>
+                        <div style={{ marginTop: 12, padding: 10, background: "rgba(16,185,129,0.1)", borderRadius: 10, border: "1px solid rgba(16,185,129,0.3)" }}>
+                            <p style={{ fontSize: 11, color: "#10b981", margin: 0, fontWeight: 600 }}>🌿 Staking V3 is LIVE with Plant Health & Water!</p>
+                            <p style={{ fontSize: 10, color: "#fbbf24", margin: "6px 0 0", fontWeight: 500 }}>⚠️ Unstake & Claim from V1/V2, then stake on V3</p>
+                            <p style={{ fontSize: 10, color: "#9ca3af", margin: "6px 0 0" }}>V3 features: Plant Health, Water Shop, Cartel Wars, Item Shop boosts and more!</p>
                         </div>
                     </section>
                 )}
@@ -2934,6 +3331,152 @@ export default function Home()
                     </div>
                 )}
 
+                {activeTab === "wars" && (
+                    <section className={styles.infoCard} style={{ textAlign: "center", padding: 16 }}>
+                        <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#ef4444" }}>⚔️ Cartel Wars</h2>
+
+                        {connected && warsPlayerStats && (
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, marginBottom: 12 }}>
+                                <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                    <div style={{ fontSize: 8, color: "#9ca3af" }}>WINS</div>
+                                    <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
+                                </div>
+                                <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                    <div style={{ fontSize: 8, color: "#9ca3af" }}>LOSSES</div>
+                                    <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
+                                </div>
+                                <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                    <div style={{ fontSize: 8, color: "#9ca3af" }}>STREAK</div>
+                                    <div style={{ fontSize: 14, color: "#fbbf24", fontWeight: 700 }}>{warsPlayerStats.winStreak || 0}🔥</div>
+                                </div>
+                                <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                    <div style={{ fontSize: 8, color: "#9ca3af" }}>STOLEN</div>
+                                    <div style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>{warsPlayerStats.rewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
+                                </div>
+                            </div>
+                        )}
+
+                        {warsCooldown > 0 && (
+                            <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
+                                <div style={{ fontSize: 10, color: "#fbbf24" }}>⏳ Attack Cooldown: {Math.floor(warsCooldown / 3600)}h {Math.floor((warsCooldown % 3600) / 60)}m</div>
+                            </div>
+                        )}
+
+                        {!warsTarget ? (
+                            <div style={{ marginBottom: 12 }}>
+                                <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+                                    <div style={{ fontSize: 32, marginBottom: 8 }}>🎯</div>
+                                    <p style={{ fontSize: 11, color: "#c0c9f4", margin: "0 0 12px" }}>Pay {warsSearchFee} FCWEED to search for a target</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setWarsStatus("Searching for target..."); setWarsSearching(true); }}
+                                        disabled={warsSearching || !connected || warsCooldown > 0}
+                                        className={styles.btnPrimary}
+                                        style={{ padding: "10px 24px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}
+                                    >
+                                        {warsSearching ? "🔍 Searching..." : "🔍 Search for Opponent"}
+                                    </button>
+                                    {warsStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 8 }}>{warsStatus}</p>}
+                                </div>
+
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                                    <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 8, padding: 10 }}>
+                                        <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>IF YOU WIN</div>
+                                        <ul style={{ fontSize: 10, color: "#10b981", textAlign: "left", margin: 0, paddingLeft: 16 }}>
+                                            <li>Steal 10-20% of their pending</li>
+                                            <li>Search fee refunded</li>
+                                            <li>Their plants take 10-15% damage</li>
+                                        </ul>
+                                    </div>
+                                    <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 8, padding: 10 }}>
+                                        <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>IF YOU LOSE</div>
+                                        <ul style={{ fontSize: 10, color: "#ef4444", textAlign: "left", margin: 0, paddingLeft: 16 }}>
+                                            <li>Lose 10-20% of your pending</li>
+                                            <li>Search fee goes to treasury</li>
+                                            <li>Your plants take 10-15% damage</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div style={{ marginBottom: 12 }}>
+                                <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1))", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 12, padding: 16, marginBottom: 12 }}>
+                                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 8 }}>🎯 TARGET FOUND</div>
+                                    <div style={{ fontSize: 12, color: "#fff", marginBottom: 12, wordBreak: "break-all" }}>{warsTarget.slice(0, 8)}...{warsTarget.slice(-6)}</div>
+
+                                    {warsTargetStats && (
+                                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 12 }}>
+                                            <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 6, padding: 6 }}>
+                                                <div style={{ fontSize: 8, color: "#9ca3af" }}>PLANTS</div>
+                                                <div style={{ fontSize: 14, color: "#10b981" }}>{warsTargetStats.plants}</div>
+                                            </div>
+                                            <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 6, padding: 6 }}>
+                                                <div style={{ fontSize: 8, color: "#9ca3af" }}>HEALTH</div>
+                                                <div style={{ fontSize: 14, color: warsTargetStats.avgHealth >= 80 ? "#10b981" : warsTargetStats.avgHealth >= 50 ? "#fbbf24" : "#ef4444" }}>{warsTargetStats.avgHealth}%</div>
+                                            </div>
+                                            <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 6, padding: 6 }}>
+                                                <div style={{ fontSize: 8, color: "#9ca3af" }}>PENDING</div>
+                                                <div style={{ fontSize: 12, color: "#fbbf24" }}>{warsTargetStats.pendingRewards ? (parseFloat(ethers.utils.formatUnits(warsTargetStats.pendingRewards, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {warsOdds && (
+                                        <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
+                                            <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>BATTLE ODDS</div>
+                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                                <div style={{ textAlign: "center" }}>
+                                                    <div style={{ fontSize: 8, color: "#9ca3af" }}>YOU</div>
+                                                    <div style={{ fontSize: 12, color: "#10b981" }}>{warsOdds.attackerPower}</div>
+                                                </div>
+                                                <div style={{ fontSize: 18, color: "#fbbf24", fontWeight: 700 }}>{warsOdds.estimatedWinChance}%</div>
+                                                <div style={{ textAlign: "center" }}>
+                                                    <div style={{ fontSize: 8, color: "#9ca3af" }}>THEM</div>
+                                                    <div style={{ fontSize: 12, color: "#ef4444" }}>{warsOdds.defenderPower}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div style={{ display: "flex", gap: 8 }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setWarsTarget(null); setWarsTargetStats(null); setWarsOdds(null); }}
+                                            style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #374151", background: "transparent", color: "#9ca3af", cursor: "pointer", fontSize: 11 }}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setWarsAttacking(true); setWarsStatus("Attacking..."); }}
+                                            disabled={warsAttacking}
+                                            className={styles.btnPrimary}
+                                            style={{ flex: 2, padding: 10, fontSize: 12, background: warsAttacking ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}
+                                        >
+                                            {warsAttacking ? "⚔️ Attacking..." : "⚔️ ATTACK!"}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {warsResult && (
+                            <div style={{ background: warsResult.won ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)", border: `1px solid ${warsResult.won ? "rgba(16,185,129,0.4)" : "rgba(239,68,68,0.4)"}`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                                <div style={{ fontSize: 24, marginBottom: 4 }}>{warsResult.won ? "🎉" : "💀"}</div>
+                                <div style={{ fontSize: 14, color: warsResult.won ? "#10b981" : "#ef4444", fontWeight: 700 }}>{warsResult.won ? "VICTORY!" : "DEFEAT!"}</div>
+                                <div style={{ fontSize: 11, color: "#c0c9f4", marginTop: 4 }}>
+                                    {warsResult.won ? `Stole ${(parseFloat(ethers.utils.formatUnits(warsResult.rewardsTransferred, 18)) / 1000).toFixed(0)}K FCWEED!` : `Lost ${(parseFloat(ethers.utils.formatUnits(warsResult.rewardsTransferred, 18)) / 1000).toFixed(0)}K FCWEED`}
+                                </div>
+                                <button type="button" onClick={() => setWarsResult(null)} style={{ marginTop: 8, padding: "6px 16px", borderRadius: 6, border: "none", background: "rgba(255,255,255,0.1)", color: "#fff", cursor: "pointer", fontSize: 10 }}>Dismiss</button>
+                            </div>
+                        )}
+
+                        <div style={{ background: "rgba(107,114,128,0.1)", border: "1px solid rgba(107,114,128,0.2)", borderRadius: 8, padding: 10 }}>
+                            <div style={{ fontSize: 9, color: "#9ca3af" }}>💡 TIP: Higher plant health = more battle power. Buy a Raid Shield from the Item Shop to protect your farm!</div>
+                        </div>
+                    </section>
+                )}
+
                 {activeTab === "referrals" && (
                     <section className={styles.infoCard} style={{ position: "relative", textAlign: "center", padding: 40, minHeight: 300 }}>
                         <div style={{ position: "absolute", inset: 0, background: "rgba(5,8,18,0.85)", backdropFilter: "blur(8px)", borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
@@ -2947,13 +3490,89 @@ export default function Home()
                 )}
 
                 {activeTab === "shop" && (
-                    <section className={styles.infoCard} style={{ position: "relative", textAlign: "center", padding: 40, minHeight: 300 }}>
-                        <div style={{ position: "absolute", inset: 0, background: "rgba(5,8,18,0.85)", backdropFilter: "blur(8px)", borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
-                            <div>
-                                <div style={{ fontSize: 48, marginBottom: 12 }}>🛒</div>
-                                <h2 style={{ fontSize: 20, color: "#fbbf24" }}>Coming Soon</h2>
-                                <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 8 }}>Buy boosts and exclusive items</p>
+                    <section className={styles.infoCard} style={{ textAlign: "center", padding: 16 }}>
+                        <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#10b981" }}>🛒 Item Shop</h2>
+
+                        <div style={{ background: "linear-gradient(135deg, rgba(96,165,250,0.15), rgba(59,130,246,0.1))", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 12, padding: 16, marginBottom: 16 }}>
+                            <div style={{ fontSize: 32, marginBottom: 8 }}>💧</div>
+                            <h3 style={{ fontSize: 14, color: "#60a5fa", margin: "0 0 8px" }}>Water Shop</h3>
+                            <p style={{ fontSize: 10, color: "#9ca3af", margin: "0 0 12px" }}>Water restores plant health to 100%. Neglected plants cost more water!</p>
+
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 12 }}>
+                                <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 8, padding: 8 }}>
+                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>SHOP STATUS</div>
+                                    <div style={{ fontSize: 14, color: waterShopInfo?.isOpen ? "#10b981" : "#ef4444", fontWeight: 700 }}>{waterShopInfo?.isOpen ? "🟢 OPEN" : "🔴 CLOSED"}</div>
+                                </div>
+                                <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 8, padding: 8 }}>
+                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>HOURS (EST)</div>
+                                    <div style={{ fontSize: 12, color: "#c0c9f4", fontWeight: 600 }}>12PM - 6PM</div>
+                                </div>
+                                <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 8, padding: 8 }}>
+                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>PRICE / LITER</div>
+                                    <div style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>75,000 FCWEED</div>
+                                </div>
+                                <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 8, padding: 8 }}>
+                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>YOUR LIMIT</div>
+                                    <div style={{ fontSize: 12, color: "#c0c9f4", fontWeight: 600 }}>{waterShopInfo?.walletLimit || "1L"}/plant</div>
+                                </div>
                             </div>
+
+                            {waterShopInfo?.isOpen && (
+                                <div style={{ marginBottom: 12 }}>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 8 }}>
+                                        <div style={{ background: "rgba(16,185,129,0.1)", borderRadius: 8, padding: 8 }}>
+                                            <div style={{ fontSize: 9, color: "#9ca3af" }}>DAILY SUPPLY LEFT</div>
+                                            <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{waterShopInfo?.dailyRemaining || "0"}L</div>
+                                        </div>
+                                        <div style={{ background: "rgba(96,165,250,0.1)", borderRadius: 8, padding: 8 }}>
+                                            <div style={{ fontSize: 9, color: "#9ca3af" }}>YOUR REMAINING</div>
+                                            <div style={{ fontSize: 14, color: "#60a5fa", fontWeight: 700 }}>{waterShopInfo?.walletRemaining || "0"}L</div>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                        <button type="button" onClick={() => setWaterBuyAmount(Math.max(1, waterBuyAmount - 1))} style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid #374151", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>-</button>
+                                        <div style={{ flex: 1, background: "rgba(5,8,20,0.5)", borderRadius: 8, padding: "8px 16px", textAlign: "center" }}>
+                                            <div style={{ fontSize: 18, color: "#60a5fa", fontWeight: 700 }}>{waterBuyAmount}L</div>
+                                            <div style={{ fontSize: 10, color: "#9ca3af" }}>{(waterBuyAmount * 75000).toLocaleString()} FCWEED</div>
+                                        </div>
+                                        <button type="button" onClick={() => setWaterBuyAmount(waterBuyAmount + 1)} style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid #374151", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>+</button>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={handleBuyWater}
+                                        disabled={waterLoading || !connected || waterBuyAmount > (waterShopInfo?.walletRemaining || 0)}
+                                        className={styles.btnPrimary}
+                                        style={{ width: "100%", padding: 12, fontSize: 12, background: waterLoading ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)" }}
+                                    >
+                                        {waterLoading ? "💧 Buying..." : `💧 Buy ${waterBuyAmount}L Water`}
+                                    </button>
+                                    {waterStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 6 }}>{waterStatus}</p>}
+                                </div>
+                            )}
+
+                            {!waterShopInfo?.isOpen && (
+                                <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 8, padding: 10 }}>
+                                    <div style={{ fontSize: 10, color: "#fbbf24" }}>⏰ Shop opens at 12PM EST daily</div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 8, padding: 10, marginBottom: 12 }}>
+                            <div style={{ fontSize: 10, color: "#fbbf24", fontWeight: 600, marginBottom: 4 }}>⚠️ Water Costs Scale With Decay!</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, fontSize: 9, color: "#9ca3af" }}>
+                                <div>99% → 1.0L</div>
+                                <div>90% → 1.2L</div>
+                                <div>70% → 2.8L</div>
+                                <div>50% → 6.0L</div>
+                            </div>
+                            <p style={{ fontSize: 9, color: "#ef4444", margin: "6px 0 0" }}>Regular watering saves FCWEED!</p>
+                        </div>
+
+                        <div style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: 8, padding: 10 }}>
+                            <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600, marginBottom: 4 }}>🎁 More Items Coming Soon!</div>
+                            <p style={{ fontSize: 9, color: "#9ca3af", margin: 0 }}>Growth Serums, Fertilizers, Raid Shields, Attack Boosts...</p>
                         </div>
                     </section>
                 )}
@@ -2964,6 +3583,7 @@ export default function Home()
                     { key: "info", icon: "ℹ️", label: "INFO" },
                     { key: "mint", icon: "🌱", label: "MINT" },
                     { key: "stake", icon: "⚡", label: "STAKE" },
+                    { key: "wars", icon: "⚔️", label: "WARS" },
                     { key: "crates", icon: "📦", label: "CRATES" },
                     { key: "shop", icon: "🛒", label: "SHOP" },
                     { key: "referrals", icon: "🎁", label: "REFER" },
@@ -2979,9 +3599,12 @@ export default function Home()
                 <div className={styles.modalBackdrop}>
                     <div className={styles.modal} style={{ maxWidth: 500, width: "95%", maxHeight: "85vh", overflowY: "auto" }}>
                         <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle}>Old Staking</h2>
+                            <h2 className={styles.modalTitle}>Staking V1 (Unstake Only)</h2>
                             <button type="button" className={styles.modalClose} onClick={() => setOldStakingOpen(false)}>✕</button>
                         </header>
+                        <div style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", marginBottom: 10 }}>
+                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V1 is deprecated. Please unstake, claim, and move to Staking V3!</p>
+                        </div>
                         <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
                             <div className={styles.statCard}><span className={styles.statLabel}>Plants</span><span className={styles.statValue}>{oldStakingStats?.plantsStaked || 0}</span></div>
@@ -3029,9 +3652,12 @@ export default function Home()
                 <div className={styles.modalBackdrop}>
                     <div className={styles.modal} style={{ maxWidth: 500, width: "95%", maxHeight: "85vh", overflowY: "auto" }}>
                         <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle}>New Staking</h2>
+                            <h2 className={styles.modalTitle}>Staking V2 (Unstake Only)</h2>
                             <button type="button" className={styles.modalClose} onClick={() => setNewStakingOpen(false)}>✕</button>
                         </header>
+                        <div style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", marginBottom: 10 }}>
+                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V2 is deprecated. Please unstake, claim, and move to Staking V3!</p>
+                        </div>
                         <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
                             <div className={styles.statCard}><span className={styles.statLabel}>Plants</span><span className={styles.statValue}>{newStakingStats?.plantsStaked || 0}</span></div>
@@ -3073,6 +3699,104 @@ export default function Home()
                             <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading} onClick={handleNewUnstakeSelected} style={{ flex: 1, padding: 10, fontSize: 12 }}>Unstake</button>
                             <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !newStakingStats?.claimEnabled} onClick={handleNewClaim} style={{ flex: 1, padding: 10, fontSize: 12 }}>Claim</button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {v3StakingOpen && (
+                <div className={styles.modalBackdrop}>
+                    <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto" }}>
+                        <header className={styles.modalHeader}>
+                            <h2 className={styles.modalTitle}>🌿 Staking V3</h2>
+                            <button type="button" className={styles.modalClose} onClick={() => setV3StakingOpen(false)}>✕</button>
+                        </header>
+
+                        <div style={{ padding: "8px 12px", background: "rgba(16,185,129,0.1)", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 10 }}>
+                            <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>✨ Plant Health, Water Shop, Cartel Wars & more!</p>
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
+                            <div className={styles.statCard}><span className={styles.statLabel}>Plants</span><span className={styles.statValue}>{v3StakingStats?.plants || 0}</span></div>
+                            <div className={styles.statCard}><span className={styles.statLabel}>Lands</span><span className={styles.statValue}>{v3StakingStats?.lands || 0}</span></div>
+                            <div className={styles.statCard}><span className={styles.statLabel}>Super Lands</span><span className={styles.statValue}>{v3StakingStats?.superLands || 0}</span></div>
+                            <div className={styles.statCard}><span className={styles.statLabel}>Capacity</span><span className={styles.statValue}>{v3StakingStats ? `${v3StakingStats.plants}/${v3StakingStats.capacity}` : "0/1"}</span></div>
+                            <div className={styles.statCard}><span className={styles.statLabel}>Avg Health</span><span className={styles.statValue} style={{ color: (v3StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v3StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v3StakingStats?.avgHealth || 100}%</span></div>
+                            <div className={styles.statCard}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v3StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(v3StakingStats.water, 18))).toFixed(1) : "0"}L</span></div>
+                            <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #064e3b, #047857)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#34d399", fontSize: 16 }}>{v3RealTimePending}</span></div>
+                        </div>
+
+                        {v3StakedPlants.length > 0 && (
+                            <div style={{ background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.3)", borderRadius: 8, padding: 10, marginBottom: 10 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                                    <span style={{ fontSize: 10, color: "#60a5fa", fontWeight: 600 }}>💧 Water Plants</span>
+                                    <label style={{ fontSize: 9, display: "flex", alignItems: "center", gap: 3 }}>
+                                        <input type="checkbox" checked={selectedPlantsToWater.length === v3StakedPlants.filter(id => (v3PlantHealths[id] || 100) < 100).length && selectedPlantsToWater.length > 0} onChange={() => { const needWater = v3StakedPlants.filter(id => (v3PlantHealths[id] || 100) < 100); if (selectedPlantsToWater.length === needWater.length) { setSelectedPlantsToWater([]); } else { setSelectedPlantsToWater(needWater); } }} />All needing water
+                                    </label>
+                                </div>
+                                <div style={{ display: "flex", overflowX: "auto", gap: 4, padding: "4px 0", minHeight: 60 }}>
+                                    {v3StakedPlants.filter(id => (v3PlantHealths[id] || 100) < 100).length === 0 ? (
+                                        <span style={{ fontSize: 10, color: "#10b981", margin: "auto" }}>✓ All plants at 100% health!</span>
+                                    ) : (
+                                        v3StakedPlants.filter(id => (v3PlantHealths[id] || 100) < 100).map(id => (
+                                            <label key={"water-" + id} style={{ minWidth: 60, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}>
+                                                <input type="checkbox" checked={selectedPlantsToWater.includes(id)} onChange={() => { if (selectedPlantsToWater.includes(id)) { setSelectedPlantsToWater(selectedPlantsToWater.filter(x => x !== id)); } else { setSelectedPlantsToWater([...selectedPlantsToWater, id]); } }} style={{ marginBottom: 2 }} />
+                                                <div style={{ fontSize: 8 }}>#{id}</div>
+                                                <div style={{ fontSize: 10, color: (v3PlantHealths[id] || 100) >= 80 ? "#10b981" : (v3PlantHealths[id] || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v3PlantHealths[id] || 100}%</div>
+                                                <div style={{ fontSize: 8, color: "#60a5fa" }}>{((v3WaterNeeded[id] || 0) / 1e18).toFixed(1)}L</div>
+                                            </label>
+                                        ))
+                                    )}
+                                </div>
+                                {selectedPlantsToWater.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={handleWaterPlants}
+                                        disabled={actionLoading || !connected}
+                                        className={styles.btnPrimary}
+                                        style={{ width: "100%", marginTop: 8, padding: 8, fontSize: 11, background: actionLoading ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)" }}
+                                    >
+                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedPlantsToWater.length} Plant${selectedPlantsToWater.length > 1 ? "s" : ""} (${totalWaterNeededForSelected.toFixed(1)}L)`}
+                                    </button>
+                                )}
+                                {v3ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v3ActionStatus}</p>}
+                            </div>
+                        )}
+
+                        <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
+
+                        {loadingV3Staking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12 }}>Loading NFTs…</p> : (
+                            <>
+                                <div style={{ marginBottom: 10 }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                        <span style={{ fontSize: 11, fontWeight: 600 }}>Available ({v3AvailablePlants.length + v3AvailableLands.length + v3AvailableSuperLands.length})</span>
+                                        <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v3AvailablePlants.length + v3AvailableLands.length + v3AvailableSuperLands.length) > 0 && selectedV3AvailPlants.length + selectedV3AvailLands.length + selectedV3AvailSuperLands.length === (v3AvailablePlants.length + v3AvailableLands.length + v3AvailableSuperLands.length)} onChange={() => { if (selectedV3AvailPlants.length + selectedV3AvailLands.length + selectedV3AvailSuperLands.length === (v3AvailablePlants.length + v3AvailableLands.length + v3AvailableSuperLands.length)) { setSelectedV3AvailPlants([]); setSelectedV3AvailLands([]); setSelectedV3AvailSuperLands([]); } else { setSelectedV3AvailPlants(v3AvailablePlants); setSelectedV3AvailLands(v3AvailableLands); setSelectedV3AvailSuperLands(v3AvailableSuperLands); } }} />All</label>
+                                    </div>
+                                    <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
+                                        {(v3AvailablePlants.length + v3AvailableLands.length + v3AvailableSuperLands.length) === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No NFTs available to stake</span> : (
+                                            <>{v3AvailableSuperLands.map((id) => <NftCard key={"v3asl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedV3AvailSuperLands.includes(id)} onChange={() => toggleId(id, selectedV3AvailSuperLands, setSelectedV3AvailSuperLands)} />)}{v3AvailableLands.map((id) => <NftCard key={"v3al-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedV3AvailLands.includes(id)} onChange={() => toggleId(id, selectedV3AvailLands, setSelectedV3AvailLands)} />)}{v3AvailablePlants.map((id) => <NftCard key={"v3ap-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV3AvailPlants.includes(id)} onChange={() => toggleId(id, selectedV3AvailPlants, setSelectedV3AvailPlants)} />)}</>
+                                        )}
+                                    </div>
+                                </div>
+                                <div style={{ marginBottom: 10 }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                        <span style={{ fontSize: 11, fontWeight: 600 }}>Staked ({v3StakedPlants.length + v3StakedLands.length + v3StakedSuperLands.length})</span>
+                                        <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v3StakedPlants.length + v3StakedLands.length + v3StakedSuperLands.length) > 0 && selectedV3StakedPlants.length + selectedV3StakedLands.length + selectedV3StakedSuperLands.length === (v3StakedPlants.length + v3StakedLands.length + v3StakedSuperLands.length)} onChange={() => { if (selectedV3StakedPlants.length + selectedV3StakedLands.length + selectedV3StakedSuperLands.length === (v3StakedPlants.length + v3StakedLands.length + v3StakedSuperLands.length)) { setSelectedV3StakedPlants([]); setSelectedV3StakedLands([]); setSelectedV3StakedSuperLands([]); } else { setSelectedV3StakedPlants(v3StakedPlants); setSelectedV3StakedLands(v3StakedLands); setSelectedV3StakedSuperLands(v3StakedSuperLands); } }} />All</label>
+                                    </div>
+                                    <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
+                                        {(v3StakedPlants.length + v3StakedLands.length + v3StakedSuperLands.length) === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No staked NFTs</span> : (
+                                            <>{v3StakedSuperLands.map((id) => <NftCard key={"v3ssl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedV3StakedSuperLands.includes(id)} onChange={() => toggleId(id, selectedV3StakedSuperLands, setSelectedV3StakedSuperLands)} />)}{v3StakedLands.map((id) => <NftCard key={"v3sl-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedV3StakedLands.includes(id)} onChange={() => toggleId(id, selectedV3StakedLands, setSelectedV3StakedLands)} />)}{v3StakedPlants.map((id) => <NftCard key={"v3sp-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV3StakedPlants.includes(id)} onChange={() => toggleId(id, selectedV3StakedPlants, setSelectedV3StakedPlants)} health={v3PlantHealths[id]} />)}</>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                            <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || (selectedV3AvailPlants.length + selectedV3AvailLands.length + selectedV3AvailSuperLands.length === 0)} onClick={async () => { if (selectedV3AvailPlants.length > 0) await handleV3StakePlants(); if (selectedV3AvailLands.length > 0) await handleV3StakeLands(); if (selectedV3AvailSuperLands.length > 0) await handleV3StakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12, background: "linear-gradient(to right, #059669, #10b981)" }}>{actionLoading ? "Staking..." : "Stake"}</button>
+                            <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || (selectedV3StakedPlants.length + selectedV3StakedLands.length + selectedV3StakedSuperLands.length === 0)} onClick={async () => { if (selectedV3StakedPlants.length > 0) await handleV3UnstakePlants(); if (selectedV3StakedLands.length > 0) await handleV3UnstakeLands(); if (selectedV3StakedSuperLands.length > 0) await handleV3UnstakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Unstaking..." : "Unstake"}</button>
+                            <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !v3StakingStats || v3StakingStats.pendingFormatted <= 0} onClick={handleV3Claim} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Claiming..." : "Claim"}</button>
+                        </div>
+                        <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 6, textAlign: "center" }}>⚠️ Plants must have 100% health to unstake. Water them first!</p>
+                        {v3ActionStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v3ActionStatus}</p>}
                     </div>
                 </div>
             )}
