@@ -3484,7 +3484,7 @@ export default function Home()
                                 <li>Each Super Land grants <b style={{ color: "#fbbf24" }}>+12% token boost</b>.</li>
                                 <li style={{ color: "#fbbf24" }}><b>NEW: Open Crates</b> for Prizes by spending <b>200,000 $FCWEED</b>!</li>
                                 <li style={{ color: "#ef4444", marginTop: 8 }}><b>NEW: Cartel Wars</b> — Battle other farmers!</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Plants have <b>Health</b> that decays 10% daily (starts 30min after staking)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Plants have <b>Health</b> that decays 10% daily</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Low health = lower earnings. 0% health = no earnings!</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Attack other farmers to steal 10-20% of pending rewards</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Losing battles damages your plants 10-15%</li>
@@ -3493,7 +3493,6 @@ export default function Home()
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> restores plant health to 100%</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Water Shop open <b>12PM-6PM EST</b> daily with limited supply</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• More decay = more water needed (neglect is expensive!)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Price: 75,000 FCWEED per liter</li>
                             </ul>
                             <h2 className={styles.heading}>Use of Funds</h2>
                             <ul className={styles.bulletList}>
