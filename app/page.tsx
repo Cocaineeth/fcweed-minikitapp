@@ -60,7 +60,7 @@ const CRATE_VAULT_ADDRESS = "0x63e0F8Bf2670f54b7DB51254cED9B65b2B748B0C";
 const CRATE_COST = ethers.utils.parseUnits("200000", 18);
 
 const V3_STAKING_ADDRESS = "0xEF1b0837D353E709fB9b2d5807b4B16C416e11E8";
-const V3_BATTLES_ADDRESS = "0xB06909631196b04cdBAc05b775Bc3B0CE7E2A4a4";
+const V3_BATTLES_ADDRESS = "0xFC55C7C2BbadA7B14Dbc74Eb1f7069BEDa0e69aA";
 const V3_ITEMSHOP_ADDRESS = "0x2aBa0B4F7DCe039c170ec9347DDC634d95E79ee8";
 
 const V3_STAKING_ABI = [
@@ -2404,7 +2404,34 @@ export default function Home()
                 return;
             }
 
-            // Check if player has a shield - warn them
+            const battlesContract = new ethers.Contract(V3_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+
+            const activeSearch = await battlesContract.getActiveSearch(ctx.userAddress);
+            if (activeSearch.isValid && activeSearch.target !== ethers.constants.AddressZero) {
+                setWarsTarget(activeSearch.target);
+                const targetStats = await battlesContract.getTargetStats(activeSearch.target);
+                setWarsTargetStats({
+                    plants: targetStats.plants.toNumber(),
+                    lands: targetStats.lands.toNumber(),
+                    superLands: targetStats.superLands.toNumber(),
+                    avgHealth: targetStats.avgHealth.toNumber(),
+                    pendingRewards: targetStats.pendingRewards,
+                    battlePower: targetStats.battlePower.toNumber(),
+                    hasShield: targetStats.hasShield,
+                });
+                const odds = await battlesContract.estimateBattleOdds(ctx.userAddress, activeSearch.target);
+                setWarsOdds({
+                    attackerPower: odds.attackerPower.toNumber(),
+                    defenderPower: odds.defenderPower.toNumber(),
+                    estimatedWinChance: odds.estimatedWinChance.toNumber(),
+                });
+                const timeLeft = activeSearch.expiry.toNumber() - Math.floor(Date.now() / 1000);
+                setWarsStatus(`Target already locked! ${Math.floor(timeLeft / 60)}m ${timeLeft % 60}s remaining.`);
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
             const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
             const hasShield = await v3Contract.hasRaidShield(ctx.userAddress);
             if (hasShield) {
@@ -2417,7 +2444,6 @@ export default function Home()
                 }
             }
 
-            // Call backend API to find target and get signature
             setWarsStatus("Finding target...");
 
             const response = await fetch(`${BACKEND_API_URL}/api/search`, {
@@ -2439,8 +2465,6 @@ export default function Home()
 
             setWarsStatus("Target found! Approving FCWEED...");
 
-            // Check and approve FCWEED for search fee
-            const battlesContract = new ethers.Contract(V3_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
             const searchFee = await battlesContract.searchFee();
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             const allowance = await tokenContract.allowance(ctx.userAddress, V3_BATTLES_ADDRESS);
@@ -4029,7 +4053,7 @@ export default function Home()
                                 <div>70% → 2.8L</div>
                                 <div>50% → 6.0L</div>
                             </div>
-                            <p style={{ fontSize: 9, color: "#ef4444", margin: "6px 0 0" }}>Regular watering saves your Plants!</p>
+                            <p style={{ fontSize: 9, color: "#ef4444", margin: "6px 0 0" }}>Regular watering saves your Plant!</p>
                         </div>
 
                         <div style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: 8, padding: 10 }}>
