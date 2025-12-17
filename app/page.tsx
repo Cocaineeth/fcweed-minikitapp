@@ -2829,42 +2829,28 @@ export default function Home()
                 // Calculate odds manually for reliability
                 const defenderPower = Math.round((tPlants * 100 + tLands * 50 + tSuperLands * 150) * tAvgHealth / 100);
 
-                // Get attacker power - use local v4StakingStats if available, otherwise fetch from contract
+                // Get attacker power from V4 staking contract (always fetch fresh to avoid stale state)
                 let attackerPower = 0;
                 const attackerAddress = ctx.userAddress;
                 console.log("[Wars] Calculating attacker power for:", attackerAddress);
 
-                // First try to use cached v4StakingStats
-                if (v4StakingStats && v4StakingStats.plants > 0) {
-                    const aPlants = v4StakingStats.plants;
-                    const aLands = v4StakingStats.lands || 0;
-                    const aSuperLands = v4StakingStats.superLands || 0;
-                    const aAvgHealth = v4StakingStats.avgHealth || 100;
-                    console.log("[Wars] Using cached v4StakingStats - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
+                try {
+                    const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, [
+                        "function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)"
+                    ], readProvider);
+
+                    const userStats = await v4Contract.getUserBattleStats(attackerAddress);
+                    const aPlants = userStats[0].toNumber();
+                    const aLands = userStats[1].toNumber();
+                    const aSuperLands = userStats[2].toNumber();
+                    const aAvgHealth = userStats[3].toNumber();
+
+                    console.log("[Wars] V4 Contract stats - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
                     attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
-                    console.log("[Wars] Calculated attacker power from cache:", attackerPower);
-                } else {
-                    // Fallback to contract call
-                    console.log("[Wars] v4StakingStats not available, fetching from contract...");
-                    try {
-                        const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, [
-                            "function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)",
-                            "function plantsOf(address) external view returns (uint256[])"
-                        ], readProvider);
+                    console.log("[Wars] Calculated attacker power:", attackerPower);
 
-                        const userStats = await v4Contract.getUserBattleStats(attackerAddress);
-                        const aPlants = userStats[0].toNumber();
-                        const aLands = userStats[1].toNumber();
-                        const aSuperLands = userStats[2].toNumber();
-                        const aAvgHealth = userStats[3].toNumber();
-
-                        console.log("[Wars] V4 Contract stats - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
-                        attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
-                        console.log("[Wars] Calculated attacker power from contract:", attackerPower);
-
-                    } catch (e) {
-                        console.error("[Wars] Failed to get attacker power:", e);
-                    }
+                } catch (e) {
+                    console.error("[Wars] Failed to get attacker power:", e);
                 }
 
                 console.log("[Wars] Final - Attacker:", attackerPower, "Defender:", defenderPower);
@@ -3005,33 +2991,29 @@ export default function Home()
             // Calculate battle power manually from stats (more reliable than contract call)
             const defenderPower = Math.round((stats.plants * 100 + stats.lands * 50 + stats.superLands * 150) * stats.avgHealth / 100);
 
-            // Get attacker power - use local v4StakingStats if available
+            // Get attacker power from V4 staking contract (always fetch fresh)
             let attackerPower = 0;
-            console.log("[Wars] Lock - Calculating attacker power");
+            console.log("[Wars] Lock - Calculating attacker power for:", ctx.userAddress);
 
-            if (v4StakingStats && v4StakingStats.plants > 0) {
-                const aPlants = v4StakingStats.plants;
-                const aLands = v4StakingStats.lands || 0;
-                const aSuperLands = v4StakingStats.superLands || 0;
-                const aAvgHealth = v4StakingStats.avgHealth || 100;
-                console.log("[Wars] Lock - Using cached stats - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
+            try {
+                const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, [
+                    "function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)"
+                ], readProvider);
+
+                const userStats = await v4Contract.getUserBattleStats(ctx.userAddress);
+                const aPlants = userStats[0].toNumber();
+                const aLands = userStats[1].toNumber();
+                const aSuperLands = userStats[2].toNumber();
+                const aAvgHealth = userStats[3].toNumber();
+
+                console.log("[Wars] Lock - V4 stats - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
                 attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
-            } else {
-                try {
-                    const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, ["function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)"], readProvider);
-                    const userStats = await v4Contract.getUserBattleStats(ctx.userAddress);
-                    const aPlants = userStats[0].toNumber();
-                    const aLands = userStats[1].toNumber();
-                    const aSuperLands = userStats[2].toNumber();
-                    const aAvgHealth = userStats[3].toNumber();
-                    console.log("[Wars] Lock - Contract stats - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
-                    attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
-                } catch (e) {
-                    console.warn("[Wars] Failed to calculate attacker power:", e);
-                }
+                console.log("[Wars] Lock - Calculated attacker power:", attackerPower);
+            } catch (e) {
+                console.error("[Wars] Lock - Failed to get attacker power:", e);
             }
 
-            console.log("[Wars] Lock - Attacker power:", attackerPower, "Defender power:", defenderPower);
+            console.log("[Wars] Lock - Attacker:", attackerPower, "Defender:", defenderPower);
 
             // Calculate win chance
             const total = attackerPower + defenderPower;
