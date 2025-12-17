@@ -2056,9 +2056,10 @@ export default function Home()
             console.log("[V3Staking] superLandsCount from contract:", superLandsCount);
 
             if (superLandsCount > 0) {
-                try {
+                const ids = Array.from({ length: 100 }, (_, i) => i + 1);
+                let foundStaked = false;
 
-                    const ids = Array.from({ length: 100 }, (_, i) => i + 1);
+                try {
                     const stakerCalls = ids.map(id => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
                     const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
                     const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
@@ -2068,24 +2069,27 @@ export default function Home()
                             const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
                             if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
                                 stakedSuperLandNums.push(id);
+                                foundStaked = true;
                             }
                         } catch {}
                     });
-                    console.log("[V3Staking] Found staked super lands:", stakedSuperLandNums);
                 } catch (err) {
-                    console.error("[V3Staking] Multicall failed, trying individual calls:", err);
-
-                    const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
-                    const ids = Array.from({ length: 100 }, (_, i) => i + 1);
-                    const stakerPromises = ids.map(id => v3Contract.superLandStakerOf(id).catch(() => ethers.constants.AddressZero));
-                    const stakers = await Promise.all(stakerPromises);
-                    ids.forEach((id, i) => {
-                        const staker = stakers[i];
-                        if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
-                            stakedSuperLandNums.push(id);
-                        }
-                    });
+                    console.log("[V3Staking] Multicall failed, using individual calls");
                 }
+
+                if (!foundStaked && superLandsCount > 0) {
+                    const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+                    for (let id = 1; id <= 100; id++) {
+                        try {
+                            const staker = await v3Contract.superLandStakerOf(id);
+                            if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
+                                if (!stakedSuperLandNums.includes(id)) stakedSuperLandNums.push(id);
+                            }
+                        } catch {}
+                    }
+                }
+
+                console.log("[V3Staking] Found staked super lands:", stakedSuperLandNums);
 
                 allOwnedSuperLandIds.forEach((id: number) => {
                     if (!stakedSuperLandNums.includes(id)) {
@@ -2232,9 +2236,10 @@ export default function Home()
             console.log("[V4Staking] superLandsCount from contract:", superLandsCount);
 
             if (superLandsCount > 0) {
-                try {
+                const ids = Array.from({ length: 100 }, (_, i) => i + 1);
+                let foundStaked = false;
 
-                    const ids = Array.from({ length: 100 }, (_, i) => i + 1);
+                try {
                     const stakerCalls = ids.map(id => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
                     const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
                     const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
@@ -2244,24 +2249,27 @@ export default function Home()
                             const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
                             if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
                                 stakedSuperLandNums.push(id);
+                                foundStaked = true;
                             }
                         } catch {}
                     });
-                    console.log("[V4Staking] Found staked super lands:", stakedSuperLandNums);
                 } catch (err) {
-                    console.error("[V4Staking] Multicall failed, trying individual calls:", err);
-
-                    const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
-                    const ids = Array.from({ length: 100 }, (_, i) => i + 1);
-                    const stakerPromises = ids.map(id => v4Contract.superLandStakerOf(id).catch(() => ethers.constants.AddressZero));
-                    const stakers = await Promise.all(stakerPromises);
-                    ids.forEach((id, i) => {
-                        const staker = stakers[i];
-                        if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
-                            stakedSuperLandNums.push(id);
-                        }
-                    });
+                    console.log("[V4Staking] Multicall failed, using individual calls");
                 }
+
+                if (!foundStaked && superLandsCount > 0) {
+                    const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+                    for (let id = 1; id <= 100; id++) {
+                        try {
+                            const staker = await v4Contract.superLandStakerOf(id);
+                            if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
+                                if (!stakedSuperLandNums.includes(id)) stakedSuperLandNums.push(id);
+                            }
+                        } catch {}
+                    }
+                }
+
+                console.log("[V4Staking] Found staked super lands:", stakedSuperLandNums);
 
                 allOwnedSuperLandIds.forEach((id: number) => {
                     if (!stakedSuperLandNums.includes(id)) {
@@ -4034,9 +4042,9 @@ export default function Home()
                             <button type="button" className={styles.btnPrimary} onClick={() => setOldStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #374151, #4b5563)" }}>📦 Staking V1 (UNSTAKE ONLY)</button>
                         </div>
                         <div style={{ marginTop: 12, padding: 10, background: "rgba(124,58,237,0.1)", borderRadius: 10, border: "1px solid rgba(124,58,237,0.3)" }}>
-                            <p style={{ fontSize: 11, color: "#a855f7", margin: 0, fontWeight: 600 }}>🚀 Staking V4 is LIVE! Stake your NFTs in V4 for rewards!</p>
-                            <p style={{ fontSize: 10, color: "#fbbf24", margin: "6px 0 0", fontWeight: 500 }}>⚠️ V1/V2/V3 are deprecated - Unstake & Claim, then stake in V4!</p>
-                            <p style={{ fontSize: 10, color: "#9ca3af", margin: "6px 0 0" }}>V4 features: Plant health, Water shop, Cartel Wars & treasury-based rewards!</p>
+                            <p style={{ fontSize: 11, color: "#a855f7", margin: 0, fontWeight: 600 }}>🚀 Staking V4 is LIVE! Claim enabled 12/18 at 10 AM EST</p>
+                            <p style={{ fontSize: 10, color: "#ef4444", margin: "6px 0 0", fontWeight: 600 }}>⚠️ V1/V2/V3 claims DISABLED on 12/18 at 10 AM EST - Migrate NOW!</p>
+                            <p style={{ fontSize: 10, color: "#9ca3af", margin: "6px 0 0" }}>Unstake & claim from old versions, then stake in V4 before deadline!</p>
                         </div>
                     </section>
                 )}
@@ -4525,7 +4533,7 @@ export default function Home()
                             <button type="button" className={styles.modalClose} onClick={() => setOldStakingOpen(false)}>✕</button>
                         </header>
                         <div style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V1 is deprecated. Please unstake, claim, and move to Staking V4!</p>
+                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V1 claim will be DISABLED on 12/18 at 10 AM EST. Unstake & claim NOW, then migrate to V4!</p>
                         </div>
                         <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
@@ -4587,7 +4595,7 @@ export default function Home()
                         </button>
 
                         <div style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V2 is deprecated. Please unstake, claim, and move to Staking V4!</p>
+                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V2 claim will be DISABLED on 12/18 at 10 AM EST. Unstake & claim NOW, then migrate to V4!</p>
                         </div>
                         <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
@@ -4651,7 +4659,7 @@ export default function Home()
                         </button>
 
                         <div style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V3 is deprecated. Please unstake, claim, and move to Staking V4!</p>
+                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V3 claim will be DISABLED on 12/18 at 10 AM EST. Unstake & claim NOW, then migrate to V4!</p>
                         </div>
 
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
@@ -4746,7 +4754,7 @@ export default function Home()
                         </header>
 
                         <div style={{ padding: "8px 12px", background: "rgba(124,58,237,0.1)", borderRadius: 8, border: "1px solid rgba(124,58,237,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#a855f7", margin: 0, fontWeight: 600 }}>🚀 V4 is LIVE! Plant Health, Water Shop, Cartel Wars & treasury-based rewards!</p>
+                            <p style={{ fontSize: 10, color: "#a855f7", margin: 0, fontWeight: 600 }}>🚀 V4 is LIVE! Claim will be enabled on 12/18 at 10 AM EST</p>
                         </div>
 
                         {!V4_STAKING_ADDRESS ? (
