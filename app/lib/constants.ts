@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 
 export const CHAIN_ID = 8453;
 // export const PUBLIC_BASE_RPC = "https://mainnet.base.org";
-export const PUBLIC_BASE_RPC = "https://base.public.blockpi.network/v1/rpc/public";
+export const PUBLIC_BASE_RPC = "https://base-mainnet.g.alchemy.com/v2/N95I5LVTDkn8MaZule8Fh";
 
 export const FCWEED_ADDRESS = "0x42ef01219BDb2190F275Cda7956D08822549d224";
 export const PLANT_ADDRESS = "0xD84890240C2CBB66a825915cD20aEe89C6b66dD5";
