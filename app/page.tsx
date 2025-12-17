@@ -2326,6 +2326,8 @@ export default function Home()
     const plantsNeedingWater = useMemo(() => v3StakedPlants.filter(id => v3PlantHealths[id] !== undefined && v3PlantHealths[id] < 100), [v3StakedPlants, v3PlantHealths]);
     const totalWaterNeededForSelected = useMemo(() => selectedPlantsToWater.reduce((sum, id) => sum + (v3WaterNeeded[id] || 0), 0), [selectedPlantsToWater, v3WaterNeeded]);
 
+    const BACKEND_API_URL = "https://wars.x420ponzi.com";
+
     // Wars functions
     async function loadWarsPlayerStats() {
         if (!userAddress) return;
@@ -2375,6 +2377,12 @@ export default function Home()
                     estimatedWinChance: odds.estimatedWinChance.toNumber(),
                 });
             }
+
+            // Check if attacker has a shield
+            const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+            const hasShield = await v3Contract.hasRaidShield(userAddress);
+            setWarsPlayerStats(prev => prev ? { ...prev, hasShield } : null);
+
         } catch (err) {
             console.error("[Wars] Failed to load player stats:", err);
         }
@@ -2385,6 +2393,7 @@ export default function Home()
         warsTransactionInProgress.current = true;
         setWarsSearching(true);
         setWarsStatus("Searching for target...");
+        setWarsResult(null);
 
         try {
             const ctx = await ensureWallet();
@@ -2395,105 +2404,99 @@ export default function Home()
                 return;
             }
 
-            const battlesContract = new ethers.Contract(V3_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
-
-            // Check if raids are enabled
-            const raidsEnabled = await battlesContract.raidsEnabled();
-            if (!raidsEnabled) {
-                setWarsStatus("Raids are not enabled yet!");
-                setWarsSearching(false);
-                warsTransactionInProgress.current = false;
-                return;
-            }
-
-            // Get total stakers to find a target
+            // Check if player has a shield - warn them
             const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
-            const totalStakers = await v3Contract.getTotalStakers();
-
-            if (totalStakers.toNumber() < 2) {
-                setWarsStatus("Not enough players staking yet. Be the first!");
-                setWarsSearching(false);
-                warsTransactionInProgress.current = false;
-                return;
-            }
-
-            // Find a valid target (not self, has pending rewards, can be attacked)
-            let targetAddress: string | null = null;
-            let attempts = 0;
-            const maxAttempts = Math.min(totalStakers.toNumber(), 20);
-            const currentUserAddress = userAddress!; // Already checked ctx exists above
-
-            while (!targetAddress && attempts < maxAttempts) {
-                const randomIndex = Math.floor(Math.random() * totalStakers.toNumber());
-                try {
-                    const potentialTarget = await v3Contract.getStakerAtIndex(randomIndex);
-
-                    if (potentialTarget.toLowerCase() === currentUserAddress.toLowerCase()) {
-                        attempts++;
-                        continue;
-                    }
-
-                    // Check if target can be attacked
-                    const canBeAttacked = await battlesContract.canBeAttacked(potentialTarget);
-                    if (!canBeAttacked) {
-                        attempts++;
-                        continue;
-                    }
-
-                    // Check if target has pending rewards
-                    const targetPending = await v3Contract.pending(potentialTarget);
-                    if (targetPending.gt(0)) {
-                        targetAddress = potentialTarget;
-                    }
-                } catch {
-                    attempts++;
+            const hasShield = await v3Contract.hasRaidShield(ctx.userAddress);
+            if (hasShield) {
+                const confirmAttack = window.confirm("⚠️ WARNING: You have an active Raid Shield!\n\nAttacking another player will REMOVE your shield protection.\n\nDo you want to continue?");
+                if (!confirmAttack) {
+                    setWarsStatus("Attack cancelled - shield preserved");
+                    setWarsSearching(false);
+                    warsTransactionInProgress.current = false;
+                    return;
                 }
-                attempts++;
             }
 
-            if (!targetAddress) {
-                setWarsStatus("No valid targets found. Try again later!");
+            // Call backend API to find target and get signature
+            setWarsStatus("Finding target...");
+
+            const response = await fetch(`${BACKEND_API_URL}/api/search`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ attacker: ctx.userAddress }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok || !data.success) {
+                setWarsStatus(data.error || "Failed to find target");
                 setWarsSearching(false);
                 warsTransactionInProgress.current = false;
                 return;
             }
 
-            setWarsStatus("Target found! Requesting signature...");
+            const { target, nonce, signature, stats } = data;
 
-            // Get nonce for signature
-            const nonce = await battlesContract.getSearchNonce(userAddress);
+            setWarsStatus("Target found! Approving FCWEED...");
 
-            // For now, we'll call the backend to get a signature
-            // In production, this would call your backend API
-            // For testing without backend, we'll show the target directly
+            // Check and approve FCWEED for search fee
+            const battlesContract = new ethers.Contract(V3_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            const searchFee = await battlesContract.searchFee();
+            const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+            const allowance = await tokenContract.allowance(ctx.userAddress, V3_BATTLES_ADDRESS);
 
-            setWarsTarget(targetAddress);
+            if (allowance.lt(searchFee)) {
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V3_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
+                if (!approveTx) throw new Error("Approval rejected");
+                await waitForTx(approveTx, readProvider);
+            }
 
-            // Load target stats
-            const targetStats = await battlesContract.getTargetStats(targetAddress);
+            setWarsStatus("Initiating search (confirm in wallet)...");
+
+            // Call searchForTarget on the contract
+            const searchTx = await sendContractTx(
+                V3_BATTLES_ADDRESS,
+                v3BattlesInterface.encodeFunctionData("searchForTarget", [target, nonce, signature])
+            );
+
+            if (!searchTx) {
+                setWarsStatus("Transaction rejected");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
+            setWarsStatus("Waiting for confirmation...");
+            await waitForTx(searchTx, readProvider);
+
+            // Set target info
+            setWarsTarget(target);
             setWarsTargetStats({
-                plants: targetStats.plants.toNumber(),
-                lands: targetStats.lands.toNumber(),
-                superLands: targetStats.superLands.toNumber(),
-                avgHealth: targetStats.avgHealth.toNumber(),
-                pendingRewards: targetStats.pendingRewards,
-                battlePower: targetStats.battlePower.toNumber(),
-                hasShield: targetStats.hasShield,
+                plants: stats.plants,
+                lands: stats.lands,
+                superLands: stats.superLands,
+                avgHealth: stats.avgHealth,
+                pendingRewards: ethers.BigNumber.from(stats.pendingRewards),
+                hasShield: stats.hasShield,
             });
 
             // Get battle odds
-            const odds = await battlesContract.estimateBattleOdds(userAddress, targetAddress);
+            const odds = await battlesContract.estimateBattleOdds(ctx.userAddress, target);
             setWarsOdds({
                 attackerPower: odds.attackerPower.toNumber(),
                 defenderPower: odds.defenderPower.toNumber(),
                 estimatedWinChance: odds.estimatedWinChance.toNumber(),
             });
 
-            setWarsStatus("");
+            setWarsStatus("Target locked! You have 10 minutes to attack.");
 
         } catch (err: any) {
             console.error("[Wars] Search failed:", err);
-            setWarsStatus("Search failed: " + (err.message || err).slice(0, 50));
+            if (err.message?.includes("backend") || err.message?.includes("fetch")) {
+                setWarsStatus("Backend API unavailable. Please try again later.");
+            } else {
+                setWarsStatus("Search failed: " + (err.reason || err.message || err).toString().slice(0, 50));
+            }
         } finally {
             setWarsSearching(false);
             warsTransactionInProgress.current = false;
@@ -2524,14 +2527,14 @@ export default function Home()
                 return;
             }
 
-            setWarsStatus("Waiting for battle result...");
+            setWarsStatus("Battle in progress...");
 
             // Wait for transaction and parse events
             const receipt = await waitForTx(tx, readProvider);
 
             // Parse BattleResult event
             const battleResultTopic = v3BattlesInterface.getEventTopic("BattleResult");
-            let battleResult = null;
+            let battleResult: any = null;
 
             if (receipt && receipt.logs) {
                 for (const log of receipt.logs) {
@@ -2542,33 +2545,68 @@ export default function Home()
                                 attacker: parsed.args.attacker,
                                 defender: parsed.args.defender,
                                 won: parsed.args.attackerWon,
-                                damageDealt: parsed.args.damageDealt,
+                                damageDealt: parsed.args.damageDealt.toNumber(),
                                 rewardsTransferred: parsed.args.rewardsTransferred,
                             };
+                            console.log("[Wars] Battle result:", battleResult);
                         } catch {}
                     }
                 }
             }
 
+            // If we couldn't parse from receipt, try to get from logs
+            if (!battleResult && tx.hash) {
+                try {
+                    const fullReceipt = await readProvider.getTransactionReceipt(tx.hash);
+                    if (fullReceipt && fullReceipt.logs) {
+                        for (const log of fullReceipt.logs) {
+                            if (log.address.toLowerCase() === V3_BATTLES_ADDRESS.toLowerCase() && log.topics[0] === battleResultTopic) {
+                                const parsed = v3BattlesInterface.parseLog(log);
+                                battleResult = {
+                                    attacker: parsed.args.attacker,
+                                    defender: parsed.args.defender,
+                                    won: parsed.args.attackerWon,
+                                    damageDealt: parsed.args.damageDealt.toNumber(),
+                                    rewardsTransferred: parsed.args.rewardsTransferred,
+                                };
+                            }
+                        }
+                    }
+                } catch {}
+            }
+
             if (battleResult) {
                 setWarsResult(battleResult);
+                if (battleResult.won) {
+                    const stolenAmount = parseFloat(ethers.utils.formatUnits(battleResult.rewardsTransferred, 18));
+                    const stolenFormatted = stolenAmount >= 1000 ? (stolenAmount / 1000).toFixed(1) + "K" : stolenAmount.toFixed(0);
+                    setWarsStatus(`🎉 VICTORY! Stole ${stolenFormatted} FCWEED! Their plants took ${battleResult.damageDealt}% damage.`);
+                } else {
+                    const lostAmount = parseFloat(ethers.utils.formatUnits(battleResult.rewardsTransferred, 18));
+                    const lostFormatted = lostAmount >= 1000 ? (lostAmount / 1000).toFixed(1) + "K" : lostAmount.toFixed(0);
+                    setWarsStatus(`💀 DEFEAT! Lost ${lostFormatted} FCWEED. Your plants took ${battleResult.damageDealt}% damage.`);
+                }
             } else {
-                // If we couldn't parse the event, just show success
-                setWarsResult({ won: true, rewardsTransferred: ethers.BigNumber.from(0) });
+                setWarsStatus("Battle complete! Check your rewards.");
+                setWarsResult({ won: true, rewardsTransferred: ethers.BigNumber.from(0), damageDealt: 0 });
             }
 
             // Clear target
             setWarsTarget(null);
             setWarsTargetStats(null);
             setWarsOdds(null);
-            setWarsStatus("");
 
-            // Reload player stats
-            setTimeout(() => loadWarsPlayerStats(), 2000);
+            // Reload player stats after delay
+            setTimeout(() => {
+                loadWarsPlayerStats();
+                // Also refresh V3 staking to update plant health
+                refreshV3StakingRef.current = false;
+                refreshV3Staking();
+            }, 3000);
 
         } catch (err: any) {
             console.error("[Wars] Attack failed:", err);
-            setWarsStatus("Attack failed: " + (err.message || err).slice(0, 50));
+            setWarsStatus("Attack failed: " + (err.reason || err.message || err).toString().slice(0, 50));
         } finally {
             setWarsAttacking(false);
             warsTransactionInProgress.current = false;
@@ -3713,24 +3751,32 @@ export default function Home()
                         <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#ef4444" }}>⚔️ Cartel Wars</h2>
 
                         {connected && warsPlayerStats && (
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, marginBottom: 12 }}>
-                                <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                    <div style={{ fontSize: 8, color: "#9ca3af" }}>WINS</div>
-                                    <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
+                            <>
+                                {warsPlayerStats.hasShield && (
+                                    <div style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
+                                        <div style={{ fontSize: 11, color: "#60a5fa", fontWeight: 600 }}>🛡️ Raid Shield ACTIVE</div>
+                                        <div style={{ fontSize: 9, color: "#9ca3af" }}>You are protected from attacks. Attacking others will remove your shield!</div>
+                                    </div>
+                                )}
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, marginBottom: 12 }}>
+                                    <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 8, color: "#9ca3af" }}>WINS</div>
+                                        <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
+                                    </div>
+                                    <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 8, color: "#9ca3af" }}>LOSSES</div>
+                                        <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
+                                    </div>
+                                    <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 8, color: "#9ca3af" }}>STREAK</div>
+                                        <div style={{ fontSize: 14, color: "#fbbf24", fontWeight: 700 }}>{warsPlayerStats.winStreak || 0}🔥</div>
+                                    </div>
+                                    <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 8, color: "#9ca3af" }}>STOLEN</div>
+                                        <div style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>{warsPlayerStats.rewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
+                                    </div>
                                 </div>
-                                <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                    <div style={{ fontSize: 8, color: "#9ca3af" }}>LOSSES</div>
-                                    <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
-                                </div>
-                                <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                    <div style={{ fontSize: 8, color: "#9ca3af" }}>STREAK</div>
-                                    <div style={{ fontSize: 14, color: "#fbbf24", fontWeight: 700 }}>{warsPlayerStats.winStreak || 0}🔥</div>
-                                </div>
-                                <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                    <div style={{ fontSize: 8, color: "#9ca3af" }}>STOLEN</div>
-                                    <div style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>{warsPlayerStats.rewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
-                                </div>
-                            </div>
+                            </>
                         )}
 
                         {warsCooldown > 0 && (
@@ -3838,13 +3884,52 @@ export default function Home()
                         )}
 
                         {warsResult && (
-                            <div style={{ background: warsResult.won ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)", border: `1px solid ${warsResult.won ? "rgba(16,185,129,0.4)" : "rgba(239,68,68,0.4)"}`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
-                                <div style={{ fontSize: 24, marginBottom: 4 }}>{warsResult.won ? "🎉" : "💀"}</div>
-                                <div style={{ fontSize: 14, color: warsResult.won ? "#10b981" : "#ef4444", fontWeight: 700 }}>{warsResult.won ? "VICTORY!" : "DEFEAT!"}</div>
-                                <div style={{ fontSize: 11, color: "#c0c9f4", marginTop: 4 }}>
-                                    {warsResult.won ? `Stole ${(parseFloat(ethers.utils.formatUnits(warsResult.rewardsTransferred, 18)) / 1000).toFixed(0)}K FCWEED!` : `Lost ${(parseFloat(ethers.utils.formatUnits(warsResult.rewardsTransferred, 18)) / 1000).toFixed(0)}K FCWEED`}
+                            <div style={{ background: warsResult.won ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)", border: `2px solid ${warsResult.won ? "rgba(16,185,129,0.6)" : "rgba(239,68,68,0.6)"}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+                                <div style={{ fontSize: 48, marginBottom: 8 }}>{warsResult.won ? "🎉" : "💀"}</div>
+                                <div style={{ fontSize: 20, color: warsResult.won ? "#10b981" : "#ef4444", fontWeight: 800, marginBottom: 8 }}>{warsResult.won ? "VICTORY!" : "DEFEAT!"}</div>
+
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 12 }}>
+                                    <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 8, padding: 8 }}>
+                                        <div style={{ fontSize: 9, color: "#9ca3af" }}>{warsResult.won ? "REWARDS STOLEN" : "REWARDS LOST"}</div>
+                                        <div style={{ fontSize: 16, color: warsResult.won ? "#10b981" : "#ef4444", fontWeight: 700 }}>
+                                            {(() => {
+                                                const amount = parseFloat(ethers.utils.formatUnits(warsResult.rewardsTransferred || 0, 18));
+                                                return amount >= 1000 ? (amount / 1000).toFixed(1) + "K" : amount.toFixed(0);
+                                            })()} FCWEED
+                                        </div>
+                                    </div>
+                                    <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 8, padding: 8 }}>
+                                        <div style={{ fontSize: 9, color: "#9ca3af" }}>DAMAGE DEALT</div>
+                                        <div style={{ fontSize: 16, color: "#fbbf24", fontWeight: 700 }}>{warsResult.damageDealt || 0}%</div>
+                                    </div>
                                 </div>
-                                <button type="button" onClick={() => setWarsResult(null)} style={{ marginTop: 8, padding: "6px 16px", borderRadius: 6, border: "none", background: "rgba(255,255,255,0.1)", color: "#fff", cursor: "pointer", fontSize: 10 }}>Dismiss</button>
+
+                                <p style={{ fontSize: 10, color: "#c0c9f4", margin: "0 0 12px" }}>
+                                    {warsResult.won
+                                        ? "Your target's plants have been damaged and their pending rewards reduced!"
+                                        : "Your plants have been damaged. Water them to restore health!"}
+                                </p>
+
+                                {warsResult.won && (
+                                    <p style={{ fontSize: 9, color: "#10b981", margin: "0 0 8px" }}>
+                                        💰 Search fee refunded + rewards claimed!
+                                    </p>
+                                )}
+                                {!warsResult.won && (
+                                    <p style={{ fontSize: 9, color: "#ef4444", margin: "0 0 8px" }}>
+                                        💸 Search fee lost to treasury. Defender earned bonus rewards!
+                                    </p>
+                                )}
+
+                                <button type="button" onClick={() => setWarsResult(null)} className={styles.btnPrimary} style={{ padding: "10px 24px", fontSize: 12, background: warsResult.won ? "linear-gradient(135deg, #059669, #10b981)" : "linear-gradient(135deg, #374151, #4b5563)" }}>
+                                    {warsResult.won ? "Celebrate! 🎊" : "Try Again"}
+                                </button>
+                            </div>
+                        )}
+
+                        {warsStatus && !warsResult && (
+                            <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 8, padding: 10, marginBottom: 12 }}>
+                                <div style={{ fontSize: 11, color: "#fbbf24" }}>{warsStatus}</div>
                             </div>
                         )}
 
