@@ -3944,7 +3944,7 @@ export default function Home()
                                 <div>70% → 2.8L</div>
                                 <div>50% → 6.0L</div>
                             </div>
-                            <p style={{ fontSize: 9, color: "#ef4444", margin: "6px 0 0" }}>Regular watering saves FCWEED!</p>
+                            <p style={{ fontSize: 9, color: "#ef4444", margin: "6px 0 0" }}>Regular watering saves your Plants!</p>
                         </div>
 
                         <div style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: 8, padding: 10 }}>
