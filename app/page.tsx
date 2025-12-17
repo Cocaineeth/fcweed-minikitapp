@@ -2428,6 +2428,131 @@ export default function Home()
         finally { setActionLoading(false); }
     }
 
+    async function handleV4StakePlants() {
+        if (selectedV4AvailPlants.length === 0) return;
+        try {
+            setActionLoading(true); setV4ActionStatus("Approving...");
+            const ctx = await ensureWallet(); if (!ctx) return;
+            await ensureCollectionApproval(PLANT_ADDRESS, V4_STAKING_ADDRESS, ctx);
+            setV4ActionStatus("Staking plants...");
+            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakePlants", [selectedV4AvailPlants]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV4ActionStatus("Staked!");
+            setSelectedV4AvailPlants([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
+        } catch (err: any) { setV4ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV4StakeLands() {
+        if (selectedV4AvailLands.length === 0) return;
+        try {
+            setActionLoading(true); setV4ActionStatus("Approving...");
+            const ctx = await ensureWallet(); if (!ctx) return;
+            await ensureCollectionApproval(LAND_ADDRESS, V4_STAKING_ADDRESS, ctx);
+            setV4ActionStatus("Staking lands...");
+            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakeLands", [selectedV4AvailLands]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV4ActionStatus("Staked!");
+            setSelectedV4AvailLands([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
+        } catch (err: any) { setV4ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV4StakeSuperLands() {
+        if (selectedV4AvailSuperLands.length === 0) return;
+        try {
+            setActionLoading(true); setV4ActionStatus("Approving...");
+            const ctx = await ensureWallet(); if (!ctx) return;
+            await ensureCollectionApproval(SUPER_LAND_ADDRESS, V4_STAKING_ADDRESS, ctx);
+            setV4ActionStatus("Staking super lands...");
+            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV4AvailSuperLands]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV4ActionStatus("Staked!");
+            setSelectedV4AvailSuperLands([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
+        } catch (err: any) { setV4ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV4UnstakePlants() {
+        if (selectedV4StakedPlants.length === 0) return;
+        const unhealthy = selectedV4StakedPlants.filter(id => (v4PlantHealths[id] ?? 0) < 100);
+        if (unhealthy.length > 0) {
+            const healthList = unhealthy.map(id => `#${id}: ${v4PlantHealths[id] ?? 0}%`).join(", ");
+            setV4ActionStatus(`Water plants first! ${healthList}`);
+            return;
+        }
+        try {
+            setActionLoading(true); setV4ActionStatus("Unstaking plants...");
+            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakePlants", [selectedV4StakedPlants]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV4ActionStatus("Unstaked!");
+            setSelectedV4StakedPlants([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
+        } catch (err: any) {
+            if (err.message?.includes("!healthy") || err.reason?.includes("!healthy")) {
+                setV4ActionStatus("Plants need 100% health! Water them first.");
+            } else {
+                setV4ActionStatus("Error: " + (err.reason || err.message || err));
+            }
+        }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV4UnstakeLands() {
+        if (selectedV4StakedLands.length === 0) return;
+        try {
+            setActionLoading(true); setV4ActionStatus("Unstaking lands...");
+            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakeLands", [selectedV4StakedLands]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV4ActionStatus("Unstaked!");
+            setSelectedV4StakedLands([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
+        } catch (err: any) { setV4ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV4UnstakeSuperLands() {
+        if (selectedV4StakedSuperLands.length === 0) return;
+        try {
+            setActionLoading(true); setV4ActionStatus("Unstaking super lands...");
+            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakeSuperLands", [selectedV4StakedSuperLands]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV4ActionStatus("Unstaked!");
+            setSelectedV4StakedSuperLands([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
+        } catch (err: any) { setV4ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV4Claim() {
+        if (!v4StakingStats || v4StakingStats.pendingFormatted <= 0) { setV4ActionStatus("No rewards."); return; }
+        try {
+            setActionLoading(true); setV4ActionStatus("Claiming...");
+            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("claim", []));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV4ActionStatus("Claimed!");
+            setV4RealTimePending("0.00");
+            setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
+        } catch (err: any) { setV4ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
     async function handleWaterPlants() {
         if (selectedPlantsToWater.length === 0) return;
         try {
@@ -4647,11 +4772,11 @@ export default function Home()
                                     </>
                                 )}
                                 <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V4_STAKING_ADDRESS || (selectedV4AvailPlants.length + selectedV4AvailLands.length + selectedV4AvailSuperLands.length === 0)} onClick={async () => { setV4ActionStatus("V4 staking coming soon..."); }} style={{ flex: 1, padding: 10, fontSize: 12, background: "linear-gradient(to right, #7c3aed, #a855f7)" }}>{actionLoading ? "Staking..." : "Stake"}</button>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V4_STAKING_ADDRESS || (selectedV4StakedPlants.length + selectedV4StakedLands.length + selectedV4StakedSuperLands.length === 0)} onClick={async () => { setV4ActionStatus("V4 unstaking coming soon..."); }} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Unstaking..." : "Unstake"}</button>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V4_STAKING_ADDRESS || !v4StakingStats || v4StakingStats.pendingFormatted <= 0} onClick={async () => { setV4ActionStatus("V4 claiming coming soon..."); }} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Claiming..." : "Claim"}</button>
+                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V4_STAKING_ADDRESS || (selectedV4AvailPlants.length + selectedV4AvailLands.length + selectedV4AvailSuperLands.length === 0)} onClick={async () => { if (selectedV4AvailPlants.length > 0) await handleV4StakePlants(); if (selectedV4AvailLands.length > 0) await handleV4StakeLands(); if (selectedV4AvailSuperLands.length > 0) await handleV4StakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12, background: "linear-gradient(to right, #7c3aed, #a855f7)" }}>{actionLoading ? "Staking..." : "Stake"}</button>
+                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V4_STAKING_ADDRESS || (selectedV4StakedPlants.length + selectedV4StakedLands.length + selectedV4StakedSuperLands.length === 0)} onClick={async () => { if (selectedV4StakedPlants.length > 0) await handleV4UnstakePlants(); if (selectedV4StakedLands.length > 0) await handleV4UnstakeLands(); if (selectedV4StakedSuperLands.length > 0) await handleV4UnstakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Unstaking..." : "Unstake"}</button>
+                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V4_STAKING_ADDRESS || !v4StakingStats || v4StakingStats.pendingFormatted <= 0} onClick={handleV4Claim} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Claiming..." : "Claim"}</button>
                                 </div>
-                                <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 6, textAlign: "center" }}>⚠️ V4 is in testing - functions will be enabled after contract deployment</p>
+                                <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 6, textAlign: "center" }}>⚠️ Plants must have 100% health to unstake. Water them first!</p>
                                 {v4ActionStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v4ActionStatus}</p>}
                             </>
                         )}
