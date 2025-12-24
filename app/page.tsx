@@ -1976,7 +1976,7 @@ export default function Home()
             setWarsStatus("Finding target...");
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
             try {
                 const response = await fetch(`${BACKEND_API_URL}/api/search`, {
@@ -3857,7 +3857,7 @@ export default function Home()
                         <div style={{ background: "linear-gradient(135deg, rgba(96,165,250,0.15), rgba(59,130,246,0.1))", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 12, padding: 16, marginBottom: 16 }}>
                             <div style={{ fontSize: 32, marginBottom: 8 }}>💧</div>
                             <h3 style={{ fontSize: 14, color: "#60a5fa", margin: "0 0 8px" }}>Water Shop</h3>
-                            <p style={{ fontSize: 10, color: "#9ca3af", margin: "0 0 12px" }}>Water restores plant health to 100%. Neglected plants cost more water!</p>
+                            <p style={{ fontSize: 10, color: "#9ca3af", margin: "0 0 12px" }}>Water restores plant health. Neglected plants cost more water!</p>
 
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 12 }}>
                                 <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 8, padding: 8 }}>
@@ -3922,7 +3922,6 @@ export default function Home()
 
                         <div style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 8, padding: 10, marginBottom: 12 }}>
                             <div style={{ fontSize: 10, color: "#fbbf24", fontWeight: 600, marginBottom: 4 }}>⚠️ Water Costs Scale With Decay!</div>
-                            <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 6 }}>Formula: Water = (decay%)² / 500</div>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, fontSize: 9, color: "#9ca3af" }}>
                                 <div>90% health → 0.2L</div>
                                 <div>70% health → 1.8L</div>
