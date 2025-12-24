@@ -40,7 +40,7 @@ import {
     CRATE_COST,
     V4_ITEMSHOP_ADDRESS,
     V4_STAKING_ADDRESS,     
-    V4_BATTLES_ADDRESS,
+    V5_BATTLES_ADDRESS,
     V5_STAKING_ADDRESS,
     V5_BATTLES_ADDRESS,
     V5_ITEMSHOP_ADDRESS,
@@ -1761,7 +1761,7 @@ export default function Home()
     async function loadWarsPlayerStats() {
         if (!userAddress) return;
         try {
-            const battlesContract = new ethers.Contract(V4_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
             const stats = await battlesContract.getPlayerStats(userAddress);
             setWarsPlayerStats({
                 wins: stats.wins.toNumber(),
@@ -1835,7 +1835,7 @@ export default function Home()
                 return;
             }
 
-            const battlesContract = new ethers.Contract(V4_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
 
             // Check if already have a LOCKED target on-chain
             const activeSearch = await battlesContract.getActiveSearch(ctx.userAddress);
@@ -1950,42 +1950,51 @@ export default function Home()
             setWarsStatus("Finding target...");
 
             const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
-            const response = await fetch(`${BACKEND_API_URL}/api/search`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ attacker: ctx.userAddress }),
-                signal: controller.signal,
-            });
+            try {
+                const response = await fetch(`${BACKEND_API_URL}/api/search`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ attacker: ctx.userAddress }),
+                    signal: controller.signal,
+                });
+                clearTimeout(timeoutId);
 
-            const data = await response.json();
+                const data = await response.json();
 
-            if (!response.ok || !data.success) {
-                setWarsStatus(data.error || "Failed to find target");
+                if (!response.ok || !data.success) {
+                    setWarsStatus(data.error || "Failed to find target");
+                    setWarsSearching(false);
+                    warsTransactionInProgress.current = false;
+                    return;
+                }
+
+                const { target, nonce, deadline, signature, stats } = data;
+
+                // Store preview data - DON'T PAY YET
+                setWarsPreviewData({ target, nonce, deadline, signature, stats });
+                setWarsTarget(target);
+                setWarsTargetLocked(false); // Not locked yet - just preview
+                setWarsTargetStats(null); // Don't show stats until they pay
+                setWarsOdds(null);
+                setWarsStatus("Opponent found! Pay 50K FCWEED to reveal stats and fight.");
+            } catch (fetchErr: any) {
+                clearTimeout(timeoutId);
+                console.error("[Wars] Fetch error:", fetchErr);
+                if (fetchErr.name === "AbortError") {
+                    setWarsStatus("Search timed out. Please try again.");
+                } else {
+                    setWarsStatus("Backend API unavailable. Check if wars.x420ponzi.com is running.");
+                }
                 setWarsSearching(false);
                 warsTransactionInProgress.current = false;
                 return;
             }
 
-            const { target, nonce, signature, stats } = data;
-
-            // Store preview data - DON'T PAY YET
-            setWarsPreviewData({ target, nonce, signature, stats });
-            setWarsTarget(target);
-            setWarsTargetLocked(false); // Not locked yet - just preview
-            setWarsTargetStats(null); // Don't show stats until they pay
-            setWarsOdds(null);
-            setWarsStatus("Opponent found! Pay 50K FCWEED to reveal stats and fight.");
-
         } catch (err: any) {
             console.error("[Wars] Search failed:", err);
-            if (err.name === "AbortError") {
-                setWarsStatus("Search timed out. Please try again.");
-            } else if (err.message?.includes("backend") || err.message?.includes("fetch") || err.message?.includes("network")) {
-                setWarsStatus("Backend API unavailable. Please try again later.");
-            } else {
-                setWarsStatus("Search failed: " + (err.reason || err.message || err).toString().slice(0, 50));
-            }
+            setWarsStatus("Search failed: " + (err.reason || err.message || err).toString().slice(0, 80));
         } finally {
             setWarsSearching(false);
             warsTransactionInProgress.current = false;
@@ -2007,16 +2016,16 @@ export default function Home()
             }
 
             const { target, nonce, signature, stats } = warsPreviewData;
-            const battlesContract = new ethers.Contract(V4_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
 
             setWarsStatus("Checking approval...");
             const searchFee = await battlesContract.searchFee();
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            let allowance = await tokenContract.allowance(ctx.userAddress, V4_BATTLES_ADDRESS);
+            let allowance = await tokenContract.allowance(ctx.userAddress, V5_BATTLES_ADDRESS);
 
             if (allowance.lt(searchFee)) {
                 setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V4_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
                 if (!approveTx) throw new Error("Approval rejected");
                 setWarsStatus("Waiting for approval...");
                 await waitForTx(approveTx, readProvider);
@@ -2026,7 +2035,7 @@ export default function Home()
             setWarsStatus("Paying 50K FCWEED (confirm in wallet)...");
 
             const searchTx = await txAction().sendContractTx(
-                V4_BATTLES_ADDRESS,
+                V5_BATTLES_ADDRESS,
                 v4BattlesInterface.encodeFunctionData("searchForTarget", [target, nonce, signature]),
                 "0x1E8480"
             );
@@ -2144,7 +2153,7 @@ export default function Home()
             }
 
 
-            const tx = await txAction().sendContractTx(V4_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("attack", []), "0x1E8480");
+            const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("attack", []), "0x1E8480");
             if (!tx) {
                 setWarsStatus("Transaction rejected");
                 setWarsAttacking(false);
@@ -2185,7 +2194,7 @@ export default function Home()
                     const fullReceipt = await readProvider.getTransactionReceipt(tx.hash);
                     if (fullReceipt && fullReceipt.logs) {
                         for (const log of fullReceipt.logs) {
-                            if (log.address.toLowerCase() === V4_BATTLES_ADDRESS.toLowerCase() && log.topics[0] === battleResultTopic) {
+                            if (log.address.toLowerCase() === V5_BATTLES_ADDRESS.toLowerCase() && log.topics[0] === battleResultTopic) {
                                 const parsed = v4BattlesInterface.parseLog(log);
                                 battleResult = {
                                     attacker: parsed.args.attacker,
@@ -2268,11 +2277,11 @@ export default function Home()
             const ctx = await ensureWallet();
             if (!ctx) return;
 
-            const battlesContract = new ethers.Contract(V4_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
             const activeSearch = await battlesContract.getActiveSearch(ctx.userAddress);
             if (activeSearch.isValid) {
                 setWarsStatus("Cancelling locked target...");
-                const cancelTx = await txAction().sendContractTx(V4_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cancelSearch", []), "0x1E8480");
+                const cancelTx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cancelSearch", []), "0x1E8480");
                 if (cancelTx) await waitForTx(cancelTx, readProvider);
             }
         }
