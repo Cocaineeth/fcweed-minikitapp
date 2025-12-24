@@ -10,6 +10,7 @@ import { CrimeLadder } from "./components/CrimeLadder";
 import { loadOwnedTokens } from "./lib/tokens";
 import { MultiResult, multicallTry, decode1} from "./lib/multicall";
 import { makeTxActions } from "./lib/tx";
+import { loadLeaderboard, LeaderboardItem } from "./lib/leaderboard";
 import { CrateReward, StakingStats, NewStakingStats, FarmerRow, OwnedState} from "./lib/types";
 import { detectMiniAppEnvironment, waitForTx } from "./lib/auxilary";
 import {
@@ -136,6 +137,8 @@ export default function Home()
     const [v5PlantHealths, setV5PlantHealths] = useState<Record<number, number>>({});
     const [v5WaterNeeded, setV5WaterNeeded] = useState<Record<number, number>>({});
     const [selectedV5PlantsToWater, setSelectedV5PlantsToWater] = useState<number[]>([]);
+    const [v5CustomWaterAmounts, setV5CustomWaterAmounts] = useState<Record<number, number>>({});
+    const [v4CustomWaterAmounts, setV4CustomWaterAmounts] = useState<Record<number, number>>({});
     const [v5ActionStatus, setV5ActionStatus] = useState("");
 
     const [waterShopInfo, setWaterShopInfo] = useState<any>(null);
@@ -212,8 +215,15 @@ export default function Home()
     const [walletRank, setWalletRank] = useState<number | null>(null);
     const [walletRow, setWalletRow] = useState<FarmerRow | null>(null);
     const [farmerCount, setFarmerCount] = useState<number>(0);
+    const [leaderboardItems, setLeaderboardItems] = useState<LeaderboardItem[]>([]);
+    const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+    const [userLeaderboardRow, setUserLeaderboardRow] = useState<LeaderboardItem | null>(null);
+    const [userLeaderboardRank, setUserLeaderboardRank] = useState<number | null>(null);
     const [realTimePending, setRealTimePending] = useState<string>("0.00");
     const [oldRealTimePending, setOldRealTimePending] = useState<string>("0.00");
+
+    // Token supply stats
+    const [tokenStats, setTokenStats] = useState<{ burned: string; treasury: string; controlledPct: string; circulatingPct: string; loading: boolean }>({ burned: "0", treasury: "0", controlledPct: "0", circulatingPct: "0", loading: true });
 
 
     const [crateSpinning, setCrateSpinning] = useState(false);
@@ -665,6 +675,41 @@ export default function Home()
         state: any | null;
     }>({ addr: null, state: null });
 
+    // Helper function to fetch SuperLands on-chain when API doesn't return them
+    async function fetchSuperLandsOnChain(addr: string): Promise<{tokenId: string, staked: boolean, boost: number}[]> {
+        console.log("[NFT] Fetching SuperLands on-chain for:", addr);
+        const ownedSuperLands: {tokenId: string, staked: boolean, boost: number}[] = [];
+        
+        try {
+            // SuperLands have limited supply, check IDs 1-100
+            const ids = Array.from({ length: 100 }, (_, i) => i + 1);
+            const ownerCalls = ids.map(id => ({
+                target: SUPER_LAND_ADDRESS,
+                callData: erc721Interface.encodeFunctionData("ownerOf", [id])
+            }));
+            
+            const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+            const results = await mc.callStatic.tryAggregate(false, ownerCalls);
+            
+            results.forEach((result: any, i: number) => {
+                if (result.success) {
+                    try {
+                        const owner = ethers.utils.defaultAbiCoder.decode(["address"], result.returnData)[0];
+                        if (owner && owner.toLowerCase() === addr.toLowerCase()) {
+                            ownedSuperLands.push({ tokenId: String(ids[i]), staked: false, boost: 0 });
+                        }
+                    } catch {}
+                }
+            });
+            
+            console.log("[NFT] Found SuperLands on-chain:", ownedSuperLands.map(s => s.tokenId));
+        } catch (err) {
+            console.error("[NFT] Failed to fetch SuperLands on-chain:", err);
+        }
+        
+        return ownedSuperLands;
+    }
+
     async function getOwnedState(addr: string) {
         console.log("[NFT] getOwnedState called for:", addr);
 
@@ -677,6 +722,17 @@ export default function Home()
         try {
             console.log("[NFT] Fetching owned tokens from API...");
             const state = await loadOwnedTokens(addr);
+            
+            // If API didn't return SuperLands, fetch on-chain
+            if (!state.superLands || state.superLands.length === 0) {
+                console.log("[NFT] No SuperLands from API, fetching on-chain...");
+                const onChainSuperLands = await fetchSuperLandsOnChain(addr);
+                state.superLands = onChainSuperLands;
+                if (state.totals) {
+                    state.totals.superLands = onChainSuperLands.length;
+                }
+            }
+            
             console.log("[NFT] Got owned state:", {
                 plants: state.plants?.length || 0,
                 lands: state.lands?.length || 0,
@@ -687,13 +743,16 @@ export default function Home()
             return state;
         } catch (err) {
             console.error("[NFT] Failed to load owned tokens:", err);
+            
+            // Even on API error, try to fetch SuperLands on-chain
+            const onChainSuperLands = await fetchSuperLandsOnChain(addr);
 
             return {
                 wallet: addr,
                 plants: [],
                 lands: [],
-                superLands: [],
-                totals: { plants: 0, lands: 0, superLands: 0 }
+                superLands: onChainSuperLands,
+                totals: { plants: 0, lands: 0, superLands: onChainSuperLands.length }
             };
         }
     }
@@ -706,6 +765,91 @@ export default function Home()
             await waitForTx(tx);
         }
     }
+
+    // Leaderboard refresh function
+    async function refreshLeaderboard() {
+        setLeaderboardLoading(true);
+        try {
+            const data = await loadLeaderboard({ limit: 50 });
+            setLeaderboardItems(data.items);
+            setFarmerCount(data.items.length);
+            
+            // Find user's rank if connected
+            if (userAddress) {
+                const userIdx = data.items.findIndex(
+                    (item) => item.staker.toLowerCase() === userAddress.toLowerCase()
+                );
+                if (userIdx !== -1) {
+                    setUserLeaderboardRank(userIdx + 1);
+                    setUserLeaderboardRow(data.items[userIdx]);
+                } else {
+                    setUserLeaderboardRank(null);
+                    setUserLeaderboardRow(null);
+                }
+            }
+        } catch (err) {
+            console.error("[Leaderboard] Failed to load:", err);
+        } finally {
+            setLeaderboardLoading(false);
+        }
+    }
+
+    // Load leaderboard on mount and when user connects
+    useEffect(() => {
+        refreshLeaderboard();
+    }, [userAddress]);
+
+    // Token supply stats
+    const FCWEED_TOKEN = "0x42ef01219BDb2190F275Cda7956D08822549d224";
+    const DEAD_ADDRESS = "0x000000000000000000000000000000000000dEaD";
+    const TREASURY_ADDRESS = "0x5A567898881cef8DF767D192B74d99513cAa6e46";
+
+    async function loadTokenStats() {
+        try {
+            const tokenContract = new ethers.Contract(FCWEED_TOKEN, ERC20_ABI, readProvider);
+            const [totalSupply, burnedRaw, treasuryRaw] = await Promise.all([
+                tokenContract.totalSupply(),
+                tokenContract.balanceOf(DEAD_ADDRESS),
+                tokenContract.balanceOf(TREASURY_ADDRESS),
+            ]);
+
+            const burned = parseFloat(ethers.utils.formatUnits(burnedRaw, 18));
+            const treasury = parseFloat(ethers.utils.formatUnits(treasuryRaw, 18));
+            const total = parseFloat(ethers.utils.formatUnits(totalSupply, 18));
+            const controlled = burned + treasury;
+            const circulating = total - controlled;
+
+            const controlledPct = total > 0 ? ((controlled / total) * 100).toFixed(2) : "0";
+            const circulatingPct = total > 0 ? ((circulating / total) * 100).toFixed(2) : "0";
+
+            const formatNum = (n: number) => {
+                if (n >= 1e12) return (n / 1e12).toFixed(2) + "T";
+                if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+                if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+                if (n >= 1e3) return (n / 1e3).toFixed(2) + "K";
+                return n.toFixed(0);
+            };
+
+            setTokenStats({
+                burned: formatNum(burned),
+                treasury: formatNum(treasury),
+                controlledPct,
+                circulatingPct,
+                loading: false
+            });
+        } catch (err) {
+            console.error("[TokenStats] Failed to load:", err);
+            setTokenStats(prev => ({ ...prev, loading: false }));
+        }
+    }
+
+    // Load token stats on mount
+    useEffect(() => {
+        loadTokenStats();
+        // Refresh every 60 seconds
+        const interval = setInterval(loadTokenStats, 60000);
+        return () => clearInterval(interval);
+    }, []);
 
     useEffect(() => {
         if (!upgradeModalOpen) return;
@@ -918,10 +1062,19 @@ export default function Home()
                 setV4WaterNeeded(newWaterMap);
                 if (v4StakedPlants.length > 0) {
                     const avgHealth = Math.round(Object.values(newHealthMap).reduce((a, b) => a + b, 0) / v4StakedPlants.length);
-                    setV4StakingStats((prev: any) => prev ? { ...prev, avgHealth } : prev);
+                    setV4StakingStats((prev: any) => {
+                        if (!prev) return prev;
+                        // Update daily rewards based on new health
+                        const tokensPerDay = 300000;
+                        const boostMultiplier = (100 + (prev.boostPct || 0)) / 100;
+                        const healthMultiplier = avgHealth / 100;
+                        const dailyWithHealth = prev.plants * tokensPerDay * boostMultiplier * healthMultiplier;
+                        const dailyDisplay = dailyWithHealth >= 1e6 ? (dailyWithHealth / 1e6).toFixed(2) + "M" : dailyWithHealth >= 1e3 ? (dailyWithHealth / 1e3).toFixed(1) + "K" : dailyWithHealth.toFixed(0);
+                        return { ...prev, avgHealth, dailyRewards: dailyDisplay };
+                    });
                 }
             } catch (err) { console.error("[V4] Health update failed:", err); }
-        }, 10000);
+        }, 5000);
         return () => clearInterval(healthInterval);
     }, [v4StakingOpen, v4StakedPlants]);
     
@@ -1059,6 +1212,7 @@ export default function Home()
             await waitForTx(tx);
             setV4ActionStatus("Plants watered!");
             setSelectedV4PlantsToWater([]);
+            setV4CustomWaterAmounts({});
             setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
         } catch (err: any) { setV4ActionStatus("Error: " + (err.message || err)); }
         finally { setActionLoading(false); }
@@ -1240,10 +1394,19 @@ export default function Home()
                 setV5WaterNeeded(newWaterMap);
                 if (v5StakedPlants.length > 0) {
                     const avgHealth = Math.round(Object.values(newHealthMap).reduce((a, b) => a + b, 0) / v5StakedPlants.length);
-                    setV5StakingStats((prev: any) => prev ? { ...prev, avgHealth } : prev);
+                    setV5StakingStats((prev: any) => {
+                        if (!prev) return prev;
+                        // Update daily rewards based on new health
+                        const tokensPerDay = 300000;
+                        const boostMultiplier = (100 + (prev.boostPct || 0)) / 100;
+                        const healthMultiplier = avgHealth / 100;
+                        const dailyWithHealth = prev.plants * tokensPerDay * boostMultiplier * healthMultiplier;
+                        const dailyDisplay = dailyWithHealth >= 1e6 ? (dailyWithHealth / 1e6).toFixed(2) + "M" : dailyWithHealth >= 1e3 ? (dailyWithHealth / 1e3).toFixed(1) + "K" : dailyWithHealth.toFixed(0);
+                        return { ...prev, avgHealth, dailyRewards: dailyDisplay };
+                    });
                 }
             } catch (err) { console.error("[V5] Health update failed:", err); }
-        }, 10000);
+        }, 5000);
         return () => clearInterval(healthInterval);
     }, [v5StakingOpen, v5StakedPlants]);
 
@@ -1381,6 +1544,7 @@ export default function Home()
             await waitForTx(tx);
             setV5ActionStatus("Plants watered!");
             setSelectedV5PlantsToWater([]);
+            setV5CustomWaterAmounts({});
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
         } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
         finally { setActionLoading(false); }
@@ -2876,24 +3040,49 @@ export default function Home()
                     Every Land NFT unlocks more Plant slots and increases your <span style={{ color: "#38e0a3" }}>Land Boost</span> for higher payouts.
                             </p>
                         </section>
-                        <section className={styles.infoCard}>
-                            <h2 className={styles.heading}>Crime Ladder — Top 10 Farmers</h2>
-                    {/* <CrimeLadder
-                     * connected={!!userAddress}
-                     * loading={ladder.loading}
-                     * rows={ladder.rows.slice(0, 10)}
-                     * farmerCount={ladder.farmerCount}
-                     * walletRank={ladder.walletRank}
-                     * walletRow={ladder.walletRow}
-                     * tokenSymbol={TOKEN_SYMBOL}
-                     * onRefresh={ladder.refresh}
-                     * />
-                     *  */}
-                            {!connected && (
-                                <div style={{ fontSize: 11, margin: "4px 0 8px", padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(5,8,20,0.8)" }}>
-                                    Connect wallet to see your rank
+
+                        {/* Token Supply Stats */}
+                        <section style={{ display: "flex", justifyContent: "center", padding: "8px 0" }}>
+                            <div style={{ 
+                                background: "linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(59, 130, 246, 0.15))",
+                                border: "1px solid rgba(16, 185, 129, 0.3)",
+                                borderRadius: 12,
+                                padding: "12px 20px",
+                                display: "flex",
+                                flexWrap: "wrap",
+                                justifyContent: "center",
+                                gap: 16,
+                                maxWidth: 420
+                            }}>
+                                <div style={{ textAlign: "center", minWidth: 80 }}>
+                                    <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2 }}>🔥 Burned</div>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#ef4444" }}>{tokenStats.loading ? "..." : tokenStats.burned}</div>
                                 </div>
-                            )}
+                                <div style={{ textAlign: "center", minWidth: 80 }}>
+                                    <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2 }}>🏦 Treasury</div>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#fbbf24" }}>{tokenStats.loading ? "..." : tokenStats.treasury}</div>
+                                </div>
+                                <div style={{ textAlign: "center", minWidth: 80 }}>
+                                    <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2 }}>🔒 Controlled</div>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#a855f7" }}>{tokenStats.loading ? "..." : tokenStats.controlledPct + "%"}</div>
+                                </div>
+                                <div style={{ textAlign: "center", minWidth: 80 }}>
+                                    <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2 }}>💰 Circulating</div>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#10b981" }}>{tokenStats.loading ? "..." : tokenStats.circulatingPct + "%"}</div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section className={styles.infoCard}>
+                            <CrimeLadder
+                                connected={!!userAddress}
+                                loading={leaderboardLoading}
+                                rows={leaderboardItems.slice(0, 10)}
+                                farmerCount={farmerCount}
+                                walletRank={userLeaderboardRank}
+                                walletRow={userLeaderboardRow}
+                                onRefresh={refreshLeaderboard}
+                            />
                         </section>
                         <section className={styles.infoCard}>
                             <h2 className={styles.heading}>How it Works</h2>
@@ -3542,8 +3731,14 @@ export default function Home()
                                     <div className={styles.statCard}><span className={styles.statLabel}>Super Lands</span><span className={styles.statValue}>{v5StakingStats?.superLands || 0}</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Capacity</span><span className={styles.statValue}>{v5StakingStats ? `${v5StakingStats.plants}/${v5StakingStats.capacity}` : "0/1"}</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Boost</span><span className={styles.statValue} style={{ color: "#10b981" }}>+{v5StakingStats?.boostPct?.toFixed(1) || 0}%</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Daily</span><span className={styles.statValue}>{v5StakingStats?.dailyRewards || "0"}</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Avg Health</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v5StakingStats?.avgHealth || 100}%</span></div>
+                                    <div className={styles.statCard}><span className={styles.statLabel}>Daily (Live)</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) < 100 ? "#fbbf24" : "#10b981" }}>{v5StakingStats?.dailyRewards || "0"}</span></div>
+                                    <div className={styles.statCard}>
+                                        <span className={styles.statLabel}>Avg Health</span>
+                                        <div style={{ width: "100%", height: 6, background: "#1f2937", borderRadius: 3, marginTop: 2, overflow: "hidden" }}>
+                                            <div style={{ height: "100%", width: `${v5StakingStats?.avgHealth || 100}%`, background: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444", transition: "width 0.5s" }} />
+                                        </div>
+                                        <span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444", fontSize: 12 }}>{v5StakingStats?.avgHealth || 100}%</span>
+                                    </div>
                                     <div className={styles.statCard} style={{ gridColumn: "span 2" }}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v5StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18))).toFixed(1) : "0"}L</span></div>
                                     <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #065f46, #10b981)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#a7f3d0", fontSize: 16 }}>{v5RealTimePending}</span></div>
                                 </div>
@@ -3580,26 +3775,43 @@ export default function Home()
                                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                                                     <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981" }}>💧 Water Plants</span>
                                                     <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}>
-                                                        <input type="checkbox" checked={selectedV5PlantsToWater.length === v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100).length && selectedV5PlantsToWater.length > 0} onChange={() => { const needsWater = v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100); if (selectedV5PlantsToWater.length === needsWater.length) { setSelectedV5PlantsToWater([]); } else { setSelectedV5PlantsToWater(needsWater); } }} />All needing water
+                                                        <input type="checkbox" checked={selectedV5PlantsToWater.length === v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100).length && selectedV5PlantsToWater.length > 0} onChange={() => { const needsWater = v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100); if (selectedV5PlantsToWater.length === needsWater.length) { setSelectedV5PlantsToWater([]); setV5CustomWaterAmounts({}); } else { setSelectedV5PlantsToWater(needsWater); const newAmounts: Record<number, number> = {}; needsWater.forEach(id => { newAmounts[id] = Math.ceil(v5WaterNeeded[id] || 1); }); setV5CustomWaterAmounts(newAmounts); } }} />All needing water
                                                     </label>
                                                 </div>
-                                                <div style={{ display: "flex", overflowX: "auto", gap: 4, padding: "4px 0" }}>
+                                                <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0" }}>
                                                     {v5StakedPlants.map((id) => {
                                                         const health = v5PlantHealths[id] ?? 100;
                                                         const waterNeeded = v5WaterNeeded[id] ?? 0;
+                                                        const isSelected = selectedV5PlantsToWater.includes(id);
+                                                        const customAmount = v5CustomWaterAmounts[id] ?? Math.ceil(waterNeeded || 1);
                                                         return (
-                                                            <div key={"v5w-" + id} onClick={() => { if (health < 100) toggleId(id, selectedV5PlantsToWater, setSelectedV5PlantsToWater); }} style={{ minWidth: 50, padding: 4, borderRadius: 6, background: selectedV5PlantsToWater.includes(id) ? "rgba(16,185,129,0.3)" : "rgba(0,0,0,0.2)", border: selectedV5PlantsToWater.includes(id) ? "2px solid #10b981" : "1px solid #374151", cursor: health < 100 ? "pointer" : "default", opacity: health >= 100 ? 0.5 : 1, textAlign: "center" }}>
-                                                                <div style={{ fontSize: 9, fontWeight: 600 }}>#{id}</div>
-                                                                <div style={{ fontSize: 8, color: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444" }}>{health}%</div>
-                                                                {health < 100 && <div style={{ fontSize: 7, color: "#60a5fa" }}>{waterNeeded.toFixed(1)}L</div>}
+                                                            <div key={"v5w-" + id} style={{ minWidth: 70, padding: 6, borderRadius: 8, background: isSelected ? "rgba(16,185,129,0.3)" : "rgba(0,0,0,0.2)", border: isSelected ? "2px solid #10b981" : "1px solid #374151", opacity: health >= 100 ? 0.5 : 1, textAlign: "center" }}>
+                                                                <div onClick={() => { if (health < 100) { toggleId(id, selectedV5PlantsToWater, setSelectedV5PlantsToWater); if (!isSelected) { setV5CustomWaterAmounts(prev => ({ ...prev, [id]: Math.ceil(waterNeeded || 1) })); } } }} style={{ cursor: health < 100 ? "pointer" : "default" }}>
+                                                                    <div style={{ fontSize: 10, fontWeight: 600 }}>#{id}</div>
+                                                                    <div style={{ width: "100%", height: 4, background: "#1f2937", borderRadius: 2, margin: "3px 0", overflow: "hidden" }}>
+                                                                        <div style={{ height: "100%", width: `${health}%`, background: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444", transition: "width 0.3s" }} />
+                                                                    </div>
+                                                                    <div style={{ fontSize: 9, color: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444", fontWeight: 600 }}>{health}%</div>
+                                                                    {health < 100 && <div style={{ fontSize: 8, color: "#60a5fa" }}>Need: {waterNeeded.toFixed(1)}L</div>}
+                                                                </div>
+                                                                {isSelected && health < 100 && (
+                                                                    <div style={{ marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
+                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: Math.max(1, (prev[id] ?? Math.ceil(waterNeeded)) - 1) })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>-</button>
+                                                                        <input type="number" value={customAmount} onChange={(e) => { const val = Math.max(1, parseInt(e.target.value) || 1); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: val })); }} onClick={(e) => e.stopPropagation()} style={{ width: 32, height: 18, textAlign: "center", fontSize: 9, background: "#1f2937", border: "1px solid #374151", borderRadius: 4, color: "#fff" }} min="1" />
+                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: (prev[id] ?? Math.ceil(waterNeeded)) + 1 })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         );
                                                     })}
                                                 </div>
-                                                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>Your Water: {v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18)).toFixed(2) : "0"}L</div>
+                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 9, color: "#9ca3af", marginTop: 6 }}>
+                                                    <span>Your Water: {v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18)).toFixed(2) : "0"}L</span>
+                                                    {selectedV5PlantsToWater.length > 0 && <span style={{ color: "#60a5fa" }}>Using: {selectedV5PlantsToWater.reduce((sum, id) => sum + (v5CustomWaterAmounts[id] ?? Math.ceil(v5WaterNeeded[id] || 1)), 0).toFixed(1)}L</span>}
+                                                </div>
                                                 {selectedV5PlantsToWater.length > 0 && (
                                                     <button type="button" className={styles.btnPrimary} disabled={actionLoading} onClick={handleV5WaterPlants} style={{ width: "100%", marginTop: 6, padding: 8, fontSize: 11, background: "linear-gradient(to right, #0ea5e9, #38bdf8)" }}>
-                                                        {actionLoading ? "Watering..." : `💧 Water ${selectedV5PlantsToWater.length} Plant${selectedV5PlantsToWater.length > 1 ? "s" : ""}`}
+                                                        {actionLoading ? "Watering..." : `💧 Water ${selectedV5PlantsToWater.length} Plant${selectedV5PlantsToWater.length > 1 ? "s" : ""} (${selectedV5PlantsToWater.reduce((sum, id) => sum + (v5CustomWaterAmounts[id] ?? Math.ceil(v5WaterNeeded[id] || 1)), 0).toFixed(1)}L)`}
                                                     </button>
                                                 )}
                                                 {v5ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v5ActionStatus}</p>}
@@ -3645,8 +3857,14 @@ export default function Home()
                                     <div className={styles.statCard}><span className={styles.statLabel}>Super Lands</span><span className={styles.statValue}>{v4StakingStats?.superLands || 0}</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Capacity</span><span className={styles.statValue}>{v4StakingStats ? `${v4StakingStats.plants}/${v4StakingStats.capacity}` : "0/1"}</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Boost</span><span className={styles.statValue} style={{ color: "#a855f7" }}>+{v4StakingStats?.boostPct?.toFixed(1) || 0}%</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Daily</span><span className={styles.statValue}>{v4StakingStats?.dailyRewards || "0"}</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Avg Health</span><span className={styles.statValue} style={{ color: (v4StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v4StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v4StakingStats?.avgHealth || 100}%</span></div>
+                                    <div className={styles.statCard}><span className={styles.statLabel}>Daily (Live)</span><span className={styles.statValue} style={{ color: (v4StakingStats?.avgHealth || 100) < 100 ? "#fbbf24" : "#a855f7" }}>{v4StakingStats?.dailyRewards || "0"}</span></div>
+                                    <div className={styles.statCard}>
+                                        <span className={styles.statLabel}>Avg Health</span>
+                                        <div style={{ width: "100%", height: 6, background: "#1f2937", borderRadius: 3, marginTop: 2, overflow: "hidden" }}>
+                                            <div style={{ height: "100%", width: `${v4StakingStats?.avgHealth || 100}%`, background: (v4StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v4StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444", transition: "width 0.5s" }} />
+                                        </div>
+                                        <span className={styles.statValue} style={{ color: (v4StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v4StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444", fontSize: 12 }}>{v4StakingStats?.avgHealth || 100}%</span>
+                                    </div>
                                     <div className={styles.statCard} style={{ gridColumn: "span 2" }}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v4StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18))).toFixed(1) : "0"}L</span></div>
                                     <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #581c87, #7c3aed)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#c4b5fd", fontSize: 16 }}>{v4RealTimePending}</span></div>
                                 </div>
@@ -3683,19 +3901,39 @@ export default function Home()
                                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                                                     <span style={{ fontSize: 11, fontWeight: 600, color: "#60a5fa" }}>💧 Water Plants ({v4StakedPlants.filter(id => (v4PlantHealths[id] ?? 100) < 100).length} need water)</span>
                                                     <label style={{ fontSize: 9, display: "flex", alignItems: "center", gap: 3 }}>
-                                                        <input type="checkbox" checked={selectedV4PlantsToWater.length === v4StakedPlants.length && selectedV4PlantsToWater.length > 0} onChange={() => { if (selectedV4PlantsToWater.length === v4StakedPlants.length) { setSelectedV4PlantsToWater([]); } else { setSelectedV4PlantsToWater([...v4StakedPlants]); } }} />All plants
+                                                        <input type="checkbox" checked={selectedV4PlantsToWater.length === v4StakedPlants.filter(id => (v4PlantHealths[id] ?? 100) < 100).length && selectedV4PlantsToWater.length > 0} onChange={() => { const needsWater = v4StakedPlants.filter(id => (v4PlantHealths[id] ?? 100) < 100); if (selectedV4PlantsToWater.length === needsWater.length) { setSelectedV4PlantsToWater([]); setV4CustomWaterAmounts({}); } else { setSelectedV4PlantsToWater(needsWater); const newAmounts: Record<number, number> = {}; needsWater.forEach(id => { newAmounts[id] = Math.ceil(v4WaterNeeded[id] || 1); }); setV4CustomWaterAmounts(newAmounts); } }} />All needing water
                                                     </label>
                                                 </div>
-                                                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>Your Water: {v4StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18)).toFixed(2) : "0"}L</div>
-                                                <div style={{ display: "flex", overflowX: "auto", gap: 4, padding: "4px 0", minHeight: 60 }}>
-                                                    {v4StakedPlants.map((id) => (
-                                                        <label key={"v4water-" + id} style={{ minWidth: 60, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer", opacity: (v4PlantHealths[id] ?? 100) >= 100 ? 0.5 : 1 }}>
-                                                            <input type="checkbox" checked={selectedV4PlantsToWater.includes(id)} onChange={() => toggleId(id, selectedV4PlantsToWater, setSelectedV4PlantsToWater)} style={{ marginBottom: 2 }} />
-                                                            <div style={{ fontSize: 8 }}>#{id}</div>
-                                                            <div style={{ fontSize: 10, color: (v4PlantHealths[id] ?? 100) >= 100 ? "#10b981" : (v4PlantHealths[id] ?? 100) >= 80 ? "#22c55e" : (v4PlantHealths[id] ?? 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v4PlantHealths[id] ?? "?"}%</div>
-                                                            <div style={{ fontSize: 8, color: "#60a5fa" }}>{Math.max(1, v4WaterNeeded[id] || 0).toFixed(1)}L</div>
-                                                        </label>
-                                                    ))}
+                                                <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 70 }}>
+                                                    {v4StakedPlants.map((id) => {
+                                                        const health = v4PlantHealths[id] ?? 100;
+                                                        const waterNeeded = v4WaterNeeded[id] ?? 0;
+                                                        const isSelected = selectedV4PlantsToWater.includes(id);
+                                                        const customAmount = v4CustomWaterAmounts[id] ?? Math.ceil(waterNeeded || 1);
+                                                        return (
+                                                            <div key={"v4water-" + id} style={{ minWidth: 70, padding: 6, borderRadius: 8, background: isSelected ? "rgba(59,130,246,0.3)" : "rgba(0,0,0,0.2)", border: isSelected ? "2px solid #60a5fa" : "1px solid #374151", opacity: health >= 100 ? 0.5 : 1, textAlign: "center" }}>
+                                                                <div onClick={() => { if (health < 100) { toggleId(id, selectedV4PlantsToWater, setSelectedV4PlantsToWater); if (!isSelected) { setV4CustomWaterAmounts(prev => ({ ...prev, [id]: Math.ceil(waterNeeded || 1) })); } } }} style={{ cursor: health < 100 ? "pointer" : "default" }}>
+                                                                    <div style={{ fontSize: 10, fontWeight: 600 }}>#{id}</div>
+                                                                    <div style={{ width: "100%", height: 4, background: "#1f2937", borderRadius: 2, margin: "3px 0", overflow: "hidden" }}>
+                                                                        <div style={{ height: "100%", width: `${health}%`, background: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444", transition: "width 0.3s" }} />
+                                                                    </div>
+                                                                    <div style={{ fontSize: 9, color: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444", fontWeight: 600 }}>{health}%</div>
+                                                                    {health < 100 && <div style={{ fontSize: 8, color: "#60a5fa" }}>Need: {waterNeeded.toFixed(1)}L</div>}
+                                                                </div>
+                                                                {isSelected && health < 100 && (
+                                                                    <div style={{ marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
+                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV4CustomWaterAmounts(prev => ({ ...prev, [id]: Math.max(1, (prev[id] ?? Math.ceil(waterNeeded)) - 1) })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>-</button>
+                                                                        <input type="number" value={customAmount} onChange={(e) => { const val = Math.max(1, parseInt(e.target.value) || 1); setV4CustomWaterAmounts(prev => ({ ...prev, [id]: val })); }} onClick={(e) => e.stopPropagation()} style={{ width: 32, height: 18, textAlign: "center", fontSize: 9, background: "#1f2937", border: "1px solid #374151", borderRadius: 4, color: "#fff" }} min="1" />
+                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV4CustomWaterAmounts(prev => ({ ...prev, [id]: (prev[id] ?? Math.ceil(waterNeeded)) + 1 })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 9, color: "#9ca3af", marginTop: 6 }}>
+                                                    <span>Your Water: {v4StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18)).toFixed(2) : "0"}L</span>
+                                                    {selectedV4PlantsToWater.length > 0 && <span style={{ color: "#60a5fa" }}>Using: {selectedV4PlantsToWater.reduce((sum, id) => sum + (v4CustomWaterAmounts[id] ?? Math.ceil(v4WaterNeeded[id] || 1)), 0).toFixed(1)}L</span>}
                                                 </div>
                                                 {selectedV4PlantsToWater.length > 0 && (
                                                     <button
@@ -3705,7 +3943,7 @@ export default function Home()
                                                         className={styles.btnPrimary}
                                                         style={{ width: "100%", marginTop: 8, padding: 8, fontSize: 11, background: actionLoading ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)" }}
                                                     >
-                                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedV4PlantsToWater.length} Plant${selectedV4PlantsToWater.length > 1 ? "s" : ""} (${v4TotalWaterNeededForSelected.toFixed(1)}L)`}
+                                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedV4PlantsToWater.length} Plant${selectedV4PlantsToWater.length > 1 ? "s" : ""} (${selectedV4PlantsToWater.reduce((sum, id) => sum + (v4CustomWaterAmounts[id] ?? Math.ceil(v4WaterNeeded[id] || 1)), 0).toFixed(1)}L)`}
                                                     </button>
                                                 )}
                                                 {v4ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v4ActionStatus}</p>}
