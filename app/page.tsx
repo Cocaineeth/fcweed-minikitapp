@@ -1389,21 +1389,22 @@ export default function Home()
 
     async function loadWaterShopInfo() {
         try {
-            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
+            // Use V5 staking for water shop
+            const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
             const [isOpen, shopTimeInfo, dailyRemaining, walletRemaining, pricePerLiter, shopEnabled, walletLimit] = await Promise.all([
-                v4Contract.isShopOpen(),
-                v4Contract.getShopTimeInfo(),
-                v4Contract.getDailyWaterRemaining(),
-                userAddress ? v4Contract.getWalletWaterRemaining(userAddress) : ethers.BigNumber.from(0),
-                v4Contract.waterPricePerLiter(),
-                v4Contract.waterShopEnabled(),
-                userAddress ? v4Contract.getWalletWaterLimit(userAddress) : ethers.BigNumber.from(0),
+                v5Contract.isShopOpen(),
+                v5Contract.getShopTimeInfo(),
+                v5Contract.getDailyWaterRemaining(),
+                userAddress ? v5Contract.getWalletWaterRemaining(userAddress) : ethers.BigNumber.from(0),
+                v5Contract.waterPricePerLiter(),
+                v5Contract.waterShopEnabled(),
+                userAddress ? v5Contract.getWalletWaterLimit(userAddress) : ethers.BigNumber.from(0),
             ]);
 
             let stakedPlantsCount = 0;
             if (userAddress) {
                 try {
-                    const userData = await v4Contract.users(userAddress);
+                    const userData = await v5Contract.users(userAddress);
                     stakedPlantsCount = Number(userData.plants);
                 } catch {}
             }
@@ -1429,21 +1430,21 @@ export default function Home()
         if (waterBuyAmount <= 0) return;
         try {
             setWaterLoading(true); setWaterStatus("Approving FCWEED...");
-            const ctx = await ensureWallet(); if (!ctx) return;
+            const ctx = await ensureWallet(); if (!ctx) { setWaterLoading(false); return; }
             const cost = ethers.utils.parseUnits((waterBuyAmount * (waterShopInfo?.pricePerLiter || 75000)).toString(), 18);
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            const allowance = await tokenContract.allowance(userAddress, V4_STAKING_ADDRESS);
+            const allowance = await tokenContract.allowance(userAddress, V5_STAKING_ADDRESS);
             if (allowance.lt(cost)) {
-                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V4_STAKING_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_STAKING_ADDRESS, ethers.constants.MaxUint256]));
                 if (!approveTx) throw new Error("Approval rejected");
                 await waitForTx(approveTx);
             }
             setWaterStatus("Buying water...");
-            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("buyWater", [waterBuyAmount]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("buyWater", [waterBuyAmount]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setWaterStatus("Water purchased!");
-            setTimeout(() => { loadWaterShopInfo(); refreshV4StakingRef.current = false; refreshV4Staking(); setWaterStatus(""); }, 2000);
+            setTimeout(() => { loadWaterShopInfo(); refreshV5StakingRef.current = false; refreshV5Staking(); setWaterStatus(""); }, 2000);
         } catch (err: any) { setWaterStatus("Error: " + (err.message || err)); }
         finally { setWaterLoading(false); }
     }
@@ -2965,11 +2966,11 @@ export default function Home()
                             <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setV5StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #10b981, #34d399)" }}>🧪 Staking V5 (TEST)</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setV4StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>🚀 Staking V4 (UNSTAKE ONLY)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setV5StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #10b981, #34d399)" }}>🚀 Staking V5 (NEW - LIVE)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setV4StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>⬅️ Staking V4 (UNSTAKE ONLY)</button>
                         </div>
                         <div style={{ marginTop: 12, padding: 10, background: "rgba(16,185,129,0.1)", borderRadius: 10, border: "1px solid rgba(16,185,129,0.3)" }}>
-                            <p style={{ fontSize: 11, color: "#10b981", margin: 0, fontWeight: 600 }}>🧪 V5 Testing - Stake your NFTs to test the new contracts!</p>
+                            <p style={{ fontSize: 11, color: "#10b981", margin: 0, fontWeight: 600 }}>🚀 V5 is LIVE! Claim enabled 12/25 @ Midnight EST. Migrate from V4 now!</p>
                         </div>
                     </section>
                 )}
@@ -3521,12 +3522,12 @@ export default function Home()
                 <div className={styles.modalBackdrop}>
                     <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto" }}>
                         <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle}>🧪 Staking V5 (TEST)</h2>
+                            <h2 className={styles.modalTitle}>🚀 Staking V5 (NEW - LIVE)</h2>
                             <button type="button" className={styles.modalClose} onClick={() => setV5StakingOpen(false)}>✕</button>
                         </header>
 
                         <div style={{ padding: "8px 12px", background: "rgba(16,185,129,0.1)", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>🧪 V5 TESTING - Test new staking contract features!</p>
+                            <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>🚀 V5 is LIVE! Claim will be enabled on 12/25 @ Midnight 12AM EST</p>
                         </div>
 
                         {!V5_STAKING_ADDRESS ? (
@@ -3623,12 +3624,12 @@ export default function Home()
                 <div className={styles.modalBackdrop}>
                     <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto" }}>
                         <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle}>🚀 Staking V4 (NEW - LIVE)</h2>
+                            <h2 className={styles.modalTitle}>⬅️ Staking V4 (UNSTAKE ONLY)</h2>
                             <button type="button" className={styles.modalClose} onClick={() => setV4StakingOpen(false)}>✕</button>
                         </header>
 
                         <div style={{ padding: "8px 12px", background: "rgba(124,58,237,0.1)", borderRadius: 8, border: "1px solid rgba(124,58,237,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#a855f7", margin: 0, fontWeight: 600 }}>🚀 V4 is LIVE! Claim will be enabled on 12/18 at 10 AM EST</p>
+                            <p style={{ fontSize: 10, color: "#fbbf24", margin: 0, fontWeight: 600 }}>⚠️ V4 is deprecated. Please unstake and migrate to V5!</p>
                         </div>
 
                         {!V4_STAKING_ADDRESS ? (
