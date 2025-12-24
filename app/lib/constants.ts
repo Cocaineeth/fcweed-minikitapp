@@ -87,11 +87,11 @@ export const GIFS = [
 
 export const PLAYLIST = [
   {
-    title: "Kendrick Lamar - Untitled 05 (LoVibe Remix)",
+    title: "HUGEL, Totó La Momposina - La Verdolaga",
     src: "/audio/track1.mp3",
   },
-  { title: "Travis Scott - SDP Interlude", src: "/audio/track2.mp3" },
-  { title: "Yeat - if we being real", src: "/audio/track3.mp3" },
+  { title: "Raffa Guido - Famax", src: "/audio/track2.mp3" },
+  { title: "HUGEL x Topic x Arash feat. Daecolm - I Adore You", src: "/audio/track3.mp3" },
 ];
 
 // Todo()
