@@ -1405,17 +1405,46 @@ export default function Home()
                     const healthCalls = stakedPlantNums.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
                     const waterCalls = stakedPlantNums.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
                     const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                    const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
-                    const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
+                    const healthResults = await mc.tryAggregate(false, healthCalls);
+                    const waterResults = await mc.tryAggregate(false, waterCalls);
+                    console.log("[V5] Health results:", healthResults);
                     stakedPlantNums.forEach((id: number, i: number) => {
-                        healthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
-                        waterNeededMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i]), 18));
+                        try {
+                            if (healthResults[i].success) {
+                                // Decode the ABI-encoded return data
+                                const decoded = v4StakingInterface.decodeFunctionResult("getPlantHealth", healthResults[i].returnData);
+                                healthMap[id] = decoded[0].toNumber();
+                                console.log(`[V5] Plant #${id} health: ${healthMap[id]}%`);
+                            } else {
+                                healthMap[id] = 0; // Show as needing water if call failed
+                                console.log(`[V5] Plant #${id} health call failed`);
+                            }
+                            if (waterResults[i].success) {
+                                const decoded = v4StakingInterface.decodeFunctionResult("getWaterNeeded", waterResults[i].returnData);
+                                waterNeededMap[id] = parseFloat(ethers.utils.formatUnits(decoded[0], 18));
+                            } else {
+                                waterNeededMap[id] = 1; // Assume needs water if call failed
+                            }
+                        } catch (decodeErr) { 
+                            console.error(`[V5] Decode error for plant #${id}:`, decodeErr);
+                            healthMap[id] = 0; 
+                            waterNeededMap[id] = 1; 
+                        }
                     });
                     if (stakedPlantNums.length > 0) {
                         const totalHealth = Object.values(healthMap).reduce((a, b) => a + b, 0);
-                        setV5StakingStats((prev: any) => prev ? { ...prev, avgHealth: Math.round(totalHealth / stakedPlantNums.length) } : prev);
+                        const calculatedAvgHealth = Math.round(totalHealth / stakedPlantNums.length);
+                        console.log(`[V5] Calculated avg health: ${calculatedAvgHealth}%`);
+                        // Also update daily rewards based on health
+                        const healthMultiplier = calculatedAvgHealth / 100;
+                        const adjustedDaily = dailyWithBoost * healthMultiplier;
+                        const adjustedDailyDisplay = adjustedDaily >= 1e6 ? (adjustedDaily / 1e6).toFixed(2) + "M" : adjustedDaily >= 1e3 ? (adjustedDaily / 1e3).toFixed(1) + "K" : adjustedDaily.toFixed(0);
+                        setV5StakingStats((prev: any) => prev ? { ...prev, avgHealth: calculatedAvgHealth, dailyRewards: adjustedDailyDisplay } : prev);
                     }
-                } catch (err) { stakedPlantNums.forEach((id: number) => { healthMap[id] = 100; waterNeededMap[id] = 0; }); }
+                } catch (err) { 
+                    console.error("[V5] Health multicall error:", err);
+                    stakedPlantNums.forEach((id: number) => { healthMap[id] = 0; waterNeededMap[id] = 1; }); 
+                }
             }
             setV5PlantHealths(healthMap);
             setV5WaterNeeded(waterNeededMap);
@@ -1521,13 +1550,28 @@ export default function Home()
                 const healthCalls = v5StakedPlants.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
                 const waterCalls = v5StakedPlants.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
                 const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
-                const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
+                const healthResults = await mc.tryAggregate(false, healthCalls);
+                const waterResults = await mc.tryAggregate(false, waterCalls);
                 const newHealthMap: Record<number, number> = {};
                 const newWaterMap: Record<number, number> = {};
                 v5StakedPlants.forEach((id: number, i: number) => {
-                    newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
-                    newWaterMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i]), 18));
+                    try {
+                        if (healthResults[i].success) {
+                            const decoded = v4StakingInterface.decodeFunctionResult("getPlantHealth", healthResults[i].returnData);
+                            newHealthMap[id] = decoded[0].toNumber();
+                        } else {
+                            newHealthMap[id] = v5PlantHealths[id] ?? 0;
+                        }
+                        if (waterResults[i].success) {
+                            const decoded = v4StakingInterface.decodeFunctionResult("getWaterNeeded", waterResults[i].returnData);
+                            newWaterMap[id] = parseFloat(ethers.utils.formatUnits(decoded[0], 18));
+                        } else {
+                            newWaterMap[id] = v5WaterNeeded[id] ?? 1;
+                        }
+                    } catch {
+                        newHealthMap[id] = v5PlantHealths[id] ?? 0;
+                        newWaterMap[id] = v5WaterNeeded[id] ?? 1;
+                    }
                 });
                 setV5PlantHealths(newHealthMap);
                 setV5WaterNeeded(newWaterMap);
@@ -2258,12 +2302,18 @@ export default function Home()
             setWarsTargetLocked(false);
             setWarsPreviewData(null);
 
-            // Refresh V4 staking data to show updated health and pending rewards
+            // Refresh V5 staking data to show updated health and pending rewards
             setTimeout(() => {
                 loadWarsPlayerStats();
-                refreshV4StakingRef.current = false;
-                refreshV4Staking();
-            }, 3000);
+                refreshV5StakingRef.current = false;
+                refreshV5Staking();
+            }, 2000);
+            
+            // Refresh again after a bit more time for blockchain to settle
+            setTimeout(() => {
+                refreshV5StakingRef.current = false;
+                refreshV5Staking();
+            }, 5000);
 
         } catch (err: any) {
             console.error("[Wars] Attack failed:", err);
