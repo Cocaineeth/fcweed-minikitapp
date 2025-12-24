@@ -804,14 +804,30 @@ export default function Home()
     const DEAD_ADDRESS = "0x000000000000000000000000000000000000dEaD";
     const TREASURY_ADDRESS = "0x5A567898881cef8DF767D192B74d99513cAa6e46";
 
+    // NFT Supply tracking
+    const [nftSupply, setNftSupply] = useState<{ plants: number; lands: number; superLands: number; loading: boolean }>({ plants: 0, lands: 0, superLands: 0, loading: true });
+
     async function loadTokenStats() {
         try {
-            const tokenContract = new ethers.Contract(FCWEED_TOKEN, ERC20_ABI, readProvider);
+            console.log("[TokenStats] Loading token stats...");
+            // Use full ERC20 ABI for totalSupply
+            const fullErc20Abi = [
+                "function totalSupply() view returns (uint256)",
+                "function balanceOf(address) view returns (uint256)",
+            ];
+            const tokenContract = new ethers.Contract(FCWEED_TOKEN, fullErc20Abi, readProvider);
+            
             const [totalSupply, burnedRaw, treasuryRaw] = await Promise.all([
                 tokenContract.totalSupply(),
                 tokenContract.balanceOf(DEAD_ADDRESS),
                 tokenContract.balanceOf(TREASURY_ADDRESS),
             ]);
+
+            console.log("[TokenStats] Raw values:", { 
+                totalSupply: totalSupply.toString(), 
+                burned: burnedRaw.toString(), 
+                treasury: treasuryRaw.toString() 
+            });
 
             const burned = parseFloat(ethers.utils.formatUnits(burnedRaw, 18));
             const treasury = parseFloat(ethers.utils.formatUnits(treasuryRaw, 18));
@@ -830,6 +846,8 @@ export default function Home()
                 return n.toFixed(0);
             };
 
+            console.log("[TokenStats] Formatted:", { burned: formatNum(burned), treasury: formatNum(treasury), controlledPct, circulatingPct });
+
             setTokenStats({
                 burned: formatNum(burned),
                 treasury: formatNum(treasury),
@@ -843,12 +861,56 @@ export default function Home()
         }
     }
 
-    // Load token stats on mount
+    async function loadNftSupply() {
+        try {
+            console.log("[NFTSupply] Loading NFT supply...");
+            const nftAbi = ["function totalSupply() view returns (uint256)"];
+            
+            const plantContract = new ethers.Contract(PLANT_ADDRESS, nftAbi, readProvider);
+            const landContract = new ethers.Contract(LAND_ADDRESS, nftAbi, readProvider);
+            const superLandContract = new ethers.Contract(SUPER_LAND_ADDRESS, nftAbi, readProvider);
+
+            const [plantSupply, landSupply, superLandSupply] = await Promise.all([
+                plantContract.totalSupply().catch(() => ethers.BigNumber.from(0)),
+                landContract.totalSupply().catch(() => ethers.BigNumber.from(0)),
+                superLandContract.totalSupply().catch(() => ethers.BigNumber.from(0)),
+            ]);
+
+            console.log("[NFTSupply] Results:", { 
+                plants: plantSupply.toNumber(), 
+                lands: landSupply.toNumber(), 
+                superLands: superLandSupply.toNumber() 
+            });
+
+            setNftSupply({
+                plants: plantSupply.toNumber(),
+                lands: landSupply.toNumber(),
+                superLands: superLandSupply.toNumber(),
+                loading: false
+            });
+        } catch (err) {
+            console.error("[NFTSupply] Failed to load:", err);
+            setNftSupply(prev => ({ ...prev, loading: false }));
+        }
+    }
+
+    // Load token stats and NFT supply on mount with small delay for provider readiness
     useEffect(() => {
-        loadTokenStats();
+        const timer = setTimeout(() => {
+            loadTokenStats();
+            loadNftSupply();
+        }, 1000); // Small delay to ensure provider is ready
+        
         // Refresh every 60 seconds
-        const interval = setInterval(loadTokenStats, 60000);
-        return () => clearInterval(interval);
+        const interval = setInterval(() => {
+            loadTokenStats();
+            loadNftSupply();
+        }, 60000);
+        
+        return () => {
+            clearTimeout(timer);
+            clearInterval(interval);
+        };
     }, []);
 
     useEffect(() => {
@@ -3131,9 +3193,56 @@ export default function Home()
         {activeTab === "mint" && (
             <section className={styles.infoCard} style={{ textAlign: "center", padding: 20 }}>
                 <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#7cb3ff" }}>Mint NFTs</h2>
-                <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
                     <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
                 </div>
+                
+                {/* NFT Supply Display */}
+                <div style={{ 
+                    display: "flex", 
+                    justifyContent: "center", 
+                    gap: 12, 
+                    marginBottom: 16,
+                    flexWrap: "wrap"
+                }}>
+                    <div style={{ 
+                        background: "rgba(34, 197, 94, 0.15)", 
+                        border: "1px solid rgba(34, 197, 94, 0.4)", 
+                        borderRadius: 8, 
+                        padding: "8px 14px",
+                        minWidth: 90
+                    }}>
+                        <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2 }}>🌱 Plants</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>
+                            {nftSupply.loading ? "..." : `${nftSupply.plants}/1111`}
+                        </div>
+                    </div>
+                    <div style={{ 
+                        background: "rgba(139, 92, 246, 0.15)", 
+                        border: "1px solid rgba(139, 92, 246, 0.4)", 
+                        borderRadius: 8, 
+                        padding: "8px 14px",
+                        minWidth: 90
+                    }}>
+                        <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2 }}>🏠 Land</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6" }}>
+                            {nftSupply.loading ? "..." : `${nftSupply.lands}/420`}
+                        </div>
+                    </div>
+                    <div style={{ 
+                        background: "rgba(251, 191, 36, 0.15)", 
+                        border: "1px solid rgba(251, 191, 36, 0.4)", 
+                        borderRadius: 8, 
+                        padding: "8px 14px",
+                        minWidth: 90
+                    }}>
+                        <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2 }}>⭐ Super Land</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24" }}>
+                            {nftSupply.loading ? "..." : `${nftSupply.superLands}/99`}
+                        </div>
+                    </div>
+                </div>
+
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                     <button type="button" className={styles.btnPrimary} onClick={handleMintPlant} disabled={connecting || actionLoading} style={{ width: "100%", padding: 14 }}>🌱 Mint Plant (49.99 USDC)</button>
                     <button type="button" className={styles.btnPrimary} onClick={handleMintLand} disabled={connecting || actionLoading} style={{ width: "100%", padding: 14 }}>🏠 Mint Land (199.99 USDC)</button>
