@@ -1,16 +1,15 @@
 "use client";
 
 import styles from "../page.module.css";
-import { FarmerRow } from "../lib/leaderboard"
+import type { LeaderboardItem } from "../lib/leaderboard";
 
 export function CrimeLadder(props: {
     connected: boolean;
     loading: boolean;
-    rows: FarmerRow[];
+    rows: LeaderboardItem[];
     farmerCount: number;
     walletRank: number | null;
-    walletRow: FarmerRow | null;
-    tokenSymbol: string;
+    walletRow: LeaderboardItem | null;
     onRefresh?: () => Promise<void> | void;
 })
 {
@@ -21,7 +20,6 @@ export function CrimeLadder(props: {
         farmerCount,
         walletRank,
         walletRow,
-        tokenSymbol,
     } = props;
 
     return (
@@ -77,13 +75,13 @@ export function CrimeLadder(props: {
                                     Plants: <b>{walletRow.plants}</b>
                                 </span>
                                 <span>
-                                    Land: <b>{walletRow.lands}</b>
+                                    Lands: <b>{walletRow.lands}</b>
                                 </span>
                                 <span>
-                                    Boost: <b>+{walletRow.boostPct.toFixed(1)}%</b>
+                                    SuperLands: <b>{walletRow.superLands}</b>
                                 </span>
                                 <span>
-                                    Daily: <b>{walletRow.daily}</b> {tokenSymbol}
+                                    Score: <b>{walletRow.score}</b>
                                 </span>
                             </div>
                         </>
@@ -101,7 +99,7 @@ export function CrimeLadder(props: {
             ) : rows.length === 0 ? (
                 <p style={{ fontSize: 13, opacity: 0.8 }}>
                     Stake Plants + Land to appear on the Crime Ladder.
-                    x        </p>
+                </p>
             ) : (
                 <div style={{ marginTop: 10, overflowX: "auto" }}>
                     <table
@@ -116,16 +114,9 @@ export function CrimeLadder(props: {
                                 <th style={{ textAlign: "left", padding: "4px 6px" }}>Rank</th>
                                 <th style={{ textAlign: "left", padding: "4px 6px" }}>Farmer</th>
                                 <th style={{ textAlign: "right", padding: "4px 6px" }}>Plants</th>
-                                <th style={{ textAlign: "right", padding: "4px 6px" }}>Land</th>
-                                <th style={{ textAlign: "right", padding: "4px 6px" }}>
-                                    Land Boost
-                                </th>
-                                <th style={{ textAlign: "right", padding: "4px 6px" }}>
-                                    Capacity
-                                </th>
-                                <th style={{ textAlign: "right", padding: "4px 6px" }}>
-                                    Daily {tokenSymbol}
-                                </th>
+                                <th style={{ textAlign: "right", padding: "4px 6px" }}>Lands</th>
+                                <th style={{ textAlign: "right", padding: "4px 6px" }}>Super</th>
+                                <th style={{ textAlign: "right", padding: "4px 6px" }}>Score</th>
                             </tr>
                         </thead>
 
@@ -133,18 +124,18 @@ export function CrimeLadder(props: {
                             {rows.map((row, idx) => {
                                 const isMe =
                                     walletRow &&
-                                    walletRow.addr.toLowerCase() === row.addr.toLowerCase();
+                                    walletRow.staker.toLowerCase() === row.staker.toLowerCase();
 
                                 return (
                                     <tr
-                                        key={row.addr}
+                                        key={row.staker}
                                         style={{
                                             background: isMe ? "rgba(0, 200, 130, 0.12)" : undefined,
                                         }}
                                     >
                                         <td style={{ padding: "4px 6px" }}>{idx + 1}</td>
                                         <td style={{ padding: "4px 6px" }}>
-                                            {row.addr.slice(0, 6)}…{row.addr.slice(-4)}
+                                            {row.staker.slice(0, 6)}…{row.staker.slice(-4)}
                                         </td>
                                         <td style={{ padding: "4px 6px", textAlign: "right" }}>
                                             {row.plants}
@@ -153,13 +144,10 @@ export function CrimeLadder(props: {
                                             {row.lands}
                                         </td>
                                         <td style={{ padding: "4px 6px", textAlign: "right" }}>
-                                            +{row.boostPct.toFixed(1)}%
+                                            {row.superLands}
                                         </td>
                                         <td style={{ padding: "4px 6px", textAlign: "right" }}>
-                                            {row.capacity}
-                                        </td>
-                                        <td style={{ padding: "4px 6px", textAlign: "right" }}>
-                                            {row.daily}
+                                            {row.score}
                                         </td>
                                     </tr>
                                 );

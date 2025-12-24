@@ -1,0 +1,71 @@
+import { ethers } from "ethers";
+
+function toHttpFromMaybeIpfs(uri: string): string {
+    if (!uri) return "";
+    if (uri.startsWith("ipfs://")) {
+        const path = uri.slice("ipfs://".length);
+        return `https://ipfs.io/ipfs/${path}`;
+    }
+    return uri;
+}
+
+async function fetchNftImages(
+    nftAddress: string,
+    ids: number[],
+    prov: ethers.providers.Provider,
+    existing: Record<number, string>
+): Promise<Record<number, string>> {
+    const out: Record<number, string> = { ...existing };
+    if (ids.length === 0) return out;
+
+    const isLand = nftAddress.toLowerCase() === LAND_ADDRESS.toLowerCase();
+    const isPlant = nftAddress.toLowerCase() === PLANT_ADDRESS.toLowerCase();
+
+    const missing = ids.filter((id) => {
+        if (out[id] !== undefined) return false;
+        if (METADATA_MODE === "local-only") return false;
+        if (METADATA_MODE === "remote-all") return true;
+        return isSuper(nftAddress, id);
+    });
+
+    if (missing.length === 0) return out;
+
+    try {
+        const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, prov);
+
+        const tasks = missing.map(async (id) => {
+            try {
+                let img: string | undefined;
+
+                try {
+                    const uri: string = await nft.tokenURI(id);
+                    const url = toHttpFromMaybeIpfs(uri);
+                    const res = await fetch(url);
+                    if (res.ok) {
+                        const meta = await res.json();
+                        img = meta.image ? toHttpFromMaybeIpfs(meta.image) : undefined;
+                    }
+                } catch {
+
+                }
+
+                if (!img) {
+                    if (isLand) img = LAND_FALLBACK_IMG;
+                    else if (isPlant) img = PLANT_FALLBACK_IMG;
+                }
+
+                if (img) {
+                    out[id] = img;
+                }
+            } catch (e) {
+                console.error("Failed to fetch metadata", nftAddress, id, e);
+            }
+        });
+
+        await Promise.all(tasks);
+    } catch (e) {
+        console.error("fetchNftImages top-level error", nftAddress, e);
+    }
+
+    return out;
+}

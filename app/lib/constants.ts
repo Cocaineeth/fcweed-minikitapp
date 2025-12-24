@@ -2,17 +2,57 @@ import { ethers } from "ethers";
 
 export const CHAIN_ID = 8453;
 // export const PUBLIC_BASE_RPC = "https://mainnet.base.org";
-export const PUBLIC_BASE_RPC = "https://base-mainnet.g.alchemy.com/v2/N95I5LVTDkn8MaZule8Fh";
+export const PUBLIC_BASE_RPC = "https://base.public.blockpi.network/v1/rpc/public";
 
 export const FCWEED_ADDRESS = "0x42ef01219BDb2190F275Cda7956D08822549d224";
 export const PLANT_ADDRESS = "0xD84890240C2CBB66a825915cD20aEe89C6b66dD5";
 export const LAND_ADDRESS  = "0x798A8F4b4799CfaBe859C85889c78e42a57d71c1";
 export const SUPER_LAND_ADDRESS = "0xAcd70377fF1aaF4E1aE76398C678CBE6ECc35e7d";
-export const OLD_STAKING_ADDRESS = "0x9dA6B01BFcbf5ab256B7B1d46F316e946da85507";
-export const NEW_STAKING_ADDRESS = "0xe876f175AcD484b0F502cEA38FC9215913FCDCdb";
 
-
+export const METADATA_MODE: "local-only" | "hybrid" | "remote-all" = "hybrid";
 export const TOKEN_SYMBOL = "FCWEED";
+
+export const CRATE_VAULT_ADDRESS = "0x63e0F8Bf2670f54b7DB51254cED9B65b2B748B0C";
+export const CRATE_COST = ethers.utils.parseUnits("200000", 18);
+
+
+export const V4_ITEMSHOP_ADDRESS = "0x2aBa0B4F7DCe039c170ec9347DDC634d95E79ee8";
+export const V4_STAKING_ADDRESS = "0x0A79278b0017Aa90DF59696F0aA4e0648c45bb92";
+export const V4_BATTLES_ADDRESS = "0xaea874795C4368B446c8da1A3EA90dB134349Ce3";
+
+
+export const RewardCategory = {
+    FCWEED: 0,
+    USDC: 1,
+    DUST: 2,
+    NFT_PLANT: 3,
+    NFT_LAND: 4,
+    NFT_SUPER_LAND: 5,
+    SHOP_ITEM: 6,
+};
+
+export const CRATE_REWARDS = [
+    { id: 0, name: 'Dust', amount: '100', token: 'DUST', color: '#6B7280' },
+    { id: 1, name: 'Dust Pile', amount: '250', token: 'DUST', color: '#9CA3AF' },
+    { id: 2, name: 'Dust Cloud', amount: '500', token: 'DUST', color: '#D1D5DB' },
+    { id: 3, name: 'Dust Storm', amount: '1,000', token: 'DUST', color: '#E5E7EB' },
+    { id: 4, name: 'Common', amount: '50K', token: 'FCWEED', color: '#8B9A6B' },
+    { id: 5, name: 'Uncommon', amount: '150K', token: 'FCWEED', color: '#4A9B7F' },
+    { id: 6, name: 'Rare', amount: '300K', token: 'FCWEED', color: '#3B82F6' },
+    { id: 7, name: 'Epic', amount: '500K', token: 'FCWEED', color: '#A855F7' },
+    { id: 8, name: 'Legendary', amount: '1M', token: 'FCWEED', color: '#F59E0B' },
+    { id: 9, name: 'JACKPOT', amount: '5M', token: 'FCWEED', color: '#FFD700', isJackpot: true },
+    { id: 10, name: '$5', amount: '$5', token: 'USDC', color: '#2775CA' },
+    { id: 11, name: '$15', amount: '$15', token: 'USDC', color: '#2775CA' },
+    { id: 12, name: '$50', amount: '$50', token: 'USDC', color: '#2775CA' },
+    { id: 13, name: '$100', amount: '$100', token: 'USDC', color: '#2775CA' },
+    { id: 14, name: '$250', amount: '$250', token: 'USDC', color: '#00D4FF', isJackpot: true },
+    { id: 15, name: 'Plant NFT', amount: '1x', token: 'NFT', color: '#228B22', isNFT: true },
+    { id: 16, name: 'Land NFT', amount: '1x', token: 'NFT', color: '#8B4513', isNFT: true },
+    { id: 17, name: 'Super Land', amount: '1x', token: 'NFT', color: '#FF6B35', isNFT: true, isJackpot: true },
+];
+export const CRATE_PROBS = [2800, 1800, 1200, 600, 1400, 900, 400, 180, 50, 10, 300, 150, 50, 20, 5, 80, 40, 15];
+
 
 export const PLANT_FALLBACK_IMG = "/hero.png";
 export const LAND_FALLBACK_IMG  = "/land.png";
@@ -57,3 +97,4 @@ export const SUPER_PLANT_IDS = new Set<number>([
 export const SUPER_LAND_IDS = new Set<number>([
     // example: 69
 ]);
+
