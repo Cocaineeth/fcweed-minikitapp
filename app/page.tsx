@@ -803,6 +803,7 @@ export default function Home()
     const FCWEED_TOKEN = "0x42ef01219BDb2190F275Cda7956D08822549d224";
     const DEAD_ADDRESS = "0x000000000000000000000000000000000000dEaD";
     const TREASURY_ADDRESS = "0x5A567898881cef8DF767D192B74d99513cAa6e46";
+    const LP_POOL_ADDRESS = "0xA1A1B6b489Ceb413999ccCe73415D4fA92e826A1";
 
     // NFT Supply tracking
     const [nftSupply, setNftSupply] = useState<{ plants: number; lands: number; superLands: number; loading: boolean }>({ plants: 0, lands: 0, superLands: 0, loading: true });
@@ -817,26 +818,28 @@ export default function Home()
             ];
             const tokenContract = new ethers.Contract(FCWEED_TOKEN, fullErc20Abi, readProvider);
             
-            const [totalSupply, burnedRaw, treasuryRaw] = await Promise.all([
+            const [totalSupply, burnedRaw, treasuryRaw, lpPoolRaw] = await Promise.all([
                 tokenContract.totalSupply(),
                 tokenContract.balanceOf(DEAD_ADDRESS),
                 tokenContract.balanceOf(TREASURY_ADDRESS),
+                tokenContract.balanceOf(LP_POOL_ADDRESS),
             ]);
 
             console.log("[TokenStats] Raw values:", { 
                 totalSupply: totalSupply.toString(), 
                 burned: burnedRaw.toString(), 
-                treasury: treasuryRaw.toString() 
+                treasury: treasuryRaw.toString(),
+                lpPool: lpPoolRaw.toString()
             });
 
             const burned = parseFloat(ethers.utils.formatUnits(burnedRaw, 18));
             const treasury = parseFloat(ethers.utils.formatUnits(treasuryRaw, 18));
+            const lpPool = parseFloat(ethers.utils.formatUnits(lpPoolRaw, 18));
             const total = parseFloat(ethers.utils.formatUnits(totalSupply, 18));
             const controlled = burned + treasury;
-            const circulating = total - controlled;
 
             const controlledPct = total > 0 ? ((controlled / total) * 100).toFixed(2) : "0";
-            const circulatingPct = total > 0 ? ((circulating / total) * 100).toFixed(2) : "0";
+            const lpPoolPct = total > 0 ? ((lpPool / total) * 100).toFixed(2) : "0";
 
             const formatNum = (n: number) => {
                 if (n >= 1e12) return (n / 1e12).toFixed(2) + "T";
@@ -846,13 +849,13 @@ export default function Home()
                 return n.toFixed(0);
             };
 
-            console.log("[TokenStats] Formatted:", { burned: formatNum(burned), treasury: formatNum(treasury), controlledPct, circulatingPct });
+            console.log("[TokenStats] Formatted:", { burned: formatNum(burned), treasury: formatNum(treasury), controlledPct, lpPoolPct });
 
             setTokenStats({
                 burned: formatNum(burned),
                 treasury: formatNum(treasury),
                 controlledPct,
-                circulatingPct,
+                circulatingPct: lpPoolPct, // This is now the LP pool percentage
                 loading: false
             });
         } catch (err) {
@@ -870,22 +873,36 @@ export default function Home()
             const landContract = new ethers.Contract(LAND_ADDRESS, nftAbi, readProvider);
             const superLandContract = new ethers.Contract(SUPER_LAND_ADDRESS, nftAbi, readProvider);
 
-            const [plantSupply, landSupply, superLandSupply] = await Promise.all([
-                plantContract.totalSupply().catch(() => ethers.BigNumber.from(0)),
-                landContract.totalSupply().catch(() => ethers.BigNumber.from(0)),
-                superLandContract.totalSupply().catch(() => ethers.BigNumber.from(0)),
-            ]);
+            // Use multicall for better reliability
+            const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+            const totalSupplyCallData = new ethers.utils.Interface(nftAbi).encodeFunctionData("totalSupply");
+            
+            const calls = [
+                { target: PLANT_ADDRESS, callData: totalSupplyCallData },
+                { target: LAND_ADDRESS, callData: totalSupplyCallData },
+                { target: SUPER_LAND_ADDRESS, callData: totalSupplyCallData },
+            ];
 
-            console.log("[NFTSupply] Results:", { 
-                plants: plantSupply.toNumber(), 
-                lands: landSupply.toNumber(), 
-                superLands: superLandSupply.toNumber() 
-            });
+            const results = await mc.callStatic.tryAggregate(false, calls);
+            
+            let plants = 0, lands = 0, superLands = 0;
+            
+            if (results[0].success) {
+                plants = ethers.BigNumber.from(results[0].returnData).toNumber();
+            }
+            if (results[1].success) {
+                lands = ethers.BigNumber.from(results[1].returnData).toNumber();
+            }
+            if (results[2].success) {
+                superLands = ethers.BigNumber.from(results[2].returnData).toNumber();
+            }
+
+            console.log("[NFTSupply] Results:", { plants, lands, superLands });
 
             setNftSupply({
-                plants: plantSupply.toNumber(),
-                lands: landSupply.toNumber(),
-                superLands: superLandSupply.toNumber(),
+                plants,
+                lands,
+                superLands,
                 loading: false
             });
         } catch (err) {
@@ -1003,21 +1020,43 @@ export default function Home()
                     const healthCalls = stakedPlantNums.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
                     const waterCalls = stakedPlantNums.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
                     const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                    const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
-                    const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
+                    
+                    // Use tryAggregate for better error handling
+                    const healthResults = await mc.callStatic.tryAggregate(false, healthCalls);
+                    const waterResults = await mc.callStatic.tryAggregate(false, waterCalls);
+                    
                     stakedPlantNums.forEach((id: number, i: number) => {
-                        const health = ethers.BigNumber.from(healthResults[i]).toNumber();
-                        healthMap[id] = health;
-                        waterNeededMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i]), 18));
-                        console.log(`[V4Staking] Plant #${id} health: ${health}%`);
+                        if (healthResults[i].success) {
+                            const health = ethers.BigNumber.from(healthResults[i].returnData).toNumber();
+                            healthMap[id] = health;
+                            console.log(`[V4Staking] Plant #${id} health: ${health}%`);
+                        } else {
+                            // If call failed, assume needs water (health 0)
+                            healthMap[id] = 0;
+                            console.log(`[V4Staking] Plant #${id} health call failed, assuming 0%`);
+                        }
+                        
+                        if (waterResults[i].success) {
+                            waterNeededMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i].returnData), 18));
+                        } else {
+                            waterNeededMap[id] = 1; // Assume needs at least 1L if call failed
+                        }
                     });
+                    
                     // Update avg health with actual calculated value
                     if (stakedPlantNums.length > 0) {
                         const totalHealth = Object.values(healthMap).reduce((a, b) => a + b, 0);
                         const calculatedAvgHealth = Math.round(totalHealth / stakedPlantNums.length);
                         setV4StakingStats((prev: any) => prev ? { ...prev, avgHealth: calculatedAvgHealth } : prev);
                     }
-                } catch (err) { stakedPlantNums.forEach((id: number) => { healthMap[id] = 100; waterNeededMap[id] = 0; }); }
+                } catch (err) { 
+                    console.error("[V4Staking] Health fetch error:", err);
+                    // On error, don't assume 100% - leave health unknown so user sees issue
+                    stakedPlantNums.forEach((id: number) => { 
+                        healthMap[id] = 0; // Show as needing water
+                        waterNeededMap[id] = 1; 
+                    }); 
+                }
             }
             setV4PlantHealths(healthMap);
             setV4WaterNeeded(waterNeededMap);
@@ -1112,13 +1151,24 @@ export default function Home()
                 const healthCalls = v4StakedPlants.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
                 const waterCalls = v4StakedPlants.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
                 const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
-                const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
+                
+                // Use tryAggregate for better error handling
+                const healthResults = await mc.callStatic.tryAggregate(false, healthCalls);
+                const waterResults = await mc.callStatic.tryAggregate(false, waterCalls);
+                
                 const newHealthMap: Record<number, number> = {};
                 const newWaterMap: Record<number, number> = {};
                 v4StakedPlants.forEach((id: number, i: number) => {
-                    newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
-                    newWaterMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i]), 18));
+                    if (healthResults[i].success) {
+                        newHealthMap[id] = ethers.BigNumber.from(healthResults[i].returnData).toNumber();
+                    } else {
+                        newHealthMap[id] = 0; // Assume needs water if call failed
+                    }
+                    if (waterResults[i].success) {
+                        newWaterMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i].returnData), 18));
+                    } else {
+                        newWaterMap[id] = 1;
+                    }
                 });
                 setV4PlantHealths(newHealthMap);
                 setV4WaterNeeded(newWaterMap);
@@ -3841,13 +3891,7 @@ export default function Home()
                                     <div className={styles.statCard}><span className={styles.statLabel}>Capacity</span><span className={styles.statValue}>{v5StakingStats ? `${v5StakingStats.plants}/${v5StakingStats.capacity}` : "0/1"}</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Boost</span><span className={styles.statValue} style={{ color: "#10b981" }}>+{v5StakingStats?.boostPct?.toFixed(1) || 0}%</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Daily (Live)</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) < 100 ? "#fbbf24" : "#10b981" }}>{v5StakingStats?.dailyRewards || "0"}</span></div>
-                                    <div className={styles.statCard}>
-                                        <span className={styles.statLabel}>Avg Health</span>
-                                        <div style={{ width: "100%", height: 6, background: "#1f2937", borderRadius: 3, marginTop: 2, overflow: "hidden" }}>
-                                            <div style={{ height: "100%", width: `${v5StakingStats?.avgHealth || 100}%`, background: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444", transition: "width 0.5s" }} />
-                                        </div>
-                                        <span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444", fontSize: 12 }}>{v5StakingStats?.avgHealth || 100}%</span>
-                                    </div>
+                                    <div className={styles.statCard}><span className={styles.statLabel}>Avg Health</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v5StakingStats?.avgHealth || 100}%</span></div>
                                     <div className={styles.statCard} style={{ gridColumn: "span 2" }}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v5StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18))).toFixed(1) : "0"}L</span></div>
                                     <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #065f46, #10b981)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#a7f3d0", fontSize: 16 }}>{v5RealTimePending}</span></div>
                                 </div>
@@ -3967,13 +4011,7 @@ export default function Home()
                                     <div className={styles.statCard}><span className={styles.statLabel}>Capacity</span><span className={styles.statValue}>{v4StakingStats ? `${v4StakingStats.plants}/${v4StakingStats.capacity}` : "0/1"}</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Boost</span><span className={styles.statValue} style={{ color: "#a855f7" }}>+{v4StakingStats?.boostPct?.toFixed(1) || 0}%</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Daily (Live)</span><span className={styles.statValue} style={{ color: (v4StakingStats?.avgHealth || 100) < 100 ? "#fbbf24" : "#a855f7" }}>{v4StakingStats?.dailyRewards || "0"}</span></div>
-                                    <div className={styles.statCard}>
-                                        <span className={styles.statLabel}>Avg Health</span>
-                                        <div style={{ width: "100%", height: 6, background: "#1f2937", borderRadius: 3, marginTop: 2, overflow: "hidden" }}>
-                                            <div style={{ height: "100%", width: `${v4StakingStats?.avgHealth || 100}%`, background: (v4StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v4StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444", transition: "width 0.5s" }} />
-                                        </div>
-                                        <span className={styles.statValue} style={{ color: (v4StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v4StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444", fontSize: 12 }}>{v4StakingStats?.avgHealth || 100}%</span>
-                                    </div>
+                                    <div className={styles.statCard}><span className={styles.statLabel}>Avg Health</span><span className={styles.statValue} style={{ color: (v4StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v4StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v4StakingStats?.avgHealth || 100}%</span></div>
                                     <div className={styles.statCard} style={{ gridColumn: "span 2" }}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v4StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18))).toFixed(1) : "0"}L</span></div>
                                     <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #581c87, #7c3aed)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#c4b5fd", fontSize: 16 }}>{v4RealTimePending}</span></div>
                                 </div>
