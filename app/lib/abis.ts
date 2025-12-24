@@ -111,7 +111,7 @@ export const V4_STAKING_ABI = [
 ];
 
 export const V4_BATTLES_ABI = [
-    "function searchForTarget(address target, uint256 nonce, bytes calldata signature) external",
+    "function searchForTarget(address target, uint256 nonce, uint256 deadline, bytes calldata signature) external",
     "function attack() external",
     "function cancelSearch() external",
     "function getTargetStats(address target) external view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards, uint256 battlePower, bool hasShield)",

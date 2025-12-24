@@ -2041,7 +2041,7 @@ export default function Home()
                 return;
             }
 
-            const { target, nonce, signature, stats } = warsPreviewData;
+            const { target, nonce, deadline, signature, stats } = warsPreviewData;
             const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
 
             setWarsStatus("Checking approval...");
@@ -2062,7 +2062,7 @@ export default function Home()
 
             const searchTx = await txAction().sendContractTx(
                 V5_BATTLES_ADDRESS,
-                v4BattlesInterface.encodeFunctionData("searchForTarget", [target, nonce, signature]),
+                v4BattlesInterface.encodeFunctionData("searchForTarget", [target, nonce, deadline, signature]),
                 "0x1E8480"
             );
 
