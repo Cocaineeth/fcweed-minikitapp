@@ -867,17 +867,20 @@ export default function Home()
     async function loadNftSupply() {
         try {
             console.log("[NFTSupply] Loading NFT supply...");
-            const nftAbi = ["function totalSupply() view returns (uint256)"];
+            const nftAbi = [
+                "function totalMinted() view returns (uint256)",
+                "function maxSupply() view returns (uint256)"
+            ];
             const nftInterface = new ethers.utils.Interface(nftAbi);
             
             // Use multicall for better reliability
             const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-            const totalSupplyCallData = nftInterface.encodeFunctionData("totalSupply");
+            const totalMintedCallData = nftInterface.encodeFunctionData("totalMinted");
             
             const calls = [
-                { target: PLANT_ADDRESS, callData: totalSupplyCallData },
-                { target: LAND_ADDRESS, callData: totalSupplyCallData },
-                { target: SUPER_LAND_ADDRESS, callData: totalSupplyCallData },
+                { target: PLANT_ADDRESS, callData: totalMintedCallData },
+                { target: LAND_ADDRESS, callData: totalMintedCallData },
+                { target: SUPER_LAND_ADDRESS, callData: totalMintedCallData },
             ];
 
             console.log("[NFTSupply] Making multicall to:", { PLANT_ADDRESS, LAND_ADDRESS, SUPER_LAND_ADDRESS });
@@ -888,9 +891,9 @@ export default function Home()
             
             if (results[0].success && results[0].returnData !== "0x") {
                 try {
-                    const decoded = nftInterface.decodeFunctionResult("totalSupply", results[0].returnData);
+                    const decoded = nftInterface.decodeFunctionResult("totalMinted", results[0].returnData);
                     plants = decoded[0].toNumber();
-                    console.log("[NFTSupply] Plants decoded:", plants);
+                    console.log("[NFTSupply] Plants minted:", plants);
                 } catch (e) {
                     console.error("[NFTSupply] Failed to decode plants:", e);
                 }
@@ -900,9 +903,9 @@ export default function Home()
             
             if (results[1].success && results[1].returnData !== "0x") {
                 try {
-                    const decoded = nftInterface.decodeFunctionResult("totalSupply", results[1].returnData);
+                    const decoded = nftInterface.decodeFunctionResult("totalMinted", results[1].returnData);
                     lands = decoded[0].toNumber();
-                    console.log("[NFTSupply] Lands decoded:", lands);
+                    console.log("[NFTSupply] Lands minted:", lands);
                 } catch (e) {
                     console.error("[NFTSupply] Failed to decode lands:", e);
                 }
@@ -912,9 +915,9 @@ export default function Home()
             
             if (results[2].success && results[2].returnData !== "0x") {
                 try {
-                    const decoded = nftInterface.decodeFunctionResult("totalSupply", results[2].returnData);
+                    const decoded = nftInterface.decodeFunctionResult("totalMinted", results[2].returnData);
                     superLands = decoded[0].toNumber();
-                    console.log("[NFTSupply] SuperLands decoded:", superLands);
+                    console.log("[NFTSupply] SuperLands minted:", superLands);
                 } catch (e) {
                     console.error("[NFTSupply] Failed to decode superLands:", e);
                 }
