@@ -1,3 +1,5 @@
+import { useState, useEffect, useCallback } from "react";
+
 export type LeaderboardItem = {
   staker: string;
   plants: number;
@@ -21,6 +23,31 @@ export type FarmerRow = {
     daily: string;
     dailyRaw: number;
 };
+
+export function useLeaderboard(limit = 50) {
+    const [items, setItems] = useState<LeaderboardItem[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const refresh = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await loadLeaderboard({ limit });
+            setItems(data.items);
+        } catch (e: any) {
+            setError(e?.message || "Failed to load leaderboard");
+        } finally {
+            setLoading(false);
+        }
+    }, [limit]);
+
+    useEffect(() => {
+        refresh();
+    }, [refresh]);
+
+    return { items, loading, error, refresh };
+}
 
 export async function loadLeaderboard(params?:
 {
