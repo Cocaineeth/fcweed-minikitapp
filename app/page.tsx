@@ -1911,36 +1911,36 @@ export default function Home()
                 const attackerAddress = ctx.userAddress;
                 console.log("[Wars] Calculating attacker power for:", attackerAddress);
                 console.log("[Wars] Target address was:", activeSearch.target);
-                console.log("[Wars] V4_STAKING_ADDRESS:", V4_STAKING_ADDRESS);
+                console.log("[Wars] V5_STAKING_ADDRESS:", V5_STAKING_ADDRESS);
                 
-                // Method 1: Try V4 contract call
+                // Method 1: Try V5 contract call
                 try {
                     console.log("[Wars] Calling getUserBattleStats for attacker...");
-                    const userStats = await v4Contract.getUserBattleStats(attackerAddress);
+                    const userStats = await v5Contract.getUserBattleStats(attackerAddress);
                     console.log("[Wars] Raw userStats response:", userStats);
                     const aPlants = userStats[0].toNumber();
                     const aLands = userStats[1].toNumber();
                     const aSuperLands = userStats[2].toNumber();
                     const aAvgHealth = userStats[3].toNumber();
 
-                    console.log("[Wars] Attacker stats from V4 - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
+                    console.log("[Wars] Attacker stats from V5 - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
 
                     if (aPlants > 0 || aLands > 0 || aSuperLands > 0) {
                         attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
-                        console.log("[Wars] Calculated attacker power from V4:", attackerPower);
+                        console.log("[Wars] Calculated attacker power from V5:", attackerPower);
                     }
 
                 } catch (e: any) {
                     console.error("[Wars] Failed to get attacker power:", e.message || e);
                 }
 
-                // Method 2: If V4 returned 0, try using v4StakingStats from React state
-                if (attackerPower === 0 && v4StakingStats && v4StakingStats.plants > 0) {
-                    console.log("[Wars] Using cached v4StakingStats as fallback");
-                    const aPlants = v4StakingStats.plants || 0;
-                    const aLands = v4StakingStats.lands || 0;
-                    const aSuperLands = v4StakingStats.superLands || 0;
-                    const aAvgHealth = v4StakingStats.avgHealth || 100;
+                // Method 2: If V5 returned 0, try using v5StakingStats from React state
+                if (attackerPower === 0 && v5StakingStats && v5StakingStats.plants > 0) {
+                    console.log("[Wars] Using cached v5StakingStats as fallback");
+                    const aPlants = v5StakingStats.plants || 0;
+                    const aLands = v5StakingStats.lands || 0;
+                    const aSuperLands = v5StakingStats.superLands || 0;
+                    const aAvgHealth = v5StakingStats.avgHealth || 100;
                     attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
                     console.log("[Wars] Calculated attacker power from cache:", attackerPower);
                 }
@@ -2098,38 +2098,38 @@ export default function Home()
             const attackerAddr = ctx.userAddress;
             console.log("[Wars] Lock - Getting attacker power for:", attackerAddr);
 
-            // Method 1: Try V4 contract call
+            // Method 1: Try V5 contract call
             try {
-                const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, [
+                const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, [
                     "function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)"
                 ], readProvider);
 
-                console.log("[Wars] Lock - Calling V4 getUserBattleStats...");
-                const userStats = await v4Contract.getUserBattleStats(attackerAddr);
-                console.log("[Wars] Lock - Raw V4 response:", userStats);
+                console.log("[Wars] Lock - Calling V5 getUserBattleStats...");
+                const userStats = await v5Contract.getUserBattleStats(attackerAddr);
+                console.log("[Wars] Lock - Raw V5 response:", userStats);
 
                 const aPlants = userStats[0].toNumber();
                 const aLands = userStats[1].toNumber();
                 const aSuperLands = userStats[2].toNumber();
                 const aAvgHealth = userStats[3].toNumber();
 
-                console.log("[Wars] Lock - Parsed V4 stats - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
+                console.log("[Wars] Lock - Parsed V5 stats - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
 
                 if (aPlants > 0 || aLands > 0 || aSuperLands > 0) {
                     attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
-                    console.log("[Wars] Lock - Calculated attacker power from V4:", attackerPower);
+                    console.log("[Wars] Lock - Calculated attacker power from V5:", attackerPower);
                 }
             } catch (e: any) {
-                console.error("[Wars] Lock - V4 contract call failed:", e.message || e);
+                console.error("[Wars] Lock - V5 contract call failed:", e.message || e);
             }
 
-            // Method 2: If V4 returned 0, try using v4StakingStats from React state
-            if (attackerPower === 0 && v4StakingStats && v4StakingStats.plants > 0) {
-                console.log("[Wars] Lock - Using cached v4StakingStats as fallback");
-                const aPlants = v4StakingStats.plants || 0;
-                const aLands = v4StakingStats.lands || 0;
-                const aSuperLands = v4StakingStats.superLands || 0;
-                const aAvgHealth = v4StakingStats.avgHealth || 100;
+            // Method 2: If V5 returned 0, try using v5StakingStats from React state
+            if (attackerPower === 0 && v5StakingStats && v5StakingStats.plants > 0) {
+                console.log("[Wars] Lock - Using cached v5StakingStats as fallback");
+                const aPlants = v5StakingStats.plants || 0;
+                const aLands = v5StakingStats.lands || 0;
+                const aSuperLands = v5StakingStats.superLands || 0;
+                const aAvgHealth = v5StakingStats.avgHealth || 100;
                 attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
                 console.log("[Wars] Lock - Calculated attacker power from cache:", attackerPower);
             }
