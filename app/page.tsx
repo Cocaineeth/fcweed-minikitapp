@@ -1756,7 +1756,34 @@ export default function Home()
     const v4PlantsNeedingWater = useMemo(() => v4StakedPlants.filter(id => (v4WaterNeeded[id] || 0) > 0 || (v4PlantHealths[id] !== undefined && v4PlantHealths[id] < 100)), [v4StakedPlants, v4PlantHealths, v4WaterNeeded]);
     const v4TotalWaterNeededForSelected = useMemo(() => selectedV4PlantsToWater.reduce((sum, id) => sum + Math.max(1, v4WaterNeeded[id] || 0), 0), [selectedV4PlantsToWater, v4WaterNeeded]);
 
-    const BACKEND_API_URL = "https://wars.x420ponzi.com";
+    // Use environment variable or default to production URL
+    const BACKEND_API_URL = process.env.NEXT_PUBLIC_WARS_API_URL || "https://wars.x420ponzi.com";
+    const [warsBackendStatus, setWarsBackendStatus] = useState<"unknown" | "online" | "offline">("unknown");
+
+    // Check backend health when wars tab opens
+    async function checkWarsBackend() {
+        try {
+            const response = await fetch(`${BACKEND_API_URL}/health`, { 
+                method: 'GET',
+                signal: AbortSignal.timeout(5000)
+            });
+            if (response.ok) {
+                setWarsBackendStatus("online");
+                console.log("[Wars] Backend is online");
+                return true;
+            }
+        } catch (err) {
+            console.error("[Wars] Backend health check failed:", err);
+        }
+        setWarsBackendStatus("offline");
+        return false;
+    }
+
+    useEffect(() => {
+        if (activeTab === "wars") {
+            checkWarsBackend();
+        }
+    }, [activeTab]);
 
     async function loadWarsPlayerStats() {
         if (!userAddress) return;
@@ -1808,8 +1835,8 @@ export default function Home()
             }
 
 
-            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
-            const hasShield = await v4Contract.hasRaidShield(userAddress).catch(() => false);
+            const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
+            const hasShield = await v5Contract.hasRaidShield(userAddress).catch(() => false);
             setWarsPlayerStats((prev: any) => prev ? { ...prev, hasShield } : null);
 
         } catch (err) {
@@ -1844,28 +1871,28 @@ export default function Home()
                 setWarsTargetLocked(true); // Already paid
                 setWarsSearchExpiry(activeSearch.expiry.toNumber());
                 
-                // Fetch target stats directly from V4 staking (more reliable)
-                const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, [
+                // Fetch target stats directly from V5 staking (more reliable)
+                const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, [
                     "function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)",
                     "function hasRaidShield(address) external view returns (bool)"
                 ], readProvider);
                 
                 let tPlants = 0, tLands = 0, tSuperLands = 0, tAvgHealth = 100, tPending = ethers.BigNumber.from(0);
                 try {
-                    const targetStats = await v4Contract.getUserBattleStats(activeSearch.target);
+                    const targetStats = await v5Contract.getUserBattleStats(activeSearch.target);
                     tPlants = targetStats[0].toNumber();
                     tLands = targetStats[1].toNumber();
                     tSuperLands = targetStats[2].toNumber();
                     tAvgHealth = targetStats[3].toNumber();
                     tPending = targetStats[4];
-                    console.log("[Wars] Target stats from V4 - Plants:", tPlants, "Lands:", tLands, "SuperLands:", tSuperLands, "AvgHealth:", tAvgHealth);
+                    console.log("[Wars] Target stats from V5 - Plants:", tPlants, "Lands:", tLands, "SuperLands:", tSuperLands, "AvgHealth:", tAvgHealth);
                 } catch (e) {
                     console.error("[Wars] Failed to get target stats:", e);
                 }
                 
                 let hasShield = false;
                 try {
-                    hasShield = await v4Contract.hasRaidShield(activeSearch.target);
+                    hasShield = await v5Contract.hasRaidShield(activeSearch.target);
                 } catch (e) {}
                 
                 const defenderPower = Math.round((tPlants * 100 + tLands * 50 + tSuperLands * 150) * tAvgHealth / 100);
@@ -1935,8 +1962,8 @@ export default function Home()
                 return;
             }
 
-            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
-            const hasShield = await v4Contract.hasRaidShield(ctx.userAddress).catch(() => false);
+            const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
+            const hasShield = await v5Contract.hasRaidShield(ctx.userAddress).catch(() => false);
             if (hasShield) {
                 const confirmAttack = window.confirm("⚠️ WARNING: You have an active Raid Shield!\n\nAttacking another player will REMOVE your shield protection.\n\nDo you want to continue?");
                 if (!confirmAttack) {
@@ -3517,6 +3544,34 @@ export default function Home()
                     <section className={styles.infoCard} style={{ textAlign: "center", padding: 16 }}>
                         <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#ef4444" }}>⚔️ Cartel Wars</h2>
 
+                        {/* Backend Status Indicator */}
+                        <div style={{ 
+                            display: "flex", 
+                            justifyContent: "center", 
+                            alignItems: "center", 
+                            gap: 6, 
+                            marginBottom: 12,
+                            fontSize: 10,
+                            color: warsBackendStatus === "online" ? "#10b981" : warsBackendStatus === "offline" ? "#ef4444" : "#9ca3af"
+                        }}>
+                            <span style={{ 
+                                width: 8, 
+                                height: 8, 
+                                borderRadius: "50%", 
+                                background: warsBackendStatus === "online" ? "#10b981" : warsBackendStatus === "offline" ? "#ef4444" : "#6b7280"
+                            }} />
+                            Backend: {warsBackendStatus === "online" ? "Online" : warsBackendStatus === "offline" ? "Offline" : "Checking..."}
+                            {warsBackendStatus === "offline" && (
+                                <button 
+                                    type="button" 
+                                    onClick={checkWarsBackend} 
+                                    style={{ fontSize: 9, padding: "2px 6px", background: "#374151", border: "1px solid #4b5563", borderRadius: 4, color: "#fff", cursor: "pointer" }}
+                                >
+                                    Retry
+                                </button>
+                            )}
+                        </div>
+
                         {connected && warsPlayerStats && (
                             <>
                                 {warsPlayerStats.hasShield && (
@@ -3868,13 +3923,16 @@ export default function Home()
 
                         <div style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 8, padding: 10, marginBottom: 12 }}>
                             <div style={{ fontSize: 10, color: "#fbbf24", fontWeight: 600, marginBottom: 4 }}>⚠️ Water Costs Scale With Decay!</div>
+                            <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 6 }}>Formula: Water = (decay%)² / 500</div>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, fontSize: 9, color: "#9ca3af" }}>
-                                <div>99% → 1.0L</div>
-                                <div>90% → 1.2L</div>
-                                <div>70% → 2.8L</div>
-                                <div>50% → 6.0L</div>
+                                <div>90% health → 0.2L</div>
+                                <div>70% health → 1.8L</div>
+                                <div>50% health → 5.0L</div>
+                                <div>30% health → 9.8L</div>
+                                <div>10% health → 16.2L</div>
+                                <div>0% health → 20.0L</div>
                             </div>
-                            <p style={{ fontSize: 9, color: "#ef4444", margin: "6px 0 0" }}>Regular watering saves your Plants!</p>
+                            <p style={{ fontSize: 9, color: "#ef4444", margin: "6px 0 0" }}>💡 Water early! Costs increase exponentially as health drops.</p>
                         </div>
 
                         <div style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: 8, padding: 10 }}>
