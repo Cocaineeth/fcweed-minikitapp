@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import Image from "next/image";
 import { useMiniKit } from "@coinbase/onchainkit/minikit";
-import { sdk } from "@farcaster/miniapp-sdk";
 import { ethers } from "ethers";
+import { sdk } from "@farcaster/miniapp-sdk";
 import styles from "./page.module.css";
-import { useLeaderboard } from "./lib/leaderboard";
 import { CrimeLadder } from "./components/CrimeLadder";
 import { loadOwnedTokens } from "./lib/tokens";
 import { MultiResult, multicallTry, decode1} from "./lib/multicall";
+import { makeTxActions } from "./lib/tx";
+import { CrateReward, StakingStats, NewStakingStats, FarmerRow, OwnedState} from "./lib/types";
+import { detectMiniAppEnvironment, waitForTx } from "./lib/auxilary";
 import {
     CHAIN_ID,
     TOKEN_SYMBOL,
@@ -17,8 +19,6 @@ import {
     LAND_ADDRESS,
     FCWEED_ADDRESS,
     SUPER_LAND_ADDRESS,
-    OLD_STAKING_ADDRESS,
-    NEW_STAKING_ADDRESS,
     PUBLIC_BASE_RPC,
     PLANT_FALLBACK_IMG,
     LAND_FALLBACK_IMG,
@@ -34,6 +34,15 @@ import {
     SUPER_PLANT_IDS,
     SUPER_LAND_IDS,
     MULTICALL3_ADDRESS,
+    METADATA_MODE,
+    CRATE_VAULT_ADDRESS,
+    CRATE_COST,
+    V4_ITEMSHOP_ADDRESS,
+    V4_STAKING_ADDRESS,     
+    V4_BATTLES_ADDRESS,
+    CRATE_REWARDS,
+    CRATE_PROBS,
+    RewardCategory,
 } from "./lib/constants";
 
 import {
@@ -44,6 +53,9 @@ import {
     ERC20_ABI,
     MULTICALL3_ABI,
     STAKING_ABI,
+    V4_STAKING_ABI,
+    V4_BATTLES_ABI,
+    CRATE_VAULT_ABI,
     usdcInterface,
     landInterface,
     plantInterface,
@@ -51,289 +63,9 @@ import {
     stakingInterface,
     erc20Interface,
     erc721Interface,
+    v4StakingInterface, 
+    v4BattlesInterface,
 } from "./lib/abis";
-
-
-const METADATA_MODE: "local-only" | "hybrid" | "remote-all" = "hybrid";
-
-const CRATE_VAULT_ADDRESS = "0x63e0F8Bf2670f54b7DB51254cED9B65b2B748B0C";
-const CRATE_COST = ethers.utils.parseUnits("200000", 18);
-
-const V3_STAKING_ADDRESS = "0xEF1b0837D353E709fB9b2d5807b4B16C416e11E8";
-const V3_ITEMSHOP_ADDRESS = "0x2aBa0B4F7DCe039c170ec9347DDC634d95E79ee8";
-const V3_BATTLES_ADDRESS = "0xaea874795C4368B446c8da1A3EA90dB134349Ce3";
-
-const V4_STAKING_ADDRESS = "0x0A79278b0017Aa90DF59696F0aA4e0648c45bb92";
-const V4_BATTLES_ADDRESS = "0xaea874795C4368B446c8da1A3EA90dB134349Ce3";
-
-const V5_STAKING_ADDRESS = "0xAF335bd7c4DaA6DC137815bA0d6141534CEB75D4";
-const V5_BATTLES_ADDRESS = "0xc023bcE1e9387B3F3BeE91B4E87Cc7A22c225e14";
-const V5_ITEMSHOP_ADDRESS = "0xDB342d98e62B4178a2591AD3A10F1f3aedD97332";
-
-const V3_STAKING_ABI = [
-    "function stakePlants(uint256[] calldata ids) external",
-    "function unstakePlants(uint256[] calldata ids) external",
-    "function stakeLands(uint256[] calldata ids) external",
-    "function unstakeLands(uint256[] calldata ids) external",
-    "function stakeSuperLands(uint256[] calldata ids) external",
-    "function unstakeSuperLands(uint256[] calldata ids) external",
-    "function claim() external",
-    "function pending(address account) external view returns (uint256)",
-    "function capacityOf(address account) external view returns (uint256)",
-    "function plantsOf(address account) external view returns (uint256[])",
-    "function landsOf(address account) external view returns (uint256[])",
-    "function superLandStakerOf(uint256 tokenId) external view returns (address)",
-    "function users(address) external view returns (uint64 last, uint32 plants, uint32 lands, uint32 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay, uint256 stakedTokens, uint256 tokenStakeTime, address referrer, uint256 referralEarnings, uint32 referralCount, uint256 guildId, uint256 earningBoostBps, uint256 earningBoostExpiry, uint256 capacityBoost, uint256 capacityBoostExpiry, uint256 raidShieldExpiry, uint256 raidAttackBoostBps, uint256 raidAttackBoostExpiry, uint256 seasonPoints, uint256 lastSeasonUpdated)",
-    "function getPlantHealth(uint256 tokenId) external view returns (uint256)",
-    "function getAverageHealth(address user) external view returns (uint256)",
-    "function getWaterNeeded(uint256 tokenId) external view returns (uint256)",
-    "function buyWater(uint256 liters) external",
-    "function waterPlant(uint256 tokenId) external",
-    "function waterPlants(uint256[] calldata tokenIds) external",
-    "function isShopOpen() external view returns (bool)",
-    "function getShopTimeInfo() external view returns (bool isOpen, uint256 opensAt, uint256 closesAt)",
-    "function getDailyWaterSupply() external view returns (uint256)",
-    "function getDailyWaterRemaining() external view returns (uint256)",
-    "function getWalletWaterLimit(address wallet) external view returns (uint256)",
-    "function getWalletWaterRemaining(address wallet) external view returns (uint256)",
-    "function waterPricePerLiter() external view returns (uint256)",
-    "function tokensPerPlantPerDay() external view returns (uint256)",
-    "function landBoostBps() external view returns (uint256)",
-    "function superLandBoostBps() external view returns (uint256)",
-    "function claimEnabled() external view returns (bool)",
-    "function waterShopEnabled() external view returns (bool)",
-    "function plantStakingEnabled() external view returns (bool)",
-    "function landStakingEnabled() external view returns (bool)",
-    "function superLandStakingEnabled() external view returns (bool)",
-    "function totalPlantsStaked() external view returns (uint256)",
-    "function getUserBattleStats(address account) external view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards)",
-    "function hasRaidShield(address user) external view returns (bool)",
-    "function calculateBattlePower(address account) external view returns (uint256)",
-    "function getTotalStakers() external view returns (uint256)",
-    "function getStakerAtIndex(uint256 index) external view returns (address)",
-    "event Claimed(address indexed user, uint256 amount)",
-    "event WaterPurchased(address indexed user, uint256 liters, uint256 cost)",
-    "event PlantWatered(address indexed user, uint256 tokenId, uint256 litersUsed)",
-    "event PlantsWatered(address indexed user, uint256[] tokenIds, uint256 totalLitersUsed)",
-    "event StakedPlants(address indexed user, uint256[] tokenIds)",
-    "event UnstakedPlants(address indexed user, uint256[] tokenIds)",
-];
-
-const V3_BATTLES_ABI = [
-    "function searchForTarget(address target, uint256 nonce, bytes calldata signature) external",
-    "function attack() external",
-    "function cancelSearch() external",
-    "function getTargetStats(address target) external view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards, uint256 battlePower, bool hasShield)",
-    "function getActiveSearch(address attacker) external view returns (address target, uint256 expiry, bool isValid)",
-    "function canAttack(address attacker) external view returns (bool)",
-    "function canBeAttacked(address defender) external view returns (bool)",
-    "function getAttackCooldownRemaining(address attacker) external view returns (uint256)",
-    "function getDefenseImmunityRemaining(address defender) external view returns (uint256)",
-    "function getPlayerStats(address player) external view returns (uint256 wins, uint256 losses, uint256 defWins, uint256 defLosses, uint256 rewardsStolen, uint256 rewardsLost, uint256 winStreak, uint256 bestStreak)",
-    "function estimateBattleOdds(address attacker, address defender) external view returns (uint256 attackerPower, uint256 defenderPower, uint256 estimatedWinChance)",
-    "function getSearchNonce(address attacker) external view returns (uint256)",
-    "function searchFee() external view returns (uint256)",
-    "function raidsEnabled() external view returns (bool)",
-    "event SearchInitiated(address indexed attacker, address indexed target, uint256 fee)",
-    "event BattleResult(address indexed attacker, address indexed defender, bool attackerWon, uint256 damageDealt, uint256 rewardsTransferred)",
-];
-
-const v3StakingInterface = new ethers.utils.Interface(V3_STAKING_ABI);
-const v3BattlesInterface = new ethers.utils.Interface(V3_BATTLES_ABI);
-
-const CRATE_VAULT_ABI = [
-    "function openCrate() external",
-    "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent, uint256 lastOpenedAt)",
-    "function getUserDustBalance(address user) external view returns (uint256)",
-    "function getUserCratesOpened(address user) external view returns (uint256)",
-    "function getGlobalStats() external view returns (uint256 totalCratesOpened, uint256 totalFcweedBurned, uint256 totalFcweedRewarded, uint256 totalUsdcRewarded, uint256 totalDustRewarded, uint256 totalNftsRewarded, uint256 uniqueUsers)",
-    "function getVaultInventory() external view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 shopItems)",
-    "function getAllRewards() external view returns (tuple(string name, uint8 category, uint256 amount, uint16 probability, bool enabled)[])",
-    "function crateCost() external view returns (uint256)",
-    "function dustConversionEnabled() external view returns (bool)",
-    "function dustToFcweedRate() external view returns (uint256)",
-    "function dustToFcweedAmount() external view returns (uint256)",
-    "function convertDustToFcweed(uint256 dustAmount) external",
-    "event CrateOpened(address indexed player, uint256 indexed rewardIndex, string rewardName, uint8 category, uint256 amount, uint256 nftTokenId, uint256 timestamp)",
-];
-
-const RewardCategory = {
-    FCWEED: 0,
-    USDC: 1,
-    DUST: 2,
-    NFT_PLANT: 3,
-    NFT_LAND: 4,
-    NFT_SUPER_LAND: 5,
-    SHOP_ITEM: 6,
-};
-
-const CRATE_REWARDS = [
-  { id: 0, name: 'Dust', amount: '100', token: 'DUST', color: '#6B7280' },
-  { id: 1, name: 'Dust Pile', amount: '250', token: 'DUST', color: '#9CA3AF' },
-  { id: 2, name: 'Dust Cloud', amount: '500', token: 'DUST', color: '#D1D5DB' },
-  { id: 3, name: 'Dust Storm', amount: '1,000', token: 'DUST', color: '#E5E7EB' },
-  { id: 4, name: 'Common', amount: '50K', token: 'FCWEED', color: '#8B9A6B' },
-  { id: 5, name: 'Uncommon', amount: '150K', token: 'FCWEED', color: '#4A9B7F' },
-  { id: 6, name: 'Rare', amount: '300K', token: 'FCWEED', color: '#3B82F6' },
-  { id: 7, name: 'Epic', amount: '500K', token: 'FCWEED', color: '#A855F7' },
-  { id: 8, name: 'Legendary', amount: '1M', token: 'FCWEED', color: '#F59E0B' },
-  { id: 9, name: 'JACKPOT', amount: '5M', token: 'FCWEED', color: '#FFD700', isJackpot: true },
-  { id: 10, name: '$5', amount: '$5', token: 'USDC', color: '#2775CA' },
-  { id: 11, name: '$15', amount: '$15', token: 'USDC', color: '#2775CA' },
-  { id: 12, name: '$50', amount: '$50', token: 'USDC', color: '#2775CA' },
-  { id: 13, name: '$100', amount: '$100', token: 'USDC', color: '#2775CA' },
-  { id: 14, name: '$250', amount: '$250', token: 'USDC', color: '#00D4FF', isJackpot: true },
-  { id: 15, name: 'Plant NFT', amount: '1x', token: 'NFT', color: '#228B22', isNFT: true },
-  { id: 16, name: 'Land NFT', amount: '1x', token: 'NFT', color: '#8B4513', isNFT: true },
-  { id: 17, name: 'Super Land', amount: '1x', token: 'NFT', color: '#FF6B35', isNFT: true, isJackpot: true },
-];
-const CRATE_PROBS = [2800, 1800, 1200, 600, 1400, 900, 400, 180, 50, 10, 300, 150, 50, 20, 5, 80, 40, 15];
-
-type CrateReward = typeof CRATE_REWARDS[number];
-
-type StakingStats = {
-    plantsStaked: number;
-    landsStaked: number;
-    totalSlots: number;
-    capacityUsed: number;
-    landBoostPct: number;
-    pendingFormatted: string;
-    pendingRaw: ethers.BigNumber;
-    claimEnabled: boolean;
-    tokensPerSecond: ethers.BigNumber;
-};
-
-type NewStakingStats = {
-    plantsStaked: number;
-    landsStaked: number;
-    superLandsStaked: number;
-    totalSlots: number;
-    capacityUsed: number;
-    totalBoostPct: number;
-    pendingFormatted: string;
-    pendingRaw: ethers.BigNumber;
-    dailyRewards: string;
-    claimEnabled: boolean;
-    tokensPerSecond: ethers.BigNumber;
-};
-
-type FarmerRow = {
-    addr: string;
-    plants: number;
-    lands: number;
-    superLands: number;
-    boostPct: number;
-    capacity: string;
-    daily: string;
-    dailyRaw: number;
-};
-
-type OwnedState = {
-    wallet: string;
-    plants: { tokenId: string; staked: boolean; boost: number }[];
-    lands: { tokenId: string; staked: boolean; boost: number }[];
-    superLands: { tokenId: string; staked: boolean; boost: number }[];
-    totals: {
-        plants: number;
-        lands: number;
-        superLands: number;
-    };
-};
-
-function isSuper(nftAddress: string, id: number): boolean
-{
-    const a = nftAddress.toLowerCase();
-    if (a === PLANT_ADDRESS.toLowerCase()) return SUPER_PLANT_IDS.has(id);
-    if (a === LAND_ADDRESS.toLowerCase()) return SUPER_LAND_IDS.has(id);
-    return false;
-}
-
-function detectMiniAppEnvironment(): { isMiniApp: boolean; isMobile: boolean } {
-    if (typeof window === "undefined") return { isMiniApp: false, isMobile: false };
-
-    const userAgent = navigator.userAgent || "";
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(userAgent);
-
-
-    const inIframe = window.parent !== window;
-    const hasFarcasterContext = !!(window as any).farcaster || !!(window as any).__FARCASTER__;
-    const hasWarpcastUA = userAgent.toLowerCase().includes("warpcast");
-    const urlHasFrame = window.location.href.includes("fc-frame") ||
-                        window.location.href.includes("farcaster") ||
-                        document.referrer.includes("warpcast") ||
-                        document.referrer.includes("farcaster");
-
-
-    let sdkAvailable = false;
-    try {
-        sdkAvailable = !!(sdk && sdk.wallet);
-    } catch {
-        sdkAvailable = false;
-    }
-
-    const isMiniApp = inIframe || hasFarcasterContext || hasWarpcastUA || urlHasFrame || (isMobile && sdkAvailable);
-
-    console.log("[Detect] Environment check:", {
-        isMobile,
-        inIframe,
-        hasFarcasterContext,
-        hasWarpcastUA,
-        urlHasFrame,
-        sdkAvailable,
-        isMiniApp
-    });
-
-    return { isMiniApp, isMobile };
-}
-
-async function waitForTx(
-    tx: ethers.providers.TransactionResponse | undefined | null,
-    readProvider?: ethers.providers.Provider,
-    maxWaitMs = 60000
-)
-{
-    if (!tx) return;
-
-
-
-    if (readProvider && tx.hash) {
-        const startTime = Date.now();
-        while (Date.now() - startTime < maxWaitMs) {
-            try {
-                const receipt = await readProvider.getTransactionReceipt(tx.hash);
-                if (receipt && receipt.confirmations > 0) {
-                    return receipt;
-                }
-            } catch {
-
-            }
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-        console.warn("Transaction wait timeout, proceeding anyway:", tx.hash);
-        return;
-    }
-
-
-    try {
-        await tx.wait();
-    } catch (e: any) {
-        const msg =
-            e?.reason ||
-            e?.error?.message ||
-            e?.data?.message ||
-            e?.message ||
-            "";
-        if (
-            msg.includes("does not support the requested method") ||
-            msg.includes("unsupported method") ||
-            msg.includes("wait is not a function")
-        ) {
-            console.warn("Ignoring provider wait() error:", e);
-        } else {
-            throw e;
-        }
-    }
-}
 
 export default function Home()
 {
@@ -356,31 +88,8 @@ export default function Home()
     const [activeTab, setActiveTab] = useState<"info" | "mint" | "stake" | "wars" | "crates" | "referrals" | "shop">("info");
     const [mintModalOpen, setMintModalOpen] = useState(false);
     const [stakeModalOpen, setStakeModalOpen] = useState(false);
-    const [oldStakingOpen, setOldStakingOpen] = useState(false);
-    const [newStakingOpen, setNewStakingOpen] = useState(false);
-    const [v3StakingOpen, setV3StakingOpen] = useState(false);
     const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
 
-    const [oldStakingStats, setOldStakingStats] = useState<StakingStats | null>(null);
-    const [newStakingStats, setNewStakingStats] = useState<NewStakingStats | null>(null);
-
-    const [v3StakingStats, setV3StakingStats] = useState<any>(null);
-    const [v3StakedPlants, setV3StakedPlants] = useState<number[]>([]);
-    const [v3StakedLands, setV3StakedLands] = useState<number[]>([]);
-    const [v3StakedSuperLands, setV3StakedSuperLands] = useState<number[]>([]);
-    const [v3AvailablePlants, setV3AvailablePlants] = useState<number[]>([]);
-    const [v3AvailableLands, setV3AvailableLands] = useState<number[]>([]);
-    const [v3AvailableSuperLands, setV3AvailableSuperLands] = useState<number[]>([]);
-    const [selectedV3AvailPlants, setSelectedV3AvailPlants] = useState<number[]>([]);
-    const [selectedV3AvailLands, setSelectedV3AvailLands] = useState<number[]>([]);
-    const [selectedV3AvailSuperLands, setSelectedV3AvailSuperLands] = useState<number[]>([]);
-    const [selectedV3StakedPlants, setSelectedV3StakedPlants] = useState<number[]>([]);
-    const [selectedV3StakedLands, setSelectedV3StakedLands] = useState<number[]>([]);
-    const [selectedV3StakedSuperLands, setSelectedV3StakedSuperLands] = useState<number[]>([]);
-    const [loadingV3Staking, setLoadingV3Staking] = useState(false);
-    const [v3RealTimePending, setV3RealTimePending] = useState<string>("0.00");
-    const [v3PlantHealths, setV3PlantHealths] = useState<Record<number, number>>({});
-    const [v3WaterNeeded, setV3WaterNeeded] = useState<Record<number, number>>({});
     const [selectedPlantsToWater, setSelectedPlantsToWater] = useState<number[]>([]);
 
     const [v4StakingOpen, setV4StakingOpen] = useState(false);
@@ -403,28 +112,6 @@ export default function Home()
     const [v4WaterNeeded, setV4WaterNeeded] = useState<Record<number, number>>({});
     const [selectedV4PlantsToWater, setSelectedV4PlantsToWater] = useState<number[]>([]);
     const [v4ActionStatus, setV4ActionStatus] = useState("");
-
-    // V5 Staking State
-    const [v5StakingOpen, setV5StakingOpen] = useState(false);
-    const [v5StakingStats, setV5StakingStats] = useState<any>(null);
-    const [v5StakedPlants, setV5StakedPlants] = useState<number[]>([]);
-    const [v5StakedLands, setV5StakedLands] = useState<number[]>([]);
-    const [v5StakedSuperLands, setV5StakedSuperLands] = useState<number[]>([]);
-    const [v5AvailablePlants, setV5AvailablePlants] = useState<number[]>([]);
-    const [v5AvailableLands, setV5AvailableLands] = useState<number[]>([]);
-    const [v5AvailableSuperLands, setV5AvailableSuperLands] = useState<number[]>([]);
-    const [selectedV5AvailPlants, setSelectedV5AvailPlants] = useState<number[]>([]);
-    const [selectedV5AvailLands, setSelectedV5AvailLands] = useState<number[]>([]);
-    const [selectedV5AvailSuperLands, setSelectedV5AvailSuperLands] = useState<number[]>([]);
-    const [selectedV5StakedPlants, setSelectedV5StakedPlants] = useState<number[]>([]);
-    const [selectedV5StakedLands, setSelectedV5StakedLands] = useState<number[]>([]);
-    const [selectedV5StakedSuperLands, setSelectedV5StakedSuperLands] = useState<number[]>([]);
-    const [loadingV5Staking, setLoadingV5Staking] = useState(false);
-    const [v5RealTimePending, setV5RealTimePending] = useState<string>("0.00");
-    const [v5PlantHealths, setV5PlantHealths] = useState<Record<number, number>>({});
-    const [v5WaterNeeded, setV5WaterNeeded] = useState<Record<number, number>>({});
-    const [selectedV5PlantsToWater, setSelectedV5PlantsToWater] = useState<number[]>([]);
-    const [v5ActionStatus, setV5ActionStatus] = useState("");
 
     const [waterShopInfo, setWaterShopInfo] = useState<any>(null);
     const [waterBuyAmount, setWaterBuyAmount] = useState(1);
@@ -528,11 +215,32 @@ export default function Home()
     const lastCrateOpenBlock = useRef(0);
     const processedCrateTxHashes = useRef<Set<string>>(new Set());
     const crateSpinInterval = useRef<NodeJS.Timeout | null>(null);
+    const txRef = useRef<ReturnType<typeof makeTxActions> | null>(null);
 
+    function txAction()
+    {
+        if (!txRef.current) throw new Error("tx actions not ready yet");
+        return txRef.current;
+    }
 
+    useEffect(() =>
+        {
+            txRef.current = makeTxActions({
+                ensureWallet,
+                readProvider,
+                miniAppEthProvider,
+                usingMiniApp,
+                CHAIN_ID,
+                USDC_ADDRESS,
+                USDC_DECIMALS,
+                USDC_ABI,
+                usdcInterface,
+                waitForTx,
+                setMintStatus,
+            });
+        }, [readProvider, miniAppEthProvider, usingMiniApp]);
 
-    const currentTrackMeta = PLAYLIST[currentTrack];
-
+    const currentTrackMeta = useMemo(() => PLAYLIST[currentTrack], [currentTrack]);
     useEffect(() => {
         if (!audioRef.current) return;
 
@@ -555,64 +263,88 @@ export default function Home()
         return () => clearInterval(id);
     }, []);
 
-    useEffect(() => {
-        setSelectedOldAvailPlants([]);
-        setSelectedOldAvailLands([]);
-        setSelectedOldStakedPlants([]);
-        setSelectedOldStakedLands([]);
-        setSelectedNewAvailPlants([]);
-        setSelectedNewAvailLands([]);
-        setSelectedNewAvailSuperLands([]);
-        setSelectedNewStakedPlants([]);
-        setSelectedNewStakedLands([]);
-        setSelectedNewStakedSuperLands([]); },
-              [userAddress]);
+    const resetSelections = useCallback(() =>
+        {
+            setSelectedOldAvailPlants([]);
+            setSelectedOldAvailLands([]);
+            setSelectedOldStakedPlants([]);
+            setSelectedOldStakedLands([]);
+            setSelectedNewAvailPlants([]);
+            setSelectedNewAvailLands([]);
+            setSelectedNewAvailSuperLands([]);
+            setSelectedNewStakedPlants([]);
+            setSelectedNewStakedLands([]);
+            setSelectedNewStakedSuperLands([]);
+        }, []);
 
-    const handlePlayPause = () => {
-        setIsPlaying((prev) => {
-            if (prev) {
+    useEffect(() =>
+        {
+            resetSelections();
+        }, [userAddress, resetSelections]);
 
-                setManualPause(true);
-            } else {
+    const handlePlayPause = useCallback(() =>
+        {
+            setIsPlaying((prev) =>
+                {
+                    setManualPause(prev);
+                    return !prev;
+                });
+        }, []);
 
-                setManualPause(false);
+    const handleNextTrack = useCallback(() =>
+        {
+            setCurrentTrack((prev) => (prev + 1) % PLAYLIST.length);
+        }, []);
+
+    const handlePrevTrack = useCallback(() =>
+        {
+            setCurrentTrack((prev) => (prev - 1 + PLAYLIST.length) % PLAYLIST.length);
+        }, []);
+
+    useEffect(() =>
+        {
+            if (!isMiniAppReady)
+            {
+                setMiniAppReady();
             }
-            return !prev;
-        });
-    };
-    const handleNextTrack = () =>
-        setCurrentTrack((prev) => (prev + 1) % PLAYLIST.length);
-    const handlePrevTrack = () =>
-        setCurrentTrack((prev) => (prev - 1 + PLAYLIST.length) % PLAYLIST.length);
 
-    useEffect(() => {
-        if (!isMiniAppReady) {
-            setMiniAppReady();
-        }
+            let cancelled = false;
+            let t: ReturnType<typeof setTimeout> | null = null;
 
+            (async () =>
+                {
+                    try
+                    {
+                        console.log("[Init] Initializing Farcaster SDK...");
+                        await sdk.actions.ready();
+                        if (cancelled) return;
+                        console.log("[Init] SDK ready");
 
-        (async () => {
-            try {
-                console.log("[Init] Initializing Farcaster SDK...");
-                await sdk.actions.ready();
-                console.log("[Init] SDK ready");
+                        const { isMiniApp } = detectMiniAppEnvironment();
+                        if (isMiniApp && !userAddress)
+                        {
+                            console.log("[Init] Auto-connecting wallet in mini app...");
+                            t = setTimeout(() =>
+                                {
+                                    void ensureWallet().catch((err) =>
+                                        {
+                                            console.warn("[Init] Auto-connect failed:", err);
+                                        });
+                                }, 500);
+                        }
+                    }
+                    catch (err)
+                    {
+                        console.warn("[Init] SDK initialization failed:", err);
+                    }
+                })();
 
-
-                const { isMiniApp } = detectMiniAppEnvironment();
-                if (isMiniApp && !userAddress) {
-                    console.log("[Init] Auto-connecting wallet in mini app...");
-
-                    setTimeout(() => {
-                        ensureWallet().catch(err => {
-                            console.warn("[Init] Auto-connect failed:", err);
-                        });
-                    }, 500);
-                }
-            } catch (err) {
-                console.warn("[Init] SDK initialization failed:", err);
-            }
-        })();
-    }, [isMiniAppReady, setMiniAppReady]);
+            return () =>
+                {
+                    cancelled = true;
+                    if (t) clearTimeout(t);
+                };
+        }, [isMiniAppReady, setMiniAppReady, userAddress]);
 
     const shortAddr = (addr?: string | null) =>
         addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
@@ -755,7 +487,6 @@ export default function Home()
                 console.log("[Wallet] Connected via browser wallet:", addr);
             }
 
-
             let currentChainId: number;
             try {
                 const net = await p.getNetwork();
@@ -822,285 +553,17 @@ export default function Home()
         }
     }
 
-    async function sendWalletCalls(
-        from: string,
-        to: string,
-        data: string,
-        gasLimit: string = "0x1E8480"
-    ): Promise<ethers.providers.TransactionResponse> {
-        if (!miniAppEthProvider) {
-            throw new Error("Mini app provider not available");
-        }
-
-        const req =
-            miniAppEthProvider.request?.bind(miniAppEthProvider) ??
-            miniAppEthProvider.send?.bind(miniAppEthProvider);
-
-        if (!req) {
-            throw new Error("Mini app provider missing request/send method");
-        }
-
-        const chainIdHex = ethers.utils.hexValue(CHAIN_ID);
-
-        console.log("[TX] Sending wallet_sendCalls:", { from, to, chainIdHex, gasLimit });
-
-        let result: any;
-        let txHash: string | null = null;
-
-        try {
-            result = await req({
-                method: "eth_sendTransaction",
-                params: [{
-                    from,
-                    to,
-                    data,
-                    value: "0x0",
-                    gas: gasLimit,
-                    gasLimit: gasLimit,
-                }],
-            });
-
-            console.log("[TX] eth_sendTransaction result:", result);
-
-            if (typeof result === "string" && result.startsWith("0x")) {
-                txHash = result;
-            } else {
-                txHash = result?.hash || result?.txHash || null;
-            }
-
-        } catch (sendTxError: any) {
-            console.warn("[TX] eth_sendTransaction failed, trying wallet_sendCalls:", sendTxError);
-
-            try {
-                result = await req({
-                    method: "wallet_sendCalls",
-                    params: [
-                        {
-                            from,
-                            chainId: chainIdHex,
-                            atomicRequired: false,
-                            capabilities: {
-                                paymasterService: {},
-                            },
-                            calls: [
-                                {
-                                    to,
-                                    data,
-                                    value: "0x0",
-                                    gas: gasLimit,
-                                    gasLimit: gasLimit,
-                                },
-                            ],
-                        },
-                    ],
-                });
-
-                console.log("[TX] wallet_sendCalls result:", result);
-
-                txHash =
-                    result?.txHashes?.[0] ||
-                    result?.txHash ||
-                    result?.hash ||
-                    result?.id ||
-                    (typeof result === "string" && result.startsWith("0x") ? result : null);
-
-            } catch (sendCallsError) {
-                console.error("[TX] wallet_sendCalls also failed:", sendCallsError);
-                throw sendCallsError;
-            }
-        }
-
-        console.log("[TX] Extracted txHash:", txHash);
-
-
-
-        if (!txHash || typeof txHash !== "string" || !txHash.startsWith("0x") || txHash.length < 66) {
-            console.warn("[TX] No valid tx hash, will search by events. Result was:", result);
-            return {
-                hash: "0x" + "0".repeat(64),
-                wait: async () => null,
-            } as any;
-        }
-
-        console.log("[TX] Transaction hash:", txHash);
-
-
-        const fakeTx: any = {
-            hash: txHash,
-            wait: async () => {
-
-                for (let i = 0; i < 45; i++) {
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    try {
-                        const receipt = await readProvider.getTransactionReceipt(txHash!);
-                        if (receipt && receipt.confirmations > 0) {
-                            console.log("[TX] Confirmed:", txHash);
-                            return receipt;
-                        }
-                    } catch {
-
-                    }
-                }
-                console.warn("[TX] Wait timeout, proceeding:", txHash);
-                return null;
-            },
-        };
-
-        return fakeTx as ethers.providers.TransactionResponse;
-    }
-
-    async function sendContractTx(
-        to: string,
-        data: string,
-        gasLimit: string = "0x1E8480"
-    ): Promise<ethers.providers.TransactionResponse | null> {
-        const ctx = await ensureWallet();
-        if (!ctx) return null;
-
-        console.log("[TX] sendContractTx:", { to, isMini: ctx.isMini, usingMiniApp, gasLimit });
-
-        try {
-            if (ctx.isMini && miniAppEthProvider) {
-                return await sendWalletCalls(ctx.userAddress, to, data, gasLimit);
-            } else {
-                const tx = await ctx.signer.sendTransaction({
-                    to,
-                    data,
-                    value: 0,
-                    gasLimit: ethers.BigNumber.from(gasLimit),
-                });
-                return tx;
-            }
-        } catch (err: any) {
-            console.error("[TX] sendContractTx failed:", err);
-
-
-            const errMsg = err?.message || err?.reason || String(err);
-            if (errMsg.includes("rejected") || errMsg.includes("denied") || err?.code === 4001) {
-                setMintStatus("Transaction rejected. Please approve in your wallet.");
-            } else if (errMsg.includes("insufficient")) {
-                setMintStatus("Insufficient funds for transaction.");
-            } else {
-                setMintStatus("Transaction failed: " + errMsg.slice(0, 100));
-            }
-
-            throw err;
-        }
-    }
-
-    async function ensureUsdcAllowance(
-        spender: string,
-        required: ethers.BigNumber
-    ): Promise<boolean> {
-        const ctx = await ensureWallet();
-        if (!ctx) return false;
-
-        const { signer: s, userAddress: addr, isMini } = ctx;
-
-        setMintStatus("Checking USDC contract on Base…");
-        const code = await readProvider.getCode(USDC_ADDRESS);
-        if (code === "0x") {
-            setMintStatus(
-                "USDC token not found on this network. Please make sure you are on Base mainnet."
-            );
-            return false;
-        }
-
-        const usdcRead = new ethers.Contract(USDC_ADDRESS, USDC_ABI, readProvider);
-        const usdcWrite = new ethers.Contract(USDC_ADDRESS, USDC_ABI, s);
-
-        try {
-            const bal = await usdcRead.balanceOf(addr);
-            if (bal.lt(required)) {
-                setMintStatus(
-                    `You need at least ${ethers.utils.formatUnits(
-            required,
-            USDC_DECIMALS
-          )} USDC on Base to mint.`
-                );
-                return false;
-            }
-        } catch (e) {
-            console.warn("USDC balanceOf failed (continuing):", e);
-        }
-
-        let current = ethers.constants.Zero;
-        try {
-            current = await usdcRead.allowance(addr, spender);
-        } catch (e: any) {
-            console.warn("USDC allowance() read failed, treating as 0:", e);
-            current = ethers.constants.Zero;
-        }
-
-        if (current.gte(required)) {
-            return true;
-        }
-
-        setMintStatus("Requesting USDC approve transaction in your wallet…");
-
-        try {
-            if (isMini && miniAppEthProvider) {
-                const data = usdcInterface.encodeFunctionData("approve", [
-                    spender,
-                    required,
-                ]);
-                await sendWalletCalls(addr, USDC_ADDRESS, data);
-
-                setMintStatus("Waiting for USDC approve confirmation…");
-
-                for (let i = 0; i < 20; i++) {
-                    await new Promise((res) => setTimeout(res, 1500));
-                    try {
-                        const updated = await usdcRead.allowance(addr, spender);
-                        if (updated.gte(required)) {
-                            break;
-                        }
-
-                        if (i === 19) {
-                            setMintStatus("Approve transaction may not have confirmed yet. Please check your wallet/explorer.");
-                            return false;
-                        }
-                    } catch {
-
-                        if (i === 19) {
-                            setMintStatus("Could not confirm USDC approval, please try again.");
-                            return false;
-                        }
-                    }
-                }
-
-                setMintStatus("USDC approve confirmed. Sending mint transaction…");
-            } else {
-                const tx = await usdcWrite.approve(spender, required);
-                await waitForTx(tx);
-                setMintStatus("USDC approve confirmed. Sending mint transaction…");
-            }
-
-            return true;
-        } catch (err) {
-            console.error("USDC approve failed:", err);
-            const msg =
-                (err as any)?.reason ||
-                (err as any)?.error?.message ||
-                (err as any)?.data?.message ||
-                (err as any)?.message ||
-                "USDC approve failed";
-            setMintStatus(msg);
-            return false;
-        }
-    }
-
     async function handleMintLand() {
         try {
             setMintStatus("Preparing to mint 1 Land (199.99 USDC + gas)…");
-            const okAllowance = await ensureUsdcAllowance(
+            const okAllowance = await txAction().ensureUsdcAllowance(
                 LAND_ADDRESS,
                 LAND_PRICE_USDC
             );
             if (!okAllowance) return;
 
             const data = landInterface.encodeFunctionData("mint", []);
-            const tx = await sendContractTx(LAND_ADDRESS, data);
+            const tx = await txAction().sendContractTx(LAND_ADDRESS, data);
             if (!tx) return;
             setMintStatus("Land mint transaction sent. Waiting for confirmation…");
             await waitForTx(tx);
@@ -1122,14 +585,14 @@ export default function Home()
     async function handleMintPlant() {
         try {
             setMintStatus("Preparing to mint 1 Plant (49.99 USDC + gas)…");
-            const okAllowance = await ensureUsdcAllowance(
+            const okAllowance = await txAction().ensureUsdcAllowance(
                 PLANT_ADDRESS,
                 PLANT_PRICE_USDC
             );
             if (!okAllowance) return;
 
             const data = plantInterface.encodeFunctionData("mint", []);
-            const tx = await sendContractTx(PLANT_ADDRESS, data);
+            const tx = await txAction().sendContractTx(PLANT_ADDRESS, data);
             if (!tx) return;
             setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
             await waitForTx(tx);
@@ -1159,87 +622,17 @@ export default function Home()
             if (fcweedBal.lt(SUPER_LAND_FCWEED_COST)) { setMintStatus("Need 2M FCWEED."); setActionLoading(false); return; }
             setMintStatus("Approving Land…");
             const landApproved = await landRead.isApprovedForAll(ctx.userAddress, SUPER_LAND_ADDRESS);
-            if (!landApproved) await waitForTx(await sendContractTx(LAND_ADDRESS, erc721Interface.encodeFunctionData("setApprovalForAll", [SUPER_LAND_ADDRESS, true])));
+            if (!landApproved) await waitForTx(await txAction().sendContractTx(LAND_ADDRESS, erc721Interface.encodeFunctionData("setApprovalForAll", [SUPER_LAND_ADDRESS, true])));
             setMintStatus("Approving FCWEED…");
             const fcweedAllowance = await fcweedRead.allowance(ctx.userAddress, SUPER_LAND_ADDRESS);
-            if (fcweedAllowance.lt(SUPER_LAND_FCWEED_COST)) await waitForTx(await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [SUPER_LAND_ADDRESS, ethers.constants.MaxUint256])));
+            if (fcweedAllowance.lt(SUPER_LAND_FCWEED_COST)) await waitForTx(await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [SUPER_LAND_ADDRESS, ethers.constants.MaxUint256])));
             setMintStatus("Upgrading…");
-            await waitForTx(await sendContractTx(SUPER_LAND_ADDRESS, superLandInterface.encodeFunctionData("upgrade", [selectedLandForUpgrade])));
+            await waitForTx(await txAction().sendContractTx(SUPER_LAND_ADDRESS, superLandInterface.encodeFunctionData("upgrade", [selectedLandForUpgrade])));
             setMintStatus("Super Land minted ✅");
             setUpgradeModalOpen(false); setSelectedLandForUpgrade(null);
             ownedCacheRef.current = { addr: null, state: null };
         } catch (err: any) { setMintStatus("Upgrade failed: " + (err?.message || err)); }
         finally { setActionLoading(false); }
-    }
-
-    function toHttpFromMaybeIpfs(uri: string): string {
-        if (!uri) return "";
-        if (uri.startsWith("ipfs://")) {
-            const path = uri.slice("ipfs://".length);
-            return `https://ipfs.io/ipfs/${path}`;
-        }
-        return uri;
-    }
-
-    async function fetchNftImages(
-        nftAddress: string,
-        ids: number[],
-        prov: ethers.providers.Provider,
-        existing: Record<number, string>
-    ): Promise<Record<number, string>> {
-        const out: Record<number, string> = { ...existing };
-        if (ids.length === 0) return out;
-
-        const isLand = nftAddress.toLowerCase() === LAND_ADDRESS.toLowerCase();
-        const isPlant = nftAddress.toLowerCase() === PLANT_ADDRESS.toLowerCase();
-
-        const missing = ids.filter((id) => {
-            if (out[id] !== undefined) return false;
-            if (METADATA_MODE === "local-only") return false;
-            if (METADATA_MODE === "remote-all") return true;
-            return isSuper(nftAddress, id);
-        });
-
-        if (missing.length === 0) return out;
-
-        try {
-            const nft = new ethers.Contract(nftAddress, ERC721_VIEW_ABI, prov);
-
-            const tasks = missing.map(async (id) => {
-                try {
-                    let img: string | undefined;
-
-                    try {
-                        const uri: string = await nft.tokenURI(id);
-                        const url = toHttpFromMaybeIpfs(uri);
-                        const res = await fetch(url);
-                        if (res.ok) {
-                            const meta = await res.json();
-                            img = meta.image ? toHttpFromMaybeIpfs(meta.image) : undefined;
-                        }
-                    } catch {
-
-                    }
-
-                    if (!img) {
-                        if (isLand) img = LAND_FALLBACK_IMG;
-                        else if (isPlant) img = PLANT_FALLBACK_IMG;
-                    }
-
-                    if (img) {
-                        out[id] = img;
-                    }
-                } catch (e) {
-                    console.error("Failed to fetch metadata", nftAddress, id, e);
-                }
-            });
-
-            await Promise.all(tasks);
-        } catch (e) {
-            console.error("fetchNftImages top-level error", nftAddress, e);
-        }
-
-        return out;
     }
 
     const ownedCacheRef = useRef<{
@@ -1280,559 +673,14 @@ export default function Home()
         }
     }
 
-
-    const refreshOldStakingRef = useRef(false);
-
-    async function refreshOldStaking()
-    {
-        if (!oldStakingOpen || refreshOldStakingRef.current) return;
-        refreshOldStakingRef.current = true;
-
-        setLoadingOldStaking(true);
-        console.log("[OldStaking] Starting refresh...");
-
-        try
-        {
-            let addr = userAddress;
-            if (!addr)
-            {
-                console.log("[OldStaking] No userAddress, calling ensureWallet...");
-                const ctx = await ensureWallet();
-                if (!ctx) {
-                    console.log("[OldStaking] ensureWallet returned null");
-                    return;
-                }
-                addr = ctx.userAddress;
-            }
-
-            console.log("[OldStaking] Loading data for address:", addr);
-
-
-            const oldStakingContract = new ethers.Contract(OLD_STAKING_ADDRESS, STAKING_ABI, readProvider);
-
-            let stakedPlantNums: number[] = [];
-            let stakedLandNums: number[] = [];
-
-            try {
-                const [stakedPlantsBN, stakedLandsBN] = await Promise.all([
-                    oldStakingContract.plantsOf(addr),
-                    oldStakingContract.landsOf(addr),
-                ]);
-                stakedPlantNums = stakedPlantsBN.map((bn: ethers.BigNumber) => bn.toNumber());
-                stakedLandNums = stakedLandsBN.map((bn: ethers.BigNumber) => bn.toNumber());
-                console.log("[OldStaking] Staked from contract:", { plants: stakedPlantNums, lands: stakedLandNums });
-            } catch (err) {
-                console.error("[OldStaking] Failed to query staked NFTs from contract:", err);
-            }
-
-
-            let availPlants: number[] = [];
-            let availLands: number[] = [];
-            let availSuperLands: number[] = [];
-
-            try {
-                const ownedState = await getOwnedState(addr);
-                const plants = ownedState?.plants || [];
-                const lands = ownedState?.lands || [];
-                const superLands = ownedState?.superLands || [];
-
-
-                availPlants = plants.map((t: any) => Number(t.tokenId));
-                availLands = lands.map((t: any) => Number(t.tokenId));
-                availSuperLands = superLands.map((t: any) => Number(t.tokenId));
-
-                console.log("[OldStaking] Available from API:", { plants: availPlants.length, lands: availLands.length, superLands: availSuperLands.length });
-            } catch (err) {
-                console.error("[OldStaking] Failed to load owned tokens from API:", err);
-            }
-
-
-            if (availPlants.length === 0 && availLands.length === 0 && availSuperLands.length === 0) {
-                console.log("[OldStaking] API returned empty, trying blockchain query...");
-                const chainNFTs = await queryAvailableNFTsFromChain(addr);
-                availPlants = chainNFTs.plants;
-                availLands = chainNFTs.lands;
-                availSuperLands = chainNFTs.superLands;
-            }
-
-            console.log("[OldStaking] NFT counts:", {
-                stakedPlants: stakedPlantNums.length,
-                stakedLands: stakedLandNums.length,
-                availPlants: availPlants.length,
-                availLands: availLands.length,
-                availSuperLands: availSuperLands.length
-            });
-
-
-            const iface = new ethers.utils.Interface(STAKING_ABI);
-
-            const calls =
-                [
-                    { target: OLD_STAKING_ADDRESS, callData: iface.encodeFunctionData("pending", [addr]) },
-
-                    { target: OLD_STAKING_ADDRESS, callData: iface.encodeFunctionData("landBoostBps", []) },
-                    { target: OLD_STAKING_ADDRESS, callData: iface.encodeFunctionData("claimEnabled", []) },
-                    { target: OLD_STAKING_ADDRESS, callData: iface.encodeFunctionData("landStakingEnabled", []) },
-                    { target: OLD_STAKING_ADDRESS, callData: iface.encodeFunctionData("tokensPerPlantPerDay", []) },
-                ];
-
-            const res = await multicallTry(readProvider, calls);
-            console.log("[OldStaking] Multicall results:", res.map(r => r.success));
-
-            const pendingRaw = decode1(iface, "pending", res[0]) ?? ethers.BigNumber.from(0);
-
-            const landBps = decode1(iface, "landBoostBps", res[1]) ?? ethers.BigNumber.from(0);
-            const claimEnabled = decode1(iface, "claimEnabled", res[2]) ?? false;
-            const landEnabled = decode1(iface, "landStakingEnabled", res[3]) ?? false;
-            const tokensPerDay = decode1(iface, "tokensPerPlantPerDay", res[4]) ?? ethers.BigNumber.from(0);
-
-            const plantsStaked = stakedPlantNums.length;
-            const landsStaked  = stakedLandNums.length;
-
-            const tokensPerSecond = tokensPerDay.div(86400);
-
-            setOldStakedPlants(stakedPlantNums);
-            setOldStakedLands(stakedLandNums);
-
-
-            setOldAvailablePlants(availPlants);
-            setOldAvailableLands(availLands);
-
-
-            setAvailablePlants(availPlants);
-            setAvailableLands(availLands);
-            setAvailableSuperLands(availSuperLands);
-
-            setOldLandStakingEnabled(landEnabled);
-
-            setOldStakingStats(
-                {
-                    plantsStaked,
-                    landsStaked,
-                    totalSlots: 1 + landsStaked * 3,
-                    capacityUsed: plantsStaked,
-                    landBoostPct: (landsStaked * Number(landBps)) / 100,
-                    pendingFormatted: ethers.utils.formatUnits(pendingRaw, 18),
-                    pendingRaw,
-                    claimEnabled,
-                    tokensPerSecond,
-            });
-
-            console.log("[OldStaking] Stats set:", {
-                plantsStaked,
-                landsStaked,
-                totalSlots: 1 + landsStaked * 3,
-                landBoostPct: (landsStaked * Number(landBps)) / 100,
-                claimEnabled
-            });
-        }
-        catch (err)
-        {
-            console.error("[OldStaking] Refresh failed:", err);
-        }
-        finally
-        {
-            refreshOldStakingRef.current = false;
-            setLoadingOldStaking(false);
-        }
-    }
-
-
-    const refreshNewStakingRef = useRef(false);
-
-
-    async function queryAvailableNFTsFromChain(addr: string): Promise<{
-        plants: number[];
-        lands: number[];
-        superLands: number[];
-    }> {
-        console.log("[NFT] Querying available NFTs directly from chain for:", addr);
-
-        const plantContract = new ethers.Contract(PLANT_ADDRESS, ERC721_VIEW_ABI, readProvider);
-        const landContract = new ethers.Contract(LAND_ADDRESS, ERC721_VIEW_ABI, readProvider);
-        const superLandContract = new ethers.Contract(SUPER_LAND_ADDRESS, ERC721_VIEW_ABI, readProvider);
-
-        const plants: number[] = [];
-        const lands: number[] = [];
-        const superLands: number[] = [];
-
-        try {
-
-            const [plantBal, landBal, superLandBal] = await Promise.all([
-                plantContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
-                landContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
-                superLandContract.balanceOf(addr).catch(() => ethers.BigNumber.from(0)),
-            ]);
-
-            console.log("[NFT] Balances:", {
-                plants: plantBal.toNumber(),
-                lands: landBal.toNumber(),
-                superLands: superLandBal.toNumber()
-            });
-
-
-
-
-
-            const erc721EnumAbi = [
-                "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)"
-            ];
-
-            const plantEnum = new ethers.Contract(PLANT_ADDRESS, erc721EnumAbi, readProvider);
-            const landEnum = new ethers.Contract(LAND_ADDRESS, erc721EnumAbi, readProvider);
-            const superLandEnum = new ethers.Contract(SUPER_LAND_ADDRESS, erc721EnumAbi, readProvider);
-
-
-            const plantPromises = [];
-            for (let i = 0; i < Math.min(plantBal.toNumber(), 100); i++) {
-                plantPromises.push(
-                    plantEnum.tokenOfOwnerByIndex(addr, i)
-                        .then((id: ethers.BigNumber) => id.toNumber())
-                        .catch(() => null)
-                );
-            }
-            const plantResults = await Promise.all(plantPromises);
-            plants.push(...plantResults.filter((id): id is number => id !== null));
-
-
-            const landPromises = [];
-            for (let i = 0; i < Math.min(landBal.toNumber(), 100); i++) {
-                landPromises.push(
-                    landEnum.tokenOfOwnerByIndex(addr, i)
-                        .then((id: ethers.BigNumber) => id.toNumber())
-                        .catch(() => null)
-                );
-            }
-            const landResults = await Promise.all(landPromises);
-            lands.push(...landResults.filter((id): id is number => id !== null));
-
-
-            const superLandPromises = [];
-            for (let i = 0; i < Math.min(superLandBal.toNumber(), 100); i++) {
-                superLandPromises.push(
-                    superLandEnum.tokenOfOwnerByIndex(addr, i)
-                        .then((id: ethers.BigNumber) => id.toNumber())
-                        .catch(() => null)
-                );
-            }
-            const superLandResults = await Promise.all(superLandPromises);
-            superLands.push(...superLandResults.filter((id): id is number => id !== null));
-
-            console.log("[NFT] Found from chain:", { plants, lands, superLands });
-
-        } catch (err) {
-            console.error("[NFT] Failed to query NFTs from chain:", err);
-        }
-
-        return { plants, lands, superLands };
-    }
-
-    async function refreshNewStaking() {
-        if (!newStakingOpen || refreshNewStakingRef.current) return;
-        refreshNewStakingRef.current = true;
-
-        setLoadingNewStaking(true);
-        console.log("[NewStaking] Starting refresh...");
-
-        try
-        {
-            let addr = userAddress;
-            if (!addr)
-            {
-                console.log("[NewStaking] No userAddress, calling ensureWallet...");
-                const ctx = await ensureWallet();
-                if (!ctx) {
-                    console.log("[NewStaking] ensureWallet returned null");
-                    return;
-                }
-                addr = ctx.userAddress;
-            }
-
-            console.log("[NewStaking] Loading data for address:", addr);
-
-
-            const newStakingContract = new ethers.Contract(NEW_STAKING_ADDRESS, STAKING_ABI, readProvider);
-
-            let stakedPlantNums: number[] = [];
-            let stakedLandNums: number[] = [];
-            let stakedSuperLandNums: number[] = [];
-
-            try {
-                const [stakedPlantsBN, stakedLandsBN, stakedSuperLandsBN] = await Promise.all([
-                    newStakingContract.plantsOf(addr),
-                    newStakingContract.landsOf(addr),
-                    newStakingContract.superLandsOf(addr),
-                ]);
-                stakedPlantNums = stakedPlantsBN.map((bn: ethers.BigNumber) => bn.toNumber());
-                stakedLandNums = stakedLandsBN.map((bn: ethers.BigNumber) => bn.toNumber());
-                stakedSuperLandNums = stakedSuperLandsBN.map((bn: ethers.BigNumber) => bn.toNumber());
-                console.log("[NewStaking] Staked from contract:", {
-                    plants: stakedPlantNums,
-                    lands: stakedLandNums,
-                    superLands: stakedSuperLandNums
-                });
-            } catch (err) {
-                console.error("[NewStaking] Failed to query staked NFTs from contract:", err);
-            }
-
-
-            let availPlants: number[] = [];
-            let availLands: number[] = [];
-            let availSuperLands: number[] = [];
-
-            try {
-                const ownedState = await getOwnedState(addr);
-                const plants = ownedState?.plants || [];
-                const lands = ownedState?.lands || [];
-                const superLands = ownedState?.superLands || [];
-
-
-                availPlants = plants.map((t: any) => Number(t.tokenId));
-                availLands = lands.map((t: any) => Number(t.tokenId));
-                availSuperLands = superLands.map((t: any) => Number(t.tokenId));
-
-                console.log("[NewStaking] Available from API:", {
-                    plants: availPlants.length,
-                    lands: availLands.length,
-                    superLands: availSuperLands.length
-                });
-            } catch (err) {
-                console.error("[NewStaking] Failed to load owned tokens from API:", err);
-            }
-
-
-            if (availPlants.length === 0 && availLands.length === 0 && availSuperLands.length === 0) {
-                console.log("[NewStaking] API returned empty, trying blockchain query...");
-                const chainNFTs = await queryAvailableNFTsFromChain(addr);
-                availPlants = chainNFTs.plants;
-                availLands = chainNFTs.lands;
-                availSuperLands = chainNFTs.superLands;
-            }
-
-            console.log("[NewStaking] NFT counts:", {
-                stakedPlants: stakedPlantNums.length,
-                stakedLands: stakedLandNums.length,
-                stakedSuperLands: stakedSuperLandNums.length,
-                availPlants: availPlants.length,
-                availLands: availLands.length,
-                availSuperLands: availSuperLands.length
-            });
-
-
-            const iface = new ethers.utils.Interface(STAKING_ABI);
-
-            const calls =
-                [
-                    { target: NEW_STAKING_ADDRESS, callData: iface.encodeFunctionData("pending", [addr]) },
-
-                    { target: NEW_STAKING_ADDRESS, callData: iface.encodeFunctionData("tokensPerPlantPerDay", []) },
-                    { target: NEW_STAKING_ADDRESS, callData: iface.encodeFunctionData("getBoostBps", [addr]) },
-                    { target: NEW_STAKING_ADDRESS, callData: iface.encodeFunctionData("capacityOf", [addr]) },
-
-                    { target: NEW_STAKING_ADDRESS, callData: iface.encodeFunctionData("claimEnabled", []) },
-                    { target: NEW_STAKING_ADDRESS, callData: iface.encodeFunctionData("landStakingEnabled", []) },
-                    { target: NEW_STAKING_ADDRESS, callData: iface.encodeFunctionData("superLandStakingEnabled", []) },
-                ];
-
-            const res = await multicallTry(readProvider, calls);
-            console.log("[NewStaking] Multicall results:", res.map(r => r.success));
-
-            const pendingRaw = decode1(iface, "pending", res[0]) ?? ethers.BigNumber.from(0);
-
-            const tokensPerDay = decode1(iface, "tokensPerPlantPerDay", res[1]) ?? ethers.BigNumber.from(0);
-            const totalBoostBps = decode1(iface, "getBoostBps", res[2]) ?? ethers.BigNumber.from(10_000);
-            const capacity = decode1(iface, "capacityOf", res[3]) ?? ethers.BigNumber.from(1);
-
-            const claimEnabled = decode1(iface, "claimEnabled", res[4]) ?? false;
-            const landEnabled = decode1(iface, "landStakingEnabled", res[5]) ?? false;
-            const superLandEnabled = decode1(iface, "superLandStakingEnabled", res[6]) ?? false;
-
-            const plantsStaked = stakedPlantNums.length;
-            const landsStaked  = stakedLandNums.length;
-
-            const superLandsStaked = stakedSuperLandNums.length;
-
-            const totalSlots = Number(capacity);
-            const boostPct = Number(totalBoostBps) / 100;
-
-            const tokensPerSecond = tokensPerDay.div(86400);
-
-            const dailyBase = tokensPerDay.mul(plantsStaked);
-            const dailyWithBoost = dailyBase.mul(totalBoostBps).div(10000);
-            const dailyFormatted = parseFloat(ethers.utils.formatUnits(dailyWithBoost, 18));
-
-            const dailyRewards =
-                dailyFormatted >= 1_000_000 ? (dailyFormatted / 1_000_000).toFixed(2) + "M" :
-                dailyFormatted >= 1000 ? (dailyFormatted / 1000).toFixed(1) + "K" :
-                dailyFormatted.toFixed(0);
-
-            setNewStakedPlants(stakedPlantNums);
-            setNewStakedLands(stakedLandNums);
-            setNewStakedSuperLands(stakedSuperLandNums);
-
-            setNewAvailablePlants(availPlants);
-            setNewAvailableLands(availLands);
-            setNewAvailableSuperLands(availSuperLands);
-
-            setNewLandStakingEnabled(landEnabled);
-            setNewSuperLandStakingEnabled(superLandEnabled);
-
-            setNewStakingStats(
-                {
-                    plantsStaked,
-                    landsStaked,
-                    superLandsStaked,
-                    totalSlots,
-                    capacityUsed: plantsStaked,
-                    totalBoostPct: boostPct,
-                    pendingFormatted: ethers.utils.formatUnits(pendingRaw, 18),
-                    pendingRaw,
-                    dailyRewards,
-                    claimEnabled,
-                    tokensPerSecond,
-            });
-
-            console.log("[NewStaking] Stats set:", {
-                plantsStaked,
-                landsStaked,
-                superLandsStaked,
-                totalSlots,
-                totalBoostPct: boostPct,
-                dailyRewards,
-                claimEnabled
-            });
-        }
-        catch (err)
-        {
-            console.error("[NewStaking] Refresh failed:", err);
-        }
-        finally
-        {
-            refreshNewStakingRef.current = false;
-            setLoadingNewStaking(false);
-        }
-    }
-
-    useEffect(() => {
-        if (oldStakingOpen) {
-
-            ownedCacheRef.current = { addr: null, state: null };
-            refreshOldStakingRef.current = false;
-            refreshOldStaking();
-        }
-    }, [oldStakingOpen, userAddress]);
-
-    useEffect(() => {
-        if (newStakingOpen) {
-
-            ownedCacheRef.current = { addr: null, state: null };
-            refreshNewStakingRef.current = false;
-            refreshNewStaking();
-        }
-    }, [newStakingOpen, userAddress]);
-
-
-    useEffect(() => {
-        if (!newStakingOpen || !newStakingStats) return;
-
-        const { pendingRaw, tokensPerSecond, plantsStaked, totalBoostPct } = newStakingStats;
-        if (!pendingRaw || !tokensPerSecond || plantsStaked === 0) return;
-
-        console.log("[Pending] Starting real-time update, tokensPerSecond:", tokensPerSecond.toString());
-
-        let currentPending = pendingRaw;
-        const boostMultiplier = totalBoostPct / 100;
-
-
-        const effectiveTokensPerSecond = tokensPerSecond.mul(plantsStaked).mul(Math.floor(boostMultiplier * 100)).div(100);
-
-        const interval = setInterval(() => {
-            currentPending = currentPending.add(effectiveTokensPerSecond);
-            const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
-
-            let display: string;
-            if (formatted >= 1_000_000) {
-                display = (formatted / 1_000_000).toFixed(4) + "M";
-            } else if (formatted >= 1000) {
-                display = (formatted / 1000).toFixed(2) + "K";
-            } else {
-                display = formatted.toFixed(2);
-            }
-
-            setRealTimePending(display);
-        }, 1000);
-
-
-        const initialFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
-        let initialDisplay: string;
-        if (initialFormatted >= 1_000_000) {
-            initialDisplay = (initialFormatted / 1_000_000).toFixed(4) + "M";
-        } else if (initialFormatted >= 1000) {
-            initialDisplay = (initialFormatted / 1000).toFixed(2) + "K";
-        } else {
-            initialDisplay = initialFormatted.toFixed(2);
-        }
-        setRealTimePending(initialDisplay);
-
-        return () => clearInterval(interval);
-    }, [newStakingOpen, newStakingStats]);
-
-
-    useEffect(() => {
-        if (!oldStakingOpen || !oldStakingStats) return;
-
-        const { pendingRaw, tokensPerSecond, plantsStaked, landBoostPct } = oldStakingStats;
-        if (!pendingRaw || !tokensPerSecond || plantsStaked === 0) return;
-
-        console.log("[OldPending] Starting real-time update");
-
-        let currentPending = pendingRaw;
-        const boostMultiplier = 1 + (landBoostPct / 100);
-
-
-        const effectiveTokensPerSecond = tokensPerSecond.mul(plantsStaked).mul(Math.floor(boostMultiplier * 100)).div(100);
-
-        const interval = setInterval(() => {
-            currentPending = currentPending.add(effectiveTokensPerSecond);
-            const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
-
-            let display: string;
-            if (formatted >= 1_000_000) {
-                display = (formatted / 1_000_000).toFixed(4) + "M";
-            } else if (formatted >= 1000) {
-                display = (formatted / 1000).toFixed(2) + "K";
-            } else {
-                display = formatted.toFixed(2);
-            }
-
-            setOldRealTimePending(display);
-        }, 1000);
-
-
-        const initialFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
-        let initialDisplay: string;
-        if (initialFormatted >= 1_000_000) {
-            initialDisplay = (initialFormatted / 1_000_000).toFixed(4) + "M";
-        } else if (initialFormatted >= 1000) {
-            initialDisplay = (initialFormatted / 1000).toFixed(2) + "K";
-        } else {
-            initialDisplay = initialFormatted.toFixed(2);
-        }
-        setOldRealTimePending(initialDisplay);
-
-        return () => clearInterval(interval);
-    }, [oldStakingOpen, oldStakingStats]);
-
-
     async function ensureCollectionApproval(collectionAddress: string, stakingAddress: string, ctx: { signer: ethers.Signer; userAddress: string }) {
         const nftRead = new ethers.Contract(collectionAddress, ERC721_VIEW_ABI, readProvider);
         if (!(await nftRead.isApprovedForAll(ctx.userAddress, stakingAddress))) {
-            const tx = await sendContractTx(collectionAddress, erc721Interface.encodeFunctionData("setApprovalForAll", [stakingAddress, true]));
+            const tx = await txAction().sendContractTx(collectionAddress, erc721Interface.encodeFunctionData("setApprovalForAll", [stakingAddress, true]));
             if (!tx) throw new Error("Approval rejected");
             await waitForTx(tx);
         }
     }
-
 
     useEffect(() => {
         if (!upgradeModalOpen) return;
@@ -1866,365 +714,13 @@ export default function Home()
         })();
     }, [upgradeModalOpen]);
 
-
-
-
-    async function handleOldStakeSelected() {
-        const ctx = await ensureWallet(); if (!ctx) return;
-        if (selectedOldAvailPlants.length === 0 && selectedOldAvailLands.length === 0) { setMintStatus("Select NFTs."); return; }
-        try {
-            setActionLoading(true);
-            const stakingPlants = [...selectedOldAvailPlants];
-            const stakingLands = [...selectedOldAvailLands];
-            if (stakingPlants.length > 0) { await ensureCollectionApproval(PLANT_ADDRESS, OLD_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, stakingInterface.encodeFunctionData("stakePlants", [stakingPlants.map((id) => ethers.BigNumber.from(id))]))); }
-            if (stakingLands.length > 0 && oldLandStakingEnabled) { await ensureCollectionApproval(LAND_ADDRESS, OLD_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, stakingInterface.encodeFunctionData("stakeLands", [stakingLands.map((id) => ethers.BigNumber.from(id))]))); }
-
-            setOldAvailablePlants(prev => prev.filter(id => !stakingPlants.includes(id)));
-            setOldAvailableLands(prev => prev.filter(id => !stakingLands.includes(id)));
-            setOldStakedPlants(prev => [...prev, ...stakingPlants]);
-            setOldStakedLands(prev => [...prev, ...stakingLands]);
-            setSelectedOldAvailPlants([]); setSelectedOldAvailLands([]);
-
-            setTimeout(() => { refreshOldStakingRef.current = false; refreshOldStaking(); }, 2000);
-            ownedCacheRef.current = { addr: null, state: null };
-        } catch (err) { console.error(err); refreshOldStakingRef.current = false; refreshOldStaking(); } finally { setActionLoading(false); }
-    }
-
-    async function handleOldUnstakeSelected() {
-        const ctx = await ensureWallet(); if (!ctx) return;
-        if (selectedOldStakedPlants.length === 0 && selectedOldStakedLands.length === 0) { setMintStatus("Select NFTs."); return; }
-        try {
-            setActionLoading(true);
-            const unstakingPlants = [...selectedOldStakedPlants];
-            const unstakingLands = [...selectedOldStakedLands];
-            if (unstakingPlants.length > 0) await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, stakingInterface.encodeFunctionData("unstakePlants", [unstakingPlants.map((id) => ethers.BigNumber.from(id))])));
-            if (unstakingLands.length > 0) await waitForTx(await sendContractTx(OLD_STAKING_ADDRESS, stakingInterface.encodeFunctionData("unstakeLands", [unstakingLands.map((id) => ethers.BigNumber.from(id))])));
-
-            setOldStakedPlants(prev => prev.filter(id => !unstakingPlants.includes(id)));
-            setOldStakedLands(prev => prev.filter(id => !unstakingLands.includes(id)));
-            setOldAvailablePlants(prev => [...prev, ...unstakingPlants]);
-            setOldAvailableLands(prev => [...prev, ...unstakingLands]);
-            setSelectedOldStakedPlants([]); setSelectedOldStakedLands([]);
-
-            setTimeout(() => { refreshOldStakingRef.current = false; refreshOldStaking(); }, 2000);
-            ownedCacheRef.current = { addr: null, state: null };
-        } catch (err) { console.error(err); refreshOldStakingRef.current = false; refreshOldStaking(); } finally { setActionLoading(false); }
-    }
-
-    async function handleOldClaim() {
-        if (!oldStakingStats || parseFloat(oldStakingStats.pendingFormatted) <= 0) { setMintStatus("No rewards."); return; }
-        try {
-            setActionLoading(true);
-            await waitForTx(await sendContractTx(
-                OLD_STAKING_ADDRESS,
-                stakingInterface.encodeFunctionData("claim", [])
-            ));
-
-            setOldRealTimePending("0.00");
-            setOldStakingStats(prev => prev ? { ...prev, pendingRaw: ethers.BigNumber.from(0), pendingFormatted: "0" } : null);
-
-            setTimeout(() => { refreshOldStakingRef.current = false; refreshOldStaking(); }, 2000);
-            ownedCacheRef.current = { addr: null, state: null };
-        } catch (err) { console.error(err); } finally { setActionLoading(false); }
-    }
-
-    async function handleNewStakeSelected() {
-        const ctx = await ensureWallet(); if (!ctx) return;
-        if (selectedNewAvailPlants.length === 0 && selectedNewAvailLands.length === 0 && selectedNewAvailSuperLands.length === 0) { setMintStatus("Select NFTs."); return; }
-        try {
-            setActionLoading(true);
-            const stakingPlants = [...selectedNewAvailPlants];
-            const stakingLands = [...selectedNewAvailLands];
-            const stakingSuperLands = [...selectedNewAvailSuperLands];
-            if (stakingPlants.length > 0) { await ensureCollectionApproval(PLANT_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("stakePlants", [stakingPlants.map((id) => ethers.BigNumber.from(id))]))); }
-            if (stakingLands.length > 0 && newLandStakingEnabled) { await ensureCollectionApproval(LAND_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("stakeLands", [stakingLands.map((id) => ethers.BigNumber.from(id))]))); }
-            if (stakingSuperLands.length > 0 && newSuperLandStakingEnabled) { await ensureCollectionApproval(SUPER_LAND_ADDRESS, NEW_STAKING_ADDRESS, ctx); await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("stakeSuperLands", [stakingSuperLands.map((id) => ethers.BigNumber.from(id))]))); }
-
-            setNewAvailablePlants(prev => prev.filter(id => !stakingPlants.includes(id)));
-            setNewAvailableLands(prev => prev.filter(id => !stakingLands.includes(id)));
-            setNewAvailableSuperLands(prev => prev.filter(id => !stakingSuperLands.includes(id)));
-            setNewStakedPlants(prev => [...prev, ...stakingPlants]);
-            setNewStakedLands(prev => [...prev, ...stakingLands]);
-            setNewStakedSuperLands(prev => [...prev, ...stakingSuperLands]);
-            setSelectedNewAvailPlants([]); setSelectedNewAvailLands([]); setSelectedNewAvailSuperLands([]);
-
-            setTimeout(() => { refreshNewStakingRef.current = false; refreshNewStaking(); }, 2000);
-            ownedCacheRef.current = { addr: null, state: null };
-        } catch (err) { console.error(err); refreshNewStakingRef.current = false; refreshNewStaking(); } finally { setActionLoading(false); }
-    }
-
-    async function handleNewUnstakeSelected() {
-        const ctx = await ensureWallet(); if (!ctx) return;
-        if (selectedNewStakedPlants.length === 0 && selectedNewStakedLands.length === 0 && selectedNewStakedSuperLands.length === 0) { setMintStatus("Select NFTs."); return; }
-        try {
-            setActionLoading(true);
-            const unstakingPlants = [...selectedNewStakedPlants];
-            const unstakingLands = [...selectedNewStakedLands];
-            const unstakingSuperLands = [...selectedNewStakedSuperLands];
-            if (unstakingPlants.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("unstakePlants", [unstakingPlants.map((id) => ethers.BigNumber.from(id))])));
-            if (unstakingLands.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("unstakeLands", [unstakingLands.map((id) => ethers.BigNumber.from(id))])));
-            if (unstakingSuperLands.length > 0) await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("unstakeSuperLands", [unstakingSuperLands.map((id) => ethers.BigNumber.from(id))])));
-
-            setNewStakedPlants(prev => prev.filter(id => !unstakingPlants.includes(id)));
-            setNewStakedLands(prev => prev.filter(id => !unstakingLands.includes(id)));
-            setNewStakedSuperLands(prev => prev.filter(id => !unstakingSuperLands.includes(id)));
-            setNewAvailablePlants(prev => [...prev, ...unstakingPlants]);
-            setNewAvailableLands(prev => [...prev, ...unstakingLands]);
-            setNewAvailableSuperLands(prev => [...prev, ...unstakingSuperLands]);
-            setSelectedNewStakedPlants([]); setSelectedNewStakedLands([]); setSelectedNewStakedSuperLands([]);
-
-            setTimeout(() => { refreshNewStakingRef.current = false; refreshNewStaking(); }, 2000);
-            ownedCacheRef.current = { addr: null, state: null };
-        } catch (err) { console.error(err); refreshNewStakingRef.current = false; refreshNewStaking(); } finally { setActionLoading(false); }
-    }
-
-    async function handleNewClaim() {
-        if (!newStakingStats || parseFloat(newStakingStats.pendingFormatted) <= 0) { setMintStatus("No rewards."); return; }
-        try {
-            setActionLoading(true);
-            await waitForTx(await sendContractTx(NEW_STAKING_ADDRESS, stakingInterface.encodeFunctionData("claim", [])));
-
-            setRealTimePending("0.00");
-            setNewStakingStats(prev => prev ? { ...prev, pendingRaw: ethers.BigNumber.from(0), pendingFormatted: "0" } : null);
-
-            setTimeout(() => { refreshNewStakingRef.current = false; refreshNewStaking(); }, 2000);
-            ownedCacheRef.current = { addr: null, state: null };
-        } catch (err) { console.error(err); } finally { setActionLoading(false); }
-    }
-
-    const refreshV3StakingRef = useRef(false);
-    const [v3ActionStatus, setV3ActionStatus] = useState("");
-
-    async function refreshV3Staking() {
-        if (refreshV3StakingRef.current || !userAddress) return;
-        refreshV3StakingRef.current = true;
-        setLoadingV3Staking(true);
-        console.log("[V3Staking] Starting refresh for:", userAddress);
-        try {
-            const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
-
-
-            const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, avgHealth] = await Promise.all([
-                v3Contract.users(userAddress),
-                v3Contract.pending(userAddress),
-                v3Contract.capacityOf(userAddress),
-                v3Contract.plantsOf(userAddress),
-                v3Contract.landsOf(userAddress),
-                v3Contract.getAverageHealth(userAddress),
-            ]);
-
-            const plantsCount = Number(userData.plants);
-            const landsCount = Number(userData.lands);
-            const superLandsCount = Number(userData.superLands);
-            const water = userData.waterBalance;
-
-
-            const stakedPlantNums = stakedPlantIds.map((id: any) => Number(id));
-            const stakedLandNums = stakedLandIds.map((id: any) => Number(id));
-
-            console.log("[V3Staking] Staked plants from contract:", stakedPlantNums);
-            console.log("[V3Staking] Staked lands from contract:", stakedLandNums);
-            console.log("[V3Staking] User data - plants:", plantsCount, "lands:", landsCount, "superLands:", superLandsCount);
-
-
-            const healthMap: Record<number, number> = {};
-            const waterNeededMap: Record<number, number> = {};
-
-            if (stakedPlantNums.length > 0) {
-                try {
-                    const healthCalls = stakedPlantNums.map((id: number) => ({
-                        target: V3_STAKING_ADDRESS,
-                        callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id])
-                    }));
-                    const waterCalls = stakedPlantNums.map((id: number) => ({
-                        target: V3_STAKING_ADDRESS,
-                        callData: v3StakingInterface.encodeFunctionData("getWaterNeeded", [id])
-                    }));
-                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                    const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
-                    const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
-                    stakedPlantNums.forEach((id: number, i: number) => {
-                        healthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
-                        const waterWei = ethers.BigNumber.from(waterResults[i]);
-                        waterNeededMap[id] = parseFloat(ethers.utils.formatUnits(waterWei, 18));
-                    });
-                    console.log("[V3Staking] Plant healths:", healthMap);
-                } catch (err) {
-                    console.error("[V3Staking] Failed to get plant health:", err);
-
-                    stakedPlantNums.forEach((id: number) => {
-                        healthMap[id] = 100;
-                        waterNeededMap[id] = 0;
-                    });
-                }
-            }
-
-            setV3PlantHealths(healthMap);
-            setV3WaterNeeded(waterNeededMap);
-            setV3StakedPlants(stakedPlantNums);
-            setV3StakedLands(stakedLandNums);
-
-
-            const owned = await getOwnedState(userAddress);
-            console.log("[V3Staking] Owned state:", owned);
-
-
-            const availPlants = owned.plants
-                .filter((t: any) => !stakedPlantNums.includes(Number(t.tokenId)))
-                .map((t: any) => Number(t.tokenId));
-            const availLands = owned.lands
-                .filter((t: any) => !stakedLandNums.includes(Number(t.tokenId)))
-                .map((t: any) => Number(t.tokenId));
-
-
-            const allOwnedSuperLandIds = owned.superLands.map((t: any) => Number(t.tokenId));
-            const stakedSuperLandNums: number[] = [];
-            const availSuperLandNums: number[] = [];
-
-            console.log("[V3Staking] superLandsCount from contract:", superLandsCount);
-
-            if (superLandsCount > 0) {
-                const ids = Array.from({ length: 100 }, (_, i) => i + 1);
-                let foundStaked = false;
-
-                try {
-                    const stakerCalls = ids.map(id => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
-                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                    const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
-
-                    ids.forEach((id, i) => {
-                        try {
-                            const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
-                            if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
-                                stakedSuperLandNums.push(id);
-                                foundStaked = true;
-                            }
-                        } catch {}
-                    });
-                } catch (err) {
-                    console.log("[V3Staking] Multicall failed, using individual calls");
-                }
-
-                if (!foundStaked && superLandsCount > 0) {
-                    const v3Contract = new ethers.Contract(V3_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
-                    for (let id = 1; id <= 100; id++) {
-                        try {
-                            const staker = await v3Contract.superLandStakerOf(id);
-                            if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
-                                if (!stakedSuperLandNums.includes(id)) stakedSuperLandNums.push(id);
-                            }
-                        } catch {}
-                    }
-                }
-
-                console.log("[V3Staking] Found staked super lands:", stakedSuperLandNums);
-
-                allOwnedSuperLandIds.forEach((id: number) => {
-                    if (!stakedSuperLandNums.includes(id)) {
-                        availSuperLandNums.push(id);
-                    }
-                });
-            } else if (allOwnedSuperLandIds.length > 0) {
-                availSuperLandNums.push(...allOwnedSuperLandIds);
-            }
-
-            setV3StakedSuperLands(stakedSuperLandNums);
-            setV3AvailablePlants(availPlants);
-            setV3AvailableLands(availLands);
-            setV3AvailableSuperLands(availSuperLandNums);
-
-            const pendingFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
-            const capacityNum = capacity.toNumber();
-            const avgHealthNum = avgHealth.toNumber();
-
-            setV3StakingStats({
-                plants: plantsCount,
-                lands: landsCount,
-                superLands: superLandsCount,
-                capacity: capacityNum,
-                avgHealth: avgHealthNum,
-                water,
-                pendingRaw,
-                pendingFormatted
-            });
-
-            const display = pendingFormatted >= 1e6 ? (pendingFormatted / 1e6).toFixed(4) + "M" :
-                           pendingFormatted >= 1e3 ? (pendingFormatted / 1e3).toFixed(2) + "K" :
-                           pendingFormatted.toFixed(2);
-            setV3RealTimePending(display);
-
-            console.log("[V3Staking] Refresh complete:", {
-                stakedPlants: stakedPlantNums.length,
-                stakedLands: stakedLandNums.length,
-                stakedSuperLands: stakedSuperLandNums.length,
-                availPlants: availPlants.length,
-                availLands: availLands.length,
-                availSuperLands: availSuperLandNums.length,
-                pending: display
-            });
-
-        } catch (err) {
-            console.error("[V3Staking] Error:", err);
-        }
-        finally {
-            refreshV3StakingRef.current = false;
-            setLoadingV3Staking(false);
-        }
-    }
-
-    useEffect(() => {
-        if (v3StakingOpen && userAddress) { refreshV3StakingRef.current = false; refreshV3Staking(); }
-    }, [v3StakingOpen, userAddress]);
-
-    useEffect(() => {
-        if (!v3StakingOpen || !v3StakingStats) return;
-        const { pendingRaw, plants } = v3StakingStats;
-        if (!pendingRaw || plants === 0) return;
-        let currentPending = pendingRaw;
-        const tokensPerSecond = ethers.utils.parseUnits("300000", 18).div(86400);
-        const effectivePerSecond = tokensPerSecond.mul(plants);
-        const interval = setInterval(() => {
-            currentPending = currentPending.add(effectivePerSecond.mul(v3StakingStats.avgHealth || 100).div(100));
-            const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
-            setV3RealTimePending(formatted >= 1e6 ? (formatted / 1e6).toFixed(4) + "M" : formatted >= 1e3 ? (formatted / 1e3).toFixed(2) + "K" : formatted.toFixed(2));
-        }, 1000);
-        return () => clearInterval(interval);
-    }, [v3StakingOpen, v3StakingStats]);
-
-    useEffect(() => {
-        if (!v3StakingOpen || v3StakedPlants.length === 0) return;
-        const healthInterval = setInterval(async () => {
-            try {
-                const healthCalls = v3StakedPlants.map((id: number) => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
-                const waterCalls = v3StakedPlants.map((id: number) => ({ target: V3_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
-                const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
-                const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
-                const newHealthMap: Record<number, number> = {};
-                const newWaterMap: Record<number, number> = {};
-                v3StakedPlants.forEach((id: number, i: number) => {
-                    newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
-                    newWaterMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i]), 18));
-                });
-                setV3PlantHealths(newHealthMap);
-                setV3WaterNeeded(newWaterMap);
-                if (v3StakedPlants.length > 0) {
-                    const avgHealth = Math.round(Object.values(newHealthMap).reduce((a, b) => a + b, 0) / v3StakedPlants.length);
-                    setV3StakingStats((prev: any) => prev ? { ...prev, avgHealth } : prev);
-                }
-            } catch (err) { console.error("[V3] Health update failed:", err); }
-        }, 10000);
-        return () => clearInterval(healthInterval);
-    }, [v3StakingOpen, v3StakedPlants]);
-
     const refreshV4StakingRef = useRef(false);
-
     async function refreshV4Staking() {
         if (refreshV4StakingRef.current || !userAddress || !V4_STAKING_ADDRESS) return;
         refreshV4StakingRef.current = true;
         setLoadingV4Staking(true);
         try {
-            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
             const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, avgHealth, tokensPerDayRaw, landBoostBpsRaw, superLandBoostBpsRaw] = await Promise.all([
                 v4Contract.users(userAddress), v4Contract.pending(userAddress), v4Contract.capacityOf(userAddress),
                 v4Contract.plantsOf(userAddress), v4Contract.landsOf(userAddress), v4Contract.getAverageHealth(userAddress).catch(() => ethers.BigNumber.from(100)),
@@ -2273,8 +769,8 @@ export default function Home()
             const waterNeededMap: Record<number, number> = {};
             if (stakedPlantNums.length > 0) {
                 try {
-                    const healthCalls = stakedPlantNums.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
-                    const waterCalls = stakedPlantNums.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
+                    const healthCalls = stakedPlantNums.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
+                    const waterCalls = stakedPlantNums.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
                     const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
                     const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
                     const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
@@ -2310,7 +806,7 @@ export default function Home()
                 let foundStaked = false;
 
                 try {
-                    const stakerCalls = ids.map(id => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
+                    const stakerCalls = ids.map(id => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
                     const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
                     const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
 
@@ -2328,7 +824,7 @@ export default function Home()
                 }
 
                 if (!foundStaked && superLandsCount > 0) {
-                    const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+                    const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
                     for (let id = 1; id <= 100; id++) {
                         try {
                             const staker = await v4Contract.superLandStakerOf(id);
@@ -2382,8 +878,8 @@ export default function Home()
         if (!v4StakingOpen || v4StakedPlants.length === 0 || !V4_STAKING_ADDRESS) return;
         const healthInterval = setInterval(async () => {
             try {
-                const healthCalls = v4StakedPlants.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
-                const waterCalls = v4StakedPlants.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
+                const healthCalls = v4StakedPlants.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
+                const waterCalls = v4StakedPlants.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
                 const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
                 const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
                 const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
@@ -2403,306 +899,7 @@ export default function Home()
         }, 10000);
         return () => clearInterval(healthInterval);
     }, [v4StakingOpen, v4StakedPlants]);
-
-    // V5 Staking
-    const refreshV5StakingRef = useRef(false);
-
-    async function refreshV5Staking() {
-        if (refreshV5StakingRef.current || !userAddress || !V5_STAKING_ADDRESS) return;
-        refreshV5StakingRef.current = true;
-        setLoadingV5Staking(true);
-        try {
-            const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
-            const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, avgHealth, tokensPerDayRaw, landBoostBpsRaw, superLandBoostBpsRaw] = await Promise.all([
-                v5Contract.users(userAddress), v5Contract.pending(userAddress), v5Contract.capacityOf(userAddress),
-                v5Contract.plantsOf(userAddress), v5Contract.landsOf(userAddress), v5Contract.getAverageHealth(userAddress).catch(() => ethers.BigNumber.from(100)),
-                v5Contract.tokensPerPlantPerDay(), v5Contract.landBoostBps(), v5Contract.superLandBoostBps()
-            ]);
-            const plantsCount = Number(userData.plants);
-            const landsCount = Number(userData.lands);
-            const superLandsCount = Number(userData.superLands);
-            const water = userData.waterBalance;
-
-            const tokensPerDay = parseFloat(ethers.utils.formatUnits(tokensPerDayRaw, 18));
-            const landBoostBps = landBoostBpsRaw.toNumber();
-            const superLandBoostBps = superLandBoostBpsRaw.toNumber();
-            const landBoostPct = (landsCount * landBoostBps) / 100;
-            const superLandBoostPct = (superLandsCount * superLandBoostBps) / 100;
-            const totalBoostPct = 100 + landBoostPct + superLandBoostPct;
-            const dailyBase = plantsCount * tokensPerDay;
-            const dailyWithBoost = dailyBase * totalBoostPct / 100;
-            const dailyDisplay = dailyWithBoost >= 1e6 ? (dailyWithBoost / 1e6).toFixed(2) + "M" : dailyWithBoost >= 1e3 ? (dailyWithBoost / 1e3).toFixed(1) + "K" : dailyWithBoost.toFixed(0);
-            const pendingFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
-
-            setV5StakingStats({
-                plants: plantsCount,
-                lands: landsCount,
-                superLands: superLandsCount,
-                capacity: capacity.toNumber(),
-                avgHealth: avgHealth.toNumber(),
-                water,
-                pendingRaw,
-                pendingFormatted,
-                boostPct: totalBoostPct - 100,
-                dailyRewards: dailyDisplay
-            });
-            const display = pendingFormatted >= 1e6 ? (pendingFormatted / 1e6).toFixed(4) + "M" : pendingFormatted >= 1e3 ? (pendingFormatted / 1e3).toFixed(2) + "K" : pendingFormatted.toFixed(2);
-            setV5RealTimePending(display);
-
-            const stakedPlantNums = stakedPlantIds.map((id: any) => Number(id));
-            const stakedLandNums = stakedLandIds.map((id: any) => Number(id));
-            console.log("[V5Staking] stakedPlantNums:", stakedPlantNums);
-            
-            const healthMap: Record<number, number> = {};
-            const waterNeededMap: Record<number, number> = {};
-            if (stakedPlantNums.length > 0) {
-                try {
-                    const healthCalls = stakedPlantNums.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
-                    const waterCalls = stakedPlantNums.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
-                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                    const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
-                    const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
-                    stakedPlantNums.forEach((id: number, i: number) => {
-                        const health = ethers.BigNumber.from(healthResults[i]).toNumber();
-                        healthMap[id] = health;
-                        waterNeededMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i]), 18));
-                    });
-                    if (stakedPlantNums.length > 0) {
-                        const totalHealth = Object.values(healthMap).reduce((a, b) => a + b, 0);
-                        const calculatedAvgHealth = Math.round(totalHealth / stakedPlantNums.length);
-                        setV5StakingStats((prev: any) => prev ? { ...prev, avgHealth: calculatedAvgHealth } : prev);
-                    }
-                } catch (err) { stakedPlantNums.forEach((id: number) => { healthMap[id] = 100; waterNeededMap[id] = 0; }); }
-            }
-            setV5PlantHealths(healthMap);
-            setV5WaterNeeded(waterNeededMap);
-            setV5StakedPlants(stakedPlantNums);
-            setV5StakedLands(stakedLandNums);
-            const owned = await getOwnedState(userAddress);
-            const availPlants = owned.plants.filter((t: any) => !stakedPlantNums.includes(Number(t.tokenId))).map((t: any) => Number(t.tokenId));
-            const availLands = owned.lands.filter((t: any) => !stakedLandNums.includes(Number(t.tokenId))).map((t: any) => Number(t.tokenId));
-            const allOwnedSuperLandIds = owned.superLands.map((t: any) => Number(t.tokenId));
-            const stakedSuperLandNums: number[] = [];
-            const availSuperLandNums: number[] = [];
-
-            if (superLandsCount > 0) {
-                const ids = Array.from({ length: 100 }, (_, i) => i + 1);
-                let foundStaked = false;
-                try {
-                    const stakerCalls = ids.map(id => ({ target: V5_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
-                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                    const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
-                    ids.forEach((id, i) => {
-                        try {
-                            const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
-                            if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
-                                stakedSuperLandNums.push(id);
-                                foundStaked = true;
-                            }
-                        } catch {}
-                    });
-                } catch (err) {
-                    console.log("[V5Staking] Multicall failed, using individual calls");
-                }
-                if (!foundStaked && superLandsCount > 0) {
-                    const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
-                    for (let id = 1; id <= 100; id++) {
-                        try {
-                            const staker = await v5Contract.superLandStakerOf(id);
-                            if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
-                                if (!stakedSuperLandNums.includes(id)) stakedSuperLandNums.push(id);
-                            }
-                        } catch {}
-                    }
-                }
-                allOwnedSuperLandIds.forEach((id: number) => {
-                    if (!stakedSuperLandNums.includes(id)) {
-                        availSuperLandNums.push(id);
-                    }
-                });
-            } else if (allOwnedSuperLandIds.length > 0) {
-                availSuperLandNums.push(...allOwnedSuperLandIds);
-            }
-
-            setV5StakedSuperLands(stakedSuperLandNums);
-            setV5AvailablePlants(availPlants);
-            setV5AvailableLands(availLands);
-            setV5AvailableSuperLands(availSuperLandNums);
-
-        } catch (err) { console.error("[V5Staking] Error:", err); }
-        finally { refreshV5StakingRef.current = false; setLoadingV5Staking(false); }
-    }
-
-    useEffect(() => {
-        if (v5StakingOpen && userAddress && V5_STAKING_ADDRESS) { refreshV5StakingRef.current = false; refreshV5Staking(); }
-    }, [v5StakingOpen, userAddress]);
-
-    useEffect(() => {
-        if (!v5StakingOpen || !v5StakingStats) return;
-        const { pendingRaw, plants } = v5StakingStats;
-        if (!pendingRaw || plants === 0) return;
-        let currentPending = pendingRaw;
-        const tokensPerSecond = ethers.utils.parseUnits("300000", 18).div(86400);
-        const effectivePerSecond = tokensPerSecond.mul(plants);
-        const interval = setInterval(() => {
-            currentPending = currentPending.add(effectivePerSecond.mul(v5StakingStats.avgHealth || 100).div(100));
-            const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
-            setV5RealTimePending(formatted >= 1e6 ? (formatted / 1e6).toFixed(4) + "M" : formatted >= 1e3 ? (formatted / 1e3).toFixed(2) + "K" : formatted.toFixed(2));
-        }, 1000);
-        return () => clearInterval(interval);
-    }, [v5StakingOpen, v5StakingStats]);
-
-    useEffect(() => {
-        if (!v5StakingOpen || v5StakedPlants.length === 0 || !V5_STAKING_ADDRESS) return;
-        const healthInterval = setInterval(async () => {
-            try {
-                const healthCalls = v5StakedPlants.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
-                const waterCalls = v5StakedPlants.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v3StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
-                const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
-                const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
-                const newHealthMap: Record<number, number> = {};
-                const newWaterMap: Record<number, number> = {};
-                v5StakedPlants.forEach((id: number, i: number) => {
-                    newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
-                    newWaterMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i]), 18));
-                });
-                setV5PlantHealths(newHealthMap);
-                setV5WaterNeeded(newWaterMap);
-                if (v5StakedPlants.length > 0) {
-                    const avgHealth = Math.round(Object.values(newHealthMap).reduce((a, b) => a + b, 0) / v5StakedPlants.length);
-                    setV5StakingStats((prev: any) => prev ? { ...prev, avgHealth } : prev);
-                }
-            } catch (err) { console.error("[V5] Health update failed:", err); }
-        }, 10000);
-        return () => clearInterval(healthInterval);
-    }, [v5StakingOpen, v5StakedPlants]);
-
-    async function handleV3StakePlants() {
-        if (selectedV3AvailPlants.length === 0) return;
-        try {
-            setActionLoading(true); setV3ActionStatus("Approving...");
-            const ctx = await ensureWallet(); if (!ctx) return;
-            await ensureCollectionApproval(PLANT_ADDRESS, V3_STAKING_ADDRESS, ctx);
-            setV3ActionStatus("Staking plants...");
-            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakePlants", [selectedV3AvailPlants]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV3ActionStatus("Staked!");
-            setSelectedV3AvailPlants([]);
-            ownedCacheRef.current = { addr: null, state: null };
-            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
-        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
-    async function handleV3StakeLands() {
-        if (selectedV3AvailLands.length === 0) return;
-        try {
-            setActionLoading(true); setV3ActionStatus("Approving...");
-            const ctx = await ensureWallet(); if (!ctx) return;
-            await ensureCollectionApproval(LAND_ADDRESS, V3_STAKING_ADDRESS, ctx);
-            setV3ActionStatus("Staking lands...");
-            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakeLands", [selectedV3AvailLands]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV3ActionStatus("Staked!");
-            setSelectedV3AvailLands([]);
-            ownedCacheRef.current = { addr: null, state: null };
-            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
-        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
-    async function handleV3StakeSuperLands() {
-        if (selectedV3AvailSuperLands.length === 0) return;
-        try {
-            setActionLoading(true); setV3ActionStatus("Approving...");
-            const ctx = await ensureWallet(); if (!ctx) return;
-            await ensureCollectionApproval(SUPER_LAND_ADDRESS, V3_STAKING_ADDRESS, ctx);
-            setV3ActionStatus("Staking super lands...");
-            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV3AvailSuperLands]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV3ActionStatus("Staked!");
-            setSelectedV3AvailSuperLands([]);
-            ownedCacheRef.current = { addr: null, state: null };
-            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
-        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
-    async function handleV3UnstakePlants() {
-        if (selectedV3StakedPlants.length === 0) return;
-        const unhealthy = selectedV3StakedPlants.filter(id => (v3PlantHealths[id] ?? 0) < 100);
-        if (unhealthy.length > 0) {
-            const healthList = unhealthy.map(id => `#${id}: ${v3PlantHealths[id] ?? 0}%`).join(", ");
-            setV3ActionStatus(`Water plants first! ${healthList}`);
-            return;
-        }
-        try {
-            setActionLoading(true); setV3ActionStatus("Unstaking plants...");
-            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakePlants", [selectedV3StakedPlants]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV3ActionStatus("Unstaked!");
-            setSelectedV3StakedPlants([]);
-            ownedCacheRef.current = { addr: null, state: null };
-            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
-        } catch (err: any) {
-            if (err.message?.includes("!healthy") || err.reason?.includes("!healthy")) {
-                setV3ActionStatus("Plants need 100% health! Water them first.");
-            } else {
-                setV3ActionStatus("Error: " + (err.reason || err.message || err));
-            }
-        }
-        finally { setActionLoading(false); }
-    }
-
-    async function handleV3UnstakeLands() {
-        if (selectedV3StakedLands.length === 0) return;
-        try {
-            setActionLoading(true); setV3ActionStatus("Unstaking lands...");
-            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakeLands", [selectedV3StakedLands]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV3ActionStatus("Unstaked!");
-            setSelectedV3StakedLands([]);
-            ownedCacheRef.current = { addr: null, state: null };
-            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
-        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
-    async function handleV3UnstakeSuperLands() {
-        if (selectedV3StakedSuperLands.length === 0) return;
-        try {
-            setActionLoading(true); setV3ActionStatus("Unstaking super lands...");
-            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakeSuperLands", [selectedV3StakedSuperLands]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV3ActionStatus("Unstaked!");
-            setSelectedV3StakedSuperLands([]);
-            ownedCacheRef.current = { addr: null, state: null };
-            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
-        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
-    async function handleV3Claim() {
-        if (!v3StakingStats || v3StakingStats.pendingFormatted <= 0) { setV3ActionStatus("No rewards."); return; }
-        try {
-            setActionLoading(true); setV3ActionStatus("Claiming...");
-            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("claim", []));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV3ActionStatus("Claimed!");
-            setV3RealTimePending("0.00");
-            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
-        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
+    
     async function handleV4StakePlants() {
         if (selectedV4AvailPlants.length === 0) return;
         try {
@@ -2710,7 +907,7 @@ export default function Home()
             const ctx = await ensureWallet(); if (!ctx) return;
             await ensureCollectionApproval(PLANT_ADDRESS, V4_STAKING_ADDRESS, ctx);
             setV4ActionStatus("Staking plants...");
-            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakePlants", [selectedV4AvailPlants]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakePlants", [selectedV4AvailPlants]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Staked!");
@@ -2728,7 +925,7 @@ export default function Home()
             const ctx = await ensureWallet(); if (!ctx) return;
             await ensureCollectionApproval(LAND_ADDRESS, V4_STAKING_ADDRESS, ctx);
             setV4ActionStatus("Staking lands...");
-            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakeLands", [selectedV4AvailLands]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakeLands", [selectedV4AvailLands]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Staked!");
@@ -2746,7 +943,7 @@ export default function Home()
             const ctx = await ensureWallet(); if (!ctx) return;
             await ensureCollectionApproval(SUPER_LAND_ADDRESS, V4_STAKING_ADDRESS, ctx);
             setV4ActionStatus("Staking super lands...");
-            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV4AvailSuperLands]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV4AvailSuperLands]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Staked!");
@@ -2767,7 +964,7 @@ export default function Home()
         }
         try {
             setActionLoading(true); setV4ActionStatus("Unstaking plants...");
-            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakePlants", [selectedV4StakedPlants]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakePlants", [selectedV4StakedPlants]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Unstaked!");
@@ -2788,7 +985,7 @@ export default function Home()
         if (selectedV4StakedLands.length === 0) return;
         try {
             setActionLoading(true); setV4ActionStatus("Unstaking lands...");
-            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakeLands", [selectedV4StakedLands]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeLands", [selectedV4StakedLands]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Unstaked!");
@@ -2803,7 +1000,7 @@ export default function Home()
         if (selectedV4StakedSuperLands.length === 0) return;
         try {
             setActionLoading(true); setV4ActionStatus("Unstaking super lands...");
-            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakeSuperLands", [selectedV4StakedSuperLands]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeSuperLands", [selectedV4StakedSuperLands]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Unstaked!");
@@ -2818,7 +1015,7 @@ export default function Home()
         if (!v4StakingStats || v4StakingStats.pendingFormatted <= 0) { setV4ActionStatus("No rewards."); return; }
         try {
             setActionLoading(true); setV4ActionStatus("Claiming...");
-            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("claim", []));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("claim", []));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Claimed!");
@@ -2828,25 +1025,11 @@ export default function Home()
         finally { setActionLoading(false); }
     }
 
-    async function handleWaterPlants() {
-        if (selectedPlantsToWater.length === 0) return;
-        try {
-            setActionLoading(true); setV3ActionStatus("Watering plants...");
-            const tx = await sendContractTx(V3_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("waterPlants", [selectedPlantsToWater]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV3ActionStatus("Plants watered!");
-            setSelectedPlantsToWater([]);
-            setTimeout(() => { refreshV3StakingRef.current = false; refreshV3Staking(); setV3ActionStatus(""); }, 2000);
-        } catch (err: any) { setV3ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
     async function handleV4WaterPlants() {
         if (selectedV4PlantsToWater.length === 0) return;
         try {
             setActionLoading(true); setV4ActionStatus("Watering plants...");
-            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Plants watered!");
@@ -2856,149 +1039,9 @@ export default function Home()
         finally { setActionLoading(false); }
     }
 
-    // V5 Action Handlers
-    async function handleV5StakePlants() {
-        if (selectedV5AvailPlants.length === 0) return;
-        try {
-            setActionLoading(true); setV5ActionStatus("Approving...");
-            const ctx = await ensureWallet(); if (!ctx) return;
-            await ensureCollectionApproval(PLANT_ADDRESS, V5_STAKING_ADDRESS, ctx);
-            setV5ActionStatus("Staking plants...");
-            const tx = await sendContractTx(V5_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakePlants", [selectedV5AvailPlants]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV5ActionStatus("Staked!");
-            setSelectedV5AvailPlants([]);
-            ownedCacheRef.current = { addr: null, state: null };
-            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
-    async function handleV5StakeLands() {
-        if (selectedV5AvailLands.length === 0) return;
-        try {
-            setActionLoading(true); setV5ActionStatus("Approving...");
-            const ctx = await ensureWallet(); if (!ctx) return;
-            await ensureCollectionApproval(LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
-            setV5ActionStatus("Staking lands...");
-            const tx = await sendContractTx(V5_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakeLands", [selectedV5AvailLands]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV5ActionStatus("Staked!");
-            setSelectedV5AvailLands([]);
-            ownedCacheRef.current = { addr: null, state: null };
-            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
-    async function handleV5StakeSuperLands() {
-        if (selectedV5AvailSuperLands.length === 0) return;
-        try {
-            setActionLoading(true); setV5ActionStatus("Approving...");
-            const ctx = await ensureWallet(); if (!ctx) return;
-            await ensureCollectionApproval(SUPER_LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
-            setV5ActionStatus("Staking super lands...");
-            const tx = await sendContractTx(V5_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV5AvailSuperLands]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV5ActionStatus("Staked!");
-            setSelectedV5AvailSuperLands([]);
-            ownedCacheRef.current = { addr: null, state: null };
-            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
-    async function handleV5UnstakePlants() {
-        if (selectedV5StakedPlants.length === 0) return;
-        const unhealthy = selectedV5StakedPlants.filter(id => (v5PlantHealths[id] ?? 0) < 100);
-        if (unhealthy.length > 0) {
-            const healthList = unhealthy.map(id => `#${id}: ${v5PlantHealths[id] ?? 0}%`).join(", ");
-            setV5ActionStatus(`Water plants first! ${healthList}`);
-            return;
-        }
-        try {
-            setActionLoading(true); setV5ActionStatus("Unstaking plants...");
-            const tx = await sendContractTx(V5_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakePlants", [selectedV5StakedPlants]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV5ActionStatus("Unstaked!");
-            setSelectedV5StakedPlants([]);
-            ownedCacheRef.current = { addr: null, state: null };
-            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) {
-            if (err.message?.includes("!healthy") || err.reason?.includes("!healthy")) {
-                setV5ActionStatus("Plants need 100% health! Water them first.");
-            } else {
-                setV5ActionStatus("Error: " + (err.reason || err.message || err));
-            }
-        }
-        finally { setActionLoading(false); }
-    }
-
-    async function handleV5UnstakeLands() {
-        if (selectedV5StakedLands.length === 0) return;
-        try {
-            setActionLoading(true); setV5ActionStatus("Unstaking lands...");
-            const tx = await sendContractTx(V5_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakeLands", [selectedV5StakedLands]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV5ActionStatus("Unstaked!");
-            setSelectedV5StakedLands([]);
-            ownedCacheRef.current = { addr: null, state: null };
-            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
-    async function handleV5UnstakeSuperLands() {
-        if (selectedV5StakedSuperLands.length === 0) return;
-        try {
-            setActionLoading(true); setV5ActionStatus("Unstaking super lands...");
-            const tx = await sendContractTx(V5_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("unstakeSuperLands", [selectedV5StakedSuperLands]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV5ActionStatus("Unstaked!");
-            setSelectedV5StakedSuperLands([]);
-            ownedCacheRef.current = { addr: null, state: null };
-            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
-    async function handleV5Claim() {
-        if (!v5StakingStats || v5StakingStats.pendingFormatted <= 0) { setV5ActionStatus("No rewards."); return; }
-        try {
-            setActionLoading(true); setV5ActionStatus("Claiming...");
-            const tx = await sendContractTx(V5_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("claim", []));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV5ActionStatus("Claimed!");
-            setV5RealTimePending("0.00");
-            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
-    async function handleV5WaterPlants() {
-        if (selectedV5PlantsToWater.length === 0) return;
-        try {
-            setActionLoading(true); setV5ActionStatus("Watering plants...");
-            const tx = await sendContractTx(V5_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("waterPlants", [selectedV5PlantsToWater]));
-            if (!tx) throw new Error("Tx rejected");
-            await waitForTx(tx);
-            setV5ActionStatus("Plants watered!");
-            setSelectedV5PlantsToWater([]);
-            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
-    }
-
     async function loadWaterShopInfo() {
         try {
-            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
             const [isOpen, shopTimeInfo, dailyRemaining, walletRemaining, pricePerLiter, shopEnabled, walletLimit] = await Promise.all([
                 v4Contract.isShopOpen(),
                 v4Contract.getShopTimeInfo(),
@@ -3043,12 +1086,12 @@ export default function Home()
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             const allowance = await tokenContract.allowance(userAddress, V4_STAKING_ADDRESS);
             if (allowance.lt(cost)) {
-                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V4_STAKING_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V4_STAKING_ADDRESS, ethers.constants.MaxUint256]));
                 if (!approveTx) throw new Error("Approval rejected");
                 await waitForTx(approveTx);
             }
             setWaterStatus("Buying water...");
-            const tx = await sendContractTx(V4_STAKING_ADDRESS, v3StakingInterface.encodeFunctionData("buyWater", [waterBuyAmount]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("buyWater", [waterBuyAmount]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setWaterStatus("Water purchased!");
@@ -3057,19 +1100,15 @@ export default function Home()
         finally { setWaterLoading(false); }
     }
 
-    const plantsNeedingWater = useMemo(() => v3StakedPlants.filter(id => (v3WaterNeeded[id] || 0) > 0 || (v3PlantHealths[id] !== undefined && v3PlantHealths[id] < 100)), [v3StakedPlants, v3PlantHealths, v3WaterNeeded]);
-    const totalWaterNeededForSelected = useMemo(() => selectedPlantsToWater.reduce((sum, id) => sum + Math.max(1, v3WaterNeeded[id] || 0), 0), [selectedPlantsToWater, v3WaterNeeded]);
-
     const v4PlantsNeedingWater = useMemo(() => v4StakedPlants.filter(id => (v4WaterNeeded[id] || 0) > 0 || (v4PlantHealths[id] !== undefined && v4PlantHealths[id] < 100)), [v4StakedPlants, v4PlantHealths, v4WaterNeeded]);
     const v4TotalWaterNeededForSelected = useMemo(() => selectedV4PlantsToWater.reduce((sum, id) => sum + Math.max(1, v4WaterNeeded[id] || 0), 0), [selectedV4PlantsToWater, v4WaterNeeded]);
 
     const BACKEND_API_URL = "https://wars.x420ponzi.com";
 
-
     async function loadWarsPlayerStats() {
         if (!userAddress) return;
         try {
-            const battlesContract = new ethers.Contract(V3_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V4_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
             const stats = await battlesContract.getPlayerStats(userAddress);
             setWarsPlayerStats({
                 wins: stats.wins.toNumber(),
@@ -3116,7 +1155,7 @@ export default function Home()
             }
 
 
-            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
             const hasShield = await v4Contract.hasRaidShield(userAddress).catch(() => false);
             setWarsPlayerStats((prev: any) => prev ? { ...prev, hasShield } : null);
 
@@ -3143,7 +1182,7 @@ export default function Home()
                 return;
             }
 
-            const battlesContract = new ethers.Contract(V3_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V4_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
 
             // Check if already have a LOCKED target on-chain
             const activeSearch = await battlesContract.getActiveSearch(ctx.userAddress);
@@ -3243,7 +1282,7 @@ export default function Home()
                 return;
             }
 
-            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V3_STAKING_ABI, readProvider);
+            const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
             const hasShield = await v4Contract.hasRaidShield(ctx.userAddress).catch(() => false);
             if (hasShield) {
                 const confirmAttack = window.confirm("⚠️ WARNING: You have an active Raid Shield!\n\nAttacking another player will REMOVE your shield protection.\n\nDo you want to continue?");
@@ -3315,16 +1354,16 @@ export default function Home()
             }
 
             const { target, nonce, signature, stats } = warsPreviewData;
-            const battlesContract = new ethers.Contract(V3_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V4_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
 
             setWarsStatus("Checking approval...");
             const searchFee = await battlesContract.searchFee();
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            let allowance = await tokenContract.allowance(ctx.userAddress, V3_BATTLES_ADDRESS);
+            let allowance = await tokenContract.allowance(ctx.userAddress, V4_BATTLES_ADDRESS);
 
             if (allowance.lt(searchFee)) {
                 setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V3_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V4_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
                 if (!approveTx) throw new Error("Approval rejected");
                 setWarsStatus("Waiting for approval...");
                 await waitForTx(approveTx, readProvider);
@@ -3333,9 +1372,9 @@ export default function Home()
 
             setWarsStatus("Paying 50K FCWEED (confirm in wallet)...");
 
-            const searchTx = await sendContractTx(
-                V3_BATTLES_ADDRESS,
-                v3BattlesInterface.encodeFunctionData("searchForTarget", [target, nonce, signature]),
+            const searchTx = await txAction().sendContractTx(
+                V4_BATTLES_ADDRESS,
+                v4BattlesInterface.encodeFunctionData("searchForTarget", [target, nonce, signature]),
                 "0x1E8480"
             );
 
@@ -3452,7 +1491,7 @@ export default function Home()
             }
 
 
-            const tx = await sendContractTx(V3_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("attack", []), "0x1E8480");
+            const tx = await txAction().sendContractTx(V4_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("attack", []), "0x1E8480");
             if (!tx) {
                 setWarsStatus("Transaction rejected");
                 setWarsAttacking(false);
@@ -3466,14 +1505,14 @@ export default function Home()
             const receipt = await waitForTx(tx, readProvider);
 
 
-            const battleResultTopic = v3BattlesInterface.getEventTopic("BattleResult");
+            const battleResultTopic = v4BattlesInterface.getEventTopic("BattleResult");
             let battleResult: any = null;
 
             if (receipt && receipt.logs) {
                 for (const log of receipt.logs) {
                     if (log.topics[0] === battleResultTopic) {
                         try {
-                            const parsed = v3BattlesInterface.parseLog(log);
+                            const parsed = v4BattlesInterface.parseLog(log);
                             battleResult = {
                                 attacker: parsed.args.attacker,
                                 defender: parsed.args.defender,
@@ -3493,8 +1532,8 @@ export default function Home()
                     const fullReceipt = await readProvider.getTransactionReceipt(tx.hash);
                     if (fullReceipt && fullReceipt.logs) {
                         for (const log of fullReceipt.logs) {
-                            if (log.address.toLowerCase() === V3_BATTLES_ADDRESS.toLowerCase() && log.topics[0] === battleResultTopic) {
-                                const parsed = v3BattlesInterface.parseLog(log);
+                            if (log.address.toLowerCase() === V4_BATTLES_ADDRESS.toLowerCase() && log.topics[0] === battleResultTopic) {
+                                const parsed = v4BattlesInterface.parseLog(log);
                                 battleResult = {
                                     attacker: parsed.args.attacker,
                                     defender: parsed.args.defender,
@@ -3576,11 +1615,11 @@ export default function Home()
             const ctx = await ensureWallet();
             if (!ctx) return;
 
-            const battlesContract = new ethers.Contract(V3_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V4_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
             const activeSearch = await battlesContract.getActiveSearch(ctx.userAddress);
             if (activeSearch.isValid) {
                 setWarsStatus("Cancelling locked target...");
-                const cancelTx = await sendContractTx(V3_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("cancelSearch", []), "0x1E8480");
+                const cancelTx = await txAction().sendContractTx(V4_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cancelSearch", []), "0x1E8480");
                 if (cancelTx) await waitForTx(cancelTx, readProvider);
             }
         }
@@ -3802,7 +1841,6 @@ export default function Home()
                 return;
             }
 
-
             setCrateStatus("Checking FCWEED balance...");
             const fcweedContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             const tokenBalance = await fcweedContract.balanceOf(ctx.userAddress);
@@ -3816,8 +1854,7 @@ export default function Home()
                 setCrateStatus("");
                 return;
             }
-
-
+            
             setCrateStatus("Checking approval...");
             const allowance = await fcweedContract.allowance(ctx.userAddress, CRATE_VAULT_ADDRESS);
             console.log("[Crate] Current allowance:", ethers.utils.formatUnits(allowance, 18));
@@ -3830,7 +1867,7 @@ export default function Home()
                 if (isFarcasterWallet && farcasterProvider) {
 
                     console.log("[Crate] Using Farcaster wallet for approval");
-                    approveTx = await sendWalletCalls(
+                    approveTx = await txAction().sendWalletCalls(
                         ctx.userAddress,
                         FCWEED_ADDRESS,
                         erc20Interface.encodeFunctionData("approve", [CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256])
@@ -3869,7 +1906,6 @@ export default function Home()
                 setCrateStatus("Confirming approval...");
                 console.log("[Crate] Waiting for approval tx:", approveTx.hash);
 
-
                 if (approveTx.hash) {
                     for (let i = 0; i < 30; i++) {
                         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -3890,11 +1926,9 @@ export default function Home()
             }
 
 
-            setMintStatus("Opening crate...");
+            setCrateStatus("Opening crate...");
 
             let tx: ethers.providers.TransactionResponse | null = null;
-
-
 
             let blockBeforeTx = 0;
             try {
@@ -3915,7 +1949,7 @@ export default function Home()
             if (isFarcasterWallet && farcasterProvider) {
 
                 console.log("[Crate] Using Farcaster wallet for openCrate");
-                tx = await sendWalletCalls(
+                tx = await txAction().sendWalletCalls(
                     ctx.userAddress,
                     CRATE_VAULT_ADDRESS,
                     openCrateData,
@@ -3979,7 +2013,6 @@ export default function Home()
 
             console.log("[Crate] Transaction hash:", txHash, "isValid:", isValidHash);
 
-
             const eventInterface = new ethers.utils.Interface([
                 "event CrateOpened(address indexed player, uint256 indexed rewardIndex, string rewardName, uint8 category, uint256 amount, uint256 nftTokenId, uint256 timestamp)"
             ]);
@@ -3988,8 +2021,6 @@ export default function Home()
 
             if (isValidHash) {
                 console.log("[Crate] Waiting for tx:", txHash);
-
-
                 let found = false;
                 for (let i = 0; i < 5; i++) {
                     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -4005,7 +2036,6 @@ export default function Home()
                         console.log("[Crate] Polling for receipt...", i);
                     }
                 }
-
 
                 if (!found) {
                     console.log("[Crate] Transaction not found after 10s, checking if it was submitted...");
@@ -4587,16 +2617,10 @@ export default function Home()
                             <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setV5StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #10b981, #34d399)" }}>🧪 Staking V5 (TESTING)</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setV4StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>🚀 Staking V4 (UNSTAKE ONLY)</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setV3StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #4b5563, #6b7280)" }}>🌿 Staking V3 (UNSTAKE ONLY)</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setNewStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #374151, #4b5563)" }}>📦 Staking V2 (UNSTAKE ONLY)</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setOldStakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #374151, #4b5563)" }}>📦 Staking V1 (UNSTAKE ONLY)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setV4StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #7c3aed, #a855f7)" }}>🚀 Staking V4 (NEW - LIVE)</button>
                         </div>
                         <div style={{ marginTop: 12, padding: 10, background: "rgba(124,58,237,0.1)", borderRadius: 10, border: "1px solid rgba(124,58,237,0.3)" }}>
                             <p style={{ fontSize: 11, color: "#a855f7", margin: 0, fontWeight: 600 }}>🚀 Staking V4 is LIVE! Claim enabled 12/18 at 10 AM EST</p>
-                            <p style={{ fontSize: 10, color: "#ef4444", margin: "6px 0 0", fontWeight: 600 }}>⚠️ V1/V2/V3 claims DISABLED on 12/18 at 10 AM EST - Migrate NOW!</p>
-                            <p style={{ fontSize: 10, color: "#9ca3af", margin: "6px 0 0" }}>Unstake & claim from old versions, then stake in V4 before deadline!</p>
                         </div>
                     </section>
                 )}
@@ -5142,328 +3166,6 @@ export default function Home()
                     </button>
                 ))}
             </nav>
-
-            {oldStakingOpen && (
-                <div className={styles.modalBackdrop}>
-                    <div className={styles.modal} style={{ maxWidth: 500, width: "95%", maxHeight: "85vh", overflowY: "auto" }}>
-                        <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle}>Staking V1 (Unstake Only)</h2>
-                            <button type="button" className={styles.modalClose} onClick={() => setOldStakingOpen(false)}>✕</button>
-                        </header>
-                        <div style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V1 claim will be DISABLED on 12/18 at 10 AM EST. Unstake & claim NOW, then migrate to V4!</p>
-                        </div>
-                        <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Plants</span><span className={styles.statValue}>{oldStakingStats?.plantsStaked || 0}</span></div>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Lands</span><span className={styles.statValue}>{oldStakingStats?.landsStaked || 0}</span></div>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Capacity</span><span className={styles.statValue}>{oldStakingStats ? oldStakingStats.capacityUsed + "/" + oldStakingStats.totalSlots : "0/1"}</span></div>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Boost</span><span className={styles.statValue}>+{oldStakingStats?.landBoostPct.toFixed(1) || 0}%</span></div>
-                            <div className={styles.statCard} style={{ gridColumn: "span 2", background: "linear-gradient(135deg, #064e3b, #047857)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#34d399" }}>{oldRealTimePending}</span></div>
-                        </div>
-                        {loadingOldStaking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12 }}>Loading NFTs…</p> : (
-                            <>
-                                <div style={{ marginBottom: 10 }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                        <span style={{ fontSize: 11, fontWeight: 600 }}>Available ({oldTotalAvailable})</span>
-                                        <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={oldTotalAvailable > 0 && selectedOldAvailPlants.length + selectedOldAvailLands.length === oldTotalAvailable} onChange={() => { if (selectedOldAvailPlants.length + selectedOldAvailLands.length === oldTotalAvailable) { setSelectedOldAvailPlants([]); setSelectedOldAvailLands([]); } else { setSelectedOldAvailPlants(oldAvailablePlants); setSelectedOldAvailLands(oldAvailableLands); } }} />All</label>
-                                    </div>
-                                    <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                        {oldTotalAvailable === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No NFTs</span> : (
-                                            <>{oldAvailableLands.map((id) => <NftCard key={"oal-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedOldAvailLands.includes(id)} onChange={() => toggleId(id, selectedOldAvailLands, setSelectedOldAvailLands)} />)}{oldAvailablePlants.map((id) => <NftCard key={"oap-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedOldAvailPlants.includes(id)} onChange={() => toggleId(id, selectedOldAvailPlants, setSelectedOldAvailPlants)} />)}</>
-                                        )}
-                                    </div>
-                                </div>
-                                <div style={{ marginBottom: 10 }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                        <span style={{ fontSize: 11, fontWeight: 600 }}>Staked ({oldTotalStaked})</span>
-                                        <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={oldTotalStaked > 0 && selectedOldStakedPlants.length + selectedOldStakedLands.length === oldTotalStaked} onChange={() => { if (selectedOldStakedPlants.length + selectedOldStakedLands.length === oldTotalStaked) { setSelectedOldStakedPlants([]); setSelectedOldStakedLands([]); } else { setSelectedOldStakedPlants(oldStakedPlants); setSelectedOldStakedLands(oldStakedLands); } }} />All</label>
-                                    </div>
-                                    <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                        {oldTotalStaked === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No staked NFTs</span> : (
-                                            <>{oldStakedLands.map((id) => <NftCard key={"osl-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedOldStakedLands.includes(id)} onChange={() => toggleId(id, selectedOldStakedLands, setSelectedOldStakedLands)} />)}{oldStakedPlants.map((id) => <NftCard key={"osp-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedOldStakedPlants.includes(id)} onChange={() => toggleId(id, selectedOldStakedPlants, setSelectedOldStakedPlants)} />)}</>
-                                        )}
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                            <button type="button" className={styles.btnPrimary} disabled={true} style={{ flex: 1, padding: 10, fontSize: 12, opacity: 0.5 }}>Stake (Disabled)</button>
-                            <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading} onClick={handleOldUnstakeSelected} style={{ flex: 1, padding: 10, fontSize: 12 }}>Unstake</button>
-                            <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !oldStakingStats?.claimEnabled} onClick={handleOldClaim} style={{ flex: 1, padding: 10, fontSize: 12 }}>Claim</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {newStakingOpen && (
-                <div className={styles.modalBackdrop}>
-                    <div className={styles.modal} style={{ maxWidth: 500, width: "95%", maxHeight: "85vh", overflowY: "auto" }}>
-                        <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle}>Staking V2 (Unstake Only)</h2>
-                            <button type="button" className={styles.modalClose} onClick={() => setNewStakingOpen(false)}>✕</button>
-                        </header>
-
-                        <button
-                            type="button"
-                            onClick={() => { setNewStakingOpen(false); setV4StakingOpen(true); }}
-                            style={{ width: "100%", padding: "10px", marginBottom: 10, background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", borderRadius: 8, color: "#fff", fontWeight: 600, fontSize: 12, cursor: "pointer" }}
-                        >
-                            🚀 Go to V4 Staking (NEW - LIVE) - Plant Health, Water Shop, Cartel Wars!
-                        </button>
-
-                        <div style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V2 claim will be DISABLED on 12/18 at 10 AM EST. Unstake & claim NOW, then migrate to V4!</p>
-                        </div>
-                        <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Plants</span><span className={styles.statValue}>{newStakingStats?.plantsStaked || 0}</span></div>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Lands</span><span className={styles.statValue}>{newStakingStats?.landsStaked || 0}</span></div>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Super Lands</span><span className={styles.statValue}>{newStakingStats?.superLandsStaked || 0}</span></div>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Capacity</span><span className={styles.statValue}>{newStakingStats ? newStakingStats.capacityUsed + "/" + newStakingStats.totalSlots : "0/1"}</span></div>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Boost</span><span className={styles.statValue}>+{newStakingStats ? (newStakingStats.totalBoostPct - 100).toFixed(1) : 0}%</span></div>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Daily</span><span className={styles.statValue}>{newStakingStats?.dailyRewards || "0"}</span></div>
-                            <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #064e3b, #047857)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#34d399", fontSize: 16 }}>{realTimePending}</span></div>
-                        </div>
-                        {loadingNewStaking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12 }}>Loading NFTs…</p> : (
-                            <>
-                                <div style={{ marginBottom: 10 }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                        <span style={{ fontSize: 11, fontWeight: 600 }}>Available ({newTotalAvailable})</span>
-                                        <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={newTotalAvailable > 0 && selectedNewAvailPlants.length + selectedNewAvailLands.length + selectedNewAvailSuperLands.length === newTotalAvailable} onChange={() => { if (selectedNewAvailPlants.length + selectedNewAvailLands.length + selectedNewAvailSuperLands.length === newTotalAvailable) { setSelectedNewAvailPlants([]); setSelectedNewAvailLands([]); setSelectedNewAvailSuperLands([]); } else { setSelectedNewAvailPlants(newAvailablePlants); setSelectedNewAvailLands(newAvailableLands); setSelectedNewAvailSuperLands(newAvailableSuperLands); } }} />All</label>
-                                    </div>
-                                    <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                        {newTotalAvailable === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No NFTs</span> : (
-                                            <>{newAvailableSuperLands.map((id) => <NftCard key={"nasl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedNewAvailSuperLands.includes(id)} onChange={() => toggleId(id, selectedNewAvailSuperLands, setSelectedNewAvailSuperLands)} />)}{newAvailableLands.map((id) => <NftCard key={"nal-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedNewAvailLands.includes(id)} onChange={() => toggleId(id, selectedNewAvailLands, setSelectedNewAvailLands)} />)}{newAvailablePlants.map((id) => <NftCard key={"nap-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedNewAvailPlants.includes(id)} onChange={() => toggleId(id, selectedNewAvailPlants, setSelectedNewAvailPlants)} />)}</>
-                                        )}
-                                    </div>
-                                </div>
-                                <div style={{ marginBottom: 10 }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                        <span style={{ fontSize: 11, fontWeight: 600 }}>Staked ({newTotalStaked})</span>
-                                        <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={newTotalStaked > 0 && selectedNewStakedPlants.length + selectedNewStakedLands.length + selectedNewStakedSuperLands.length === newTotalStaked} onChange={() => { if (selectedNewStakedPlants.length + selectedNewStakedLands.length + selectedNewStakedSuperLands.length === newTotalStaked) { setSelectedNewStakedPlants([]); setSelectedNewStakedLands([]); setSelectedNewStakedSuperLands([]); } else { setSelectedNewStakedPlants(newStakedPlants); setSelectedNewStakedLands(newStakedLands); setSelectedNewStakedSuperLands(newStakedSuperLands); } }} />All</label>
-                                    </div>
-                                    <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                        {newTotalStaked === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No staked NFTs</span> : (
-                                            <>{newStakedSuperLands.map((id) => <NftCard key={"nssl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedNewStakedSuperLands.includes(id)} onChange={() => toggleId(id, selectedNewStakedSuperLands, setSelectedNewStakedSuperLands)} />)}{newStakedLands.map((id) => <NftCard key={"nsl-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedNewStakedLands.includes(id)} onChange={() => toggleId(id, selectedNewStakedLands, setSelectedNewStakedLands)} />)}{newStakedPlants.map((id) => <NftCard key={"nsp-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedNewStakedPlants.includes(id)} onChange={() => toggleId(id, selectedNewStakedPlants, setSelectedNewStakedPlants)} />)}</>
-                                        )}
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                            <button type="button" className={styles.btnPrimary} disabled={true} style={{ flex: 1, padding: 10, fontSize: 12, opacity: 0.5 }}>Stake (Disabled)</button>
-                            <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading} onClick={handleNewUnstakeSelected} style={{ flex: 1, padding: 10, fontSize: 12 }}>Unstake</button>
-                            <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !newStakingStats?.claimEnabled} onClick={handleNewClaim} style={{ flex: 1, padding: 10, fontSize: 12 }}>Claim</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {v3StakingOpen && (
-                <div className={styles.modalBackdrop}>
-                    <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto" }}>
-                        <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle}>🌿 Staking V3 (Unstake Only)</h2>
-                            <button type="button" className={styles.modalClose} onClick={() => setV3StakingOpen(false)}>✕</button>
-                        </header>
-
-                        <button
-                            type="button"
-                            onClick={() => { setV3StakingOpen(false); setV4StakingOpen(true); }}
-                            style={{ width: "100%", padding: "10px", marginBottom: 10, background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", borderRadius: 8, color: "#fff", fontWeight: 600, fontSize: 12, cursor: "pointer" }}
-                        >
-                            🚀 Go to V4 Staking (NEW - LIVE) - Plant Health, Water Shop, Cartel Wars!
-                        </button>
-
-                        <div style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#ef4444", margin: 0, fontWeight: 600 }}>⚠️ V3 claim will be DISABLED on 12/18 at 10 AM EST. Unstake & claim NOW, then migrate to V4!</p>
-                        </div>
-
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Plants</span><span className={styles.statValue}>{v3StakingStats?.plants || 0}</span></div>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Lands</span><span className={styles.statValue}>{v3StakingStats?.lands || 0}</span></div>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Super Lands</span><span className={styles.statValue}>{v3StakingStats?.superLands || 0}</span></div>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Capacity</span><span className={styles.statValue}>{v3StakingStats ? `${v3StakingStats.plants}/${v3StakingStats.capacity}` : "0/1"}</span></div>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Avg Health</span><span className={styles.statValue} style={{ color: (v3StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v3StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v3StakingStats?.avgHealth || 100}%</span></div>
-                            <div className={styles.statCard}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v3StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(v3StakingStats.water, 18))).toFixed(1) : "0"}L</span></div>
-                            <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #064e3b, #047857)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#34d399", fontSize: 16 }}>{v3RealTimePending}</span></div>
-                        </div>
-
-                        {v3StakedPlants.length > 0 && (
-                            <div style={{ background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.3)", borderRadius: 8, padding: 10, marginBottom: 10 }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                                    <span style={{ fontSize: 10, color: "#60a5fa", fontWeight: 600 }}>💧 Water Plants ({v3StakedPlants.filter(id => (v3PlantHealths[id] ?? 100) < 100).length} need water)</span>
-                                    <label style={{ fontSize: 9, display: "flex", alignItems: "center", gap: 3 }}>
-                                        <input type="checkbox" checked={selectedPlantsToWater.length === v3StakedPlants.length && selectedPlantsToWater.length > 0} onChange={() => { if (selectedPlantsToWater.length === v3StakedPlants.length) { setSelectedPlantsToWater([]); } else { setSelectedPlantsToWater([...v3StakedPlants]); } }} />All plants
-                                    </label>
-                                </div>
-                                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>Your Water: {v3StakingStats?.water ? parseFloat(ethers.utils.formatUnits(v3StakingStats.water, 18)).toFixed(2) : "0"}L</div>
-                                <div style={{ display: "flex", overflowX: "auto", gap: 4, padding: "4px 0", minHeight: 60 }}>
-                                    {v3StakedPlants.map(id => (
-                                        <label key={"water-" + id} style={{ minWidth: 60, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer", opacity: (v3PlantHealths[id] ?? 100) >= 100 ? 0.5 : 1 }}>
-                                            <input type="checkbox" checked={selectedPlantsToWater.includes(id)} onChange={() => { if (selectedPlantsToWater.includes(id)) { setSelectedPlantsToWater(selectedPlantsToWater.filter(x => x !== id)); } else { setSelectedPlantsToWater([...selectedPlantsToWater, id]); } }} style={{ marginBottom: 2 }} />
-                                            <div style={{ fontSize: 8 }}>#{id}</div>
-                                            <div style={{ fontSize: 10, color: (v3PlantHealths[id] ?? 100) >= 100 ? "#10b981" : (v3PlantHealths[id] ?? 100) >= 80 ? "#22c55e" : (v3PlantHealths[id] ?? 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v3PlantHealths[id] ?? "?"}%</div>
-                                            <div style={{ fontSize: 8, color: "#60a5fa" }}>{Math.max(1, v3WaterNeeded[id] || 0).toFixed(1)}L</div>
-                                        </label>
-                                    ))}
-                                </div>
-                                {selectedPlantsToWater.length > 0 && (
-                                    <button
-                                        type="button"
-                                        onClick={handleWaterPlants}
-                                        disabled={actionLoading || !connected}
-                                        className={styles.btnPrimary}
-                                        style={{ width: "100%", marginTop: 8, padding: 8, fontSize: 11, background: actionLoading ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)" }}
-                                    >
-                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedPlantsToWater.length} Plant${selectedPlantsToWater.length > 1 ? "s" : ""} (${totalWaterNeededForSelected.toFixed(1)}L)`}
-                                    </button>
-                                )}
-                                {v3ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v3ActionStatus}</p>}
-                            </div>
-                        )}
-
-                        <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
-
-                        {loadingV3Staking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12 }}>Loading NFTs…</p> : (
-                            <>
-                                <div style={{ marginBottom: 10 }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                        <span style={{ fontSize: 11, fontWeight: 600 }}>Available ({v3AvailablePlants.length + v3AvailableLands.length + v3AvailableSuperLands.length})</span>
-                                        <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v3AvailablePlants.length + v3AvailableLands.length + v3AvailableSuperLands.length) > 0 && selectedV3AvailPlants.length + selectedV3AvailLands.length + selectedV3AvailSuperLands.length === (v3AvailablePlants.length + v3AvailableLands.length + v3AvailableSuperLands.length)} onChange={() => { if (selectedV3AvailPlants.length + selectedV3AvailLands.length + selectedV3AvailSuperLands.length === (v3AvailablePlants.length + v3AvailableLands.length + v3AvailableSuperLands.length)) { setSelectedV3AvailPlants([]); setSelectedV3AvailLands([]); setSelectedV3AvailSuperLands([]); } else { setSelectedV3AvailPlants(v3AvailablePlants); setSelectedV3AvailLands(v3AvailableLands); setSelectedV3AvailSuperLands(v3AvailableSuperLands); } }} />All</label>
-                                    </div>
-                                    <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                        {(v3AvailablePlants.length + v3AvailableLands.length + v3AvailableSuperLands.length) === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No NFTs available to stake</span> : (
-                                            <>{v3AvailableSuperLands.map((id) => <NftCard key={"v3asl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedV3AvailSuperLands.includes(id)} onChange={() => toggleId(id, selectedV3AvailSuperLands, setSelectedV3AvailSuperLands)} />)}{v3AvailableLands.map((id) => <NftCard key={"v3al-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedV3AvailLands.includes(id)} onChange={() => toggleId(id, selectedV3AvailLands, setSelectedV3AvailLands)} />)}{v3AvailablePlants.map((id) => <NftCard key={"v3ap-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV3AvailPlants.includes(id)} onChange={() => toggleId(id, selectedV3AvailPlants, setSelectedV3AvailPlants)} />)}</>
-                                        )}
-                                    </div>
-                                </div>
-                                <div style={{ marginBottom: 10 }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                        <span style={{ fontSize: 11, fontWeight: 600 }}>Staked ({v3StakedPlants.length + v3StakedLands.length + v3StakedSuperLands.length})</span>
-                                        <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v3StakedPlants.length + v3StakedLands.length + v3StakedSuperLands.length) > 0 && selectedV3StakedPlants.length + selectedV3StakedLands.length + selectedV3StakedSuperLands.length === (v3StakedPlants.length + v3StakedLands.length + v3StakedSuperLands.length)} onChange={() => { if (selectedV3StakedPlants.length + selectedV3StakedLands.length + selectedV3StakedSuperLands.length === (v3StakedPlants.length + v3StakedLands.length + v3StakedSuperLands.length)) { setSelectedV3StakedPlants([]); setSelectedV3StakedLands([]); setSelectedV3StakedSuperLands([]); } else { setSelectedV3StakedPlants(v3StakedPlants); setSelectedV3StakedLands(v3StakedLands); setSelectedV3StakedSuperLands(v3StakedSuperLands); } }} />All</label>
-                                    </div>
-                                    <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                        {(v3StakedPlants.length + v3StakedLands.length + v3StakedSuperLands.length) === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No staked NFTs</span> : (
-                                            <>{v3StakedSuperLands.map((id) => <NftCard key={"v3ssl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedV3StakedSuperLands.includes(id)} onChange={() => toggleId(id, selectedV3StakedSuperLands, setSelectedV3StakedSuperLands)} />)}{v3StakedLands.map((id) => <NftCard key={"v3sl-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedV3StakedLands.includes(id)} onChange={() => toggleId(id, selectedV3StakedLands, setSelectedV3StakedLands)} />)}{v3StakedPlants.map((id) => <NftCard key={"v3sp-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV3StakedPlants.includes(id)} onChange={() => toggleId(id, selectedV3StakedPlants, setSelectedV3StakedPlants)} health={v3PlantHealths[id]} />)}</>
-                                        )}
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                            <button type="button" className={styles.btnPrimary} disabled={true} style={{ flex: 1, padding: 10, fontSize: 12, opacity: 0.5 }}>Stake (Disabled)</button>
-                            <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || (selectedV3StakedPlants.length + selectedV3StakedLands.length + selectedV3StakedSuperLands.length === 0)} onClick={async () => { if (selectedV3StakedPlants.length > 0) await handleV3UnstakePlants(); if (selectedV3StakedLands.length > 0) await handleV3UnstakeLands(); if (selectedV3StakedSuperLands.length > 0) await handleV3UnstakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Unstaking..." : "Unstake"}</button>
-                            <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !v3StakingStats || v3StakingStats.pendingFormatted <= 0} onClick={handleV3Claim} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Claiming..." : "Claim"}</button>
-                        </div>
-                        <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 6, textAlign: "center" }}>⚠️ Plants must have 100% health to unstake. Water them first!</p>
-                        {v3ActionStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v3ActionStatus}</p>}
-                    </div>
-                </div>
-            )}
-
-            {v5StakingOpen && (
-                <div className={styles.modalBackdrop}>
-                    <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto" }}>
-                        <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle}>🧪 Staking V5 (TESTING)</h2>
-                            <button type="button" className={styles.modalClose} onClick={() => setV5StakingOpen(false)}>✕</button>
-                        </header>
-
-                        <div style={{ padding: "8px 12px", background: "rgba(16,185,129,0.1)", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>🧪 V5 TESTING - Claim will be enabled after mint role is granted</p>
-                        </div>
-
-                        {!V5_STAKING_ADDRESS ? (
-                            <div style={{ padding: 20, textAlign: "center" }}>
-                                <p style={{ fontSize: 14, color: "#fbbf24" }}>⏳ V5 Contract Not Yet Deployed</p>
-                                <p style={{ fontSize: 11, color: "#9ca3af", marginTop: 8 }}>The V5 staking contract is being prepared. Check back soon!</p>
-                            </div>
-                        ) : (
-                            <>
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Plants</span><span className={styles.statValue}>{v5StakingStats?.plants || 0}</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Lands</span><span className={styles.statValue}>{v5StakingStats?.lands || 0}</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Super Lands</span><span className={styles.statValue}>{v5StakingStats?.superLands || 0}</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Capacity</span><span className={styles.statValue}>{v5StakingStats ? `${v5StakingStats.plants}/${v5StakingStats.capacity}` : "0/1"}</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Boost</span><span className={styles.statValue} style={{ color: "#10b981" }}>+{v5StakingStats?.boostPct?.toFixed(1) || 0}%</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Daily</span><span className={styles.statValue}>{v5StakingStats?.dailyRewards || "0"}</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Avg Health</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v5StakingStats?.avgHealth || 100}%</span></div>
-                                    <div className={styles.statCard} style={{ gridColumn: "span 2" }}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v5StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(v5StakingStats.water, 18))).toFixed(1) : "0"}L</span></div>
-                                    <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #065f46, #10b981)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#a7f3d0", fontSize: 16 }}>{v5RealTimePending}</span></div>
-                                </div>
-
-                                <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
-
-                                {loadingV5Staking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12 }}>Loading NFTs…</p> : (
-                                    <>
-                                        <div style={{ marginBottom: 10 }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                                <span style={{ fontSize: 11, fontWeight: 600 }}>Available ({v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length})</span>
-                                                <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length) > 0 && selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === (v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length)} onChange={() => { if (selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === (v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length)) { setSelectedV5AvailPlants([]); setSelectedV5AvailLands([]); setSelectedV5AvailSuperLands([]); } else { setSelectedV5AvailPlants(v5AvailablePlants); setSelectedV5AvailLands(v5AvailableLands); setSelectedV5AvailSuperLands(v5AvailableSuperLands); } }} />All</label>
-                                            </div>
-                                            <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                                {(v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length) === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No NFTs available to stake</span> : (
-                                                    <>{v5AvailableSuperLands.map((id) => <NftCard key={"v5asl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedV5AvailSuperLands.includes(id)} onChange={() => toggleId(id, selectedV5AvailSuperLands, setSelectedV5AvailSuperLands)} />)}{v5AvailableLands.map((id) => <NftCard key={"v5al-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedV5AvailLands.includes(id)} onChange={() => toggleId(id, selectedV5AvailLands, setSelectedV5AvailLands)} />)}{v5AvailablePlants.map((id) => <NftCard key={"v5ap-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV5AvailPlants.includes(id)} onChange={() => toggleId(id, selectedV5AvailPlants, setSelectedV5AvailPlants)} />)}</>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div style={{ marginBottom: 10 }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                                <span style={{ fontSize: 11, fontWeight: 600 }}>Staked ({v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length})</span>
-                                                <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length) > 0 && selectedV5StakedPlants.length + selectedV5StakedLands.length + selectedV5StakedSuperLands.length === (v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length)} onChange={() => { if (selectedV5StakedPlants.length + selectedV5StakedLands.length + selectedV5StakedSuperLands.length === (v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length)) { setSelectedV5StakedPlants([]); setSelectedV5StakedLands([]); setSelectedV5StakedSuperLands([]); } else { setSelectedV5StakedPlants(v5StakedPlants); setSelectedV5StakedLands(v5StakedLands); setSelectedV5StakedSuperLands(v5StakedSuperLands); } }} />All</label>
-                                            </div>
-                                            <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                                {(v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length) === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No staked NFTs</span> : (
-                                                    <>{v5StakedSuperLands.map((id) => <NftCard key={"v5ssl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedV5StakedSuperLands.includes(id)} onChange={() => toggleId(id, selectedV5StakedSuperLands, setSelectedV5StakedSuperLands)} />)}{v5StakedLands.map((id) => <NftCard key={"v5sl-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedV5StakedLands.includes(id)} onChange={() => toggleId(id, selectedV5StakedLands, setSelectedV5StakedLands)} />)}{v5StakedPlants.map((id) => <NftCard key={"v5sp-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV5StakedPlants.includes(id)} onChange={() => toggleId(id, selectedV5StakedPlants, setSelectedV5StakedPlants)} health={v5PlantHealths[id]} />)}</>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {v5StakedPlants.length > 0 && (
-                                            <div style={{ marginBottom: 10, padding: 8, background: "rgba(16,185,129,0.1)", borderRadius: 8 }}>
-                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                                    <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981" }}>💧 Water Plants</span>
-                                                    <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}>
-                                                        <input type="checkbox" checked={selectedV5PlantsToWater.length === v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100).length && selectedV5PlantsToWater.length > 0} onChange={() => { const needsWater = v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100); if (selectedV5PlantsToWater.length === needsWater.length) { setSelectedV5PlantsToWater([]); } else { setSelectedV5PlantsToWater(needsWater); } }} />All needing water
-                                                    </label>
-                                                </div>
-                                                <div style={{ display: "flex", overflowX: "auto", gap: 4, padding: "4px 0" }}>
-                                                    {v5StakedPlants.map((id) => {
-                                                        const health = v5PlantHealths[id] ?? 100;
-                                                        const waterNeeded = v5WaterNeeded[id] ?? 0;
-                                                        return (
-                                                            <div key={"v5w-" + id} onClick={() => { if (health < 100) toggleId(id, selectedV5PlantsToWater, setSelectedV5PlantsToWater); }} style={{ minWidth: 50, padding: 4, borderRadius: 6, background: selectedV5PlantsToWater.includes(id) ? "rgba(16,185,129,0.3)" : "rgba(0,0,0,0.2)", border: selectedV5PlantsToWater.includes(id) ? "2px solid #10b981" : "1px solid #374151", cursor: health < 100 ? "pointer" : "default", opacity: health >= 100 ? 0.5 : 1, textAlign: "center" }}>
-                                                                <div style={{ fontSize: 9, fontWeight: 600 }}>#{id}</div>
-                                                                <div style={{ fontSize: 8, color: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444" }}>{health}%</div>
-                                                                {health < 100 && <div style={{ fontSize: 7, color: "#60a5fa" }}>{waterNeeded.toFixed(1)}L</div>}
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                                {selectedV5PlantsToWater.length > 0 && (
-                                                    <button type="button" className={styles.btnPrimary} disabled={actionLoading} onClick={handleV5WaterPlants} style={{ width: "100%", marginTop: 6, padding: 8, fontSize: 11, background: "linear-gradient(to right, #0ea5e9, #38bdf8)" }}>
-                                                        {actionLoading ? "Watering..." : `💧 Water ${selectedV5PlantsToWater.length} Plant${selectedV5PlantsToWater.length > 1 ? "s" : ""}`}
-                                                    </button>
-                                                )}
-                                                {v5ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v5ActionStatus}</p>}
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V5_STAKING_ADDRESS || (selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === 0)} onClick={async () => { if (selectedV5AvailPlants.length > 0) await handleV5StakePlants(); if (selectedV5AvailLands.length > 0) await handleV5StakeLands(); if (selectedV5AvailSuperLands.length > 0) await handleV5StakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12, background: "linear-gradient(to right, #10b981, #34d399)" }}>{actionLoading ? "Staking..." : "Stake"}</button>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V5_STAKING_ADDRESS || (selectedV5StakedPlants.length + selectedV5StakedLands.length + selectedV5StakedSuperLands.length === 0)} onClick={async () => { if (selectedV5StakedPlants.length > 0) await handleV5UnstakePlants(); if (selectedV5StakedLands.length > 0) await handleV5UnstakeLands(); if (selectedV5StakedSuperLands.length > 0) await handleV5UnstakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Unstaking..." : "Unstake"}</button>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V5_STAKING_ADDRESS || !v5StakingStats || v5StakingStats.pendingFormatted <= 0} onClick={handleV5Claim} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Claiming..." : "Claim"}</button>
-                                </div>
-                                <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 6, textAlign: "center" }}>⚠️ Plants must have 100% health to unstake. Water them first!</p>
-                                {v5ActionStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v5ActionStatus}</p>}
-                            </>
-                        )}
-                    </div>
-                </div>
-            )}
 
             {v4StakingOpen && (
                 <div className={styles.modalBackdrop}>
