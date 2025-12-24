@@ -40,6 +40,9 @@ import {
     V4_ITEMSHOP_ADDRESS,
     V4_STAKING_ADDRESS,     
     V4_BATTLES_ADDRESS,
+    V5_STAKING_ADDRESS,
+    V5_BATTLES_ADDRESS,
+    V5_ITEMSHOP_ADDRESS,
     CRATE_REWARDS,
     CRATE_PROBS,
     RewardCategory,
@@ -112,6 +115,28 @@ export default function Home()
     const [v4WaterNeeded, setV4WaterNeeded] = useState<Record<number, number>>({});
     const [selectedV4PlantsToWater, setSelectedV4PlantsToWater] = useState<number[]>([]);
     const [v4ActionStatus, setV4ActionStatus] = useState("");
+
+    // V5 Staking State
+    const [v5StakingOpen, setV5StakingOpen] = useState(false);
+    const [v5StakingStats, setV5StakingStats] = useState<any>(null);
+    const [v5StakedPlants, setV5StakedPlants] = useState<number[]>([]);
+    const [v5StakedLands, setV5StakedLands] = useState<number[]>([]);
+    const [v5StakedSuperLands, setV5StakedSuperLands] = useState<number[]>([]);
+    const [v5AvailablePlants, setV5AvailablePlants] = useState<number[]>([]);
+    const [v5AvailableLands, setV5AvailableLands] = useState<number[]>([]);
+    const [v5AvailableSuperLands, setV5AvailableSuperLands] = useState<number[]>([]);
+    const [selectedV5AvailPlants, setSelectedV5AvailPlants] = useState<number[]>([]);
+    const [selectedV5AvailLands, setSelectedV5AvailLands] = useState<number[]>([]);
+    const [selectedV5AvailSuperLands, setSelectedV5AvailSuperLands] = useState<number[]>([]);
+    const [selectedV5StakedPlants, setSelectedV5StakedPlants] = useState<number[]>([]);
+    const [selectedV5StakedLands, setSelectedV5StakedLands] = useState<number[]>([]);
+    const [selectedV5StakedSuperLands, setSelectedV5StakedSuperLands] = useState<number[]>([]);
+    const [loadingV5Staking, setLoadingV5Staking] = useState(false);
+    const [v5RealTimePending, setV5RealTimePending] = useState<string>("0.00");
+    const [v5PlantHealths, setV5PlantHealths] = useState<Record<number, number>>({});
+    const [v5WaterNeeded, setV5WaterNeeded] = useState<Record<number, number>>({});
+    const [selectedV5PlantsToWater, setSelectedV5PlantsToWater] = useState<number[]>([]);
+    const [v5ActionStatus, setV5ActionStatus] = useState("");
 
     const [waterShopInfo, setWaterShopInfo] = useState<any>(null);
     const [waterBuyAmount, setWaterBuyAmount] = useState(1);
@@ -1038,6 +1063,326 @@ export default function Home()
         } catch (err: any) { setV4ActionStatus("Error: " + (err.message || err)); }
         finally { setActionLoading(false); }
     }
+
+    // ==================== V5 STAKING ====================
+    const refreshV5StakingRef = useRef(false);
+
+    async function refreshV5Staking() {
+        if (refreshV5StakingRef.current || !userAddress || !V5_STAKING_ADDRESS) return;
+        refreshV5StakingRef.current = true;
+        setLoadingV5Staking(true);
+        try {
+            const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
+            const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, avgHealth, tokensPerDayRaw, landBoostBpsRaw, superLandBoostBpsRaw] = await Promise.all([
+                v5Contract.users(userAddress), v5Contract.pending(userAddress), v5Contract.capacityOf(userAddress),
+                v5Contract.plantsOf(userAddress), v5Contract.landsOf(userAddress), v5Contract.getAverageHealth(userAddress).catch(() => ethers.BigNumber.from(100)),
+                v5Contract.tokensPerPlantPerDay(), v5Contract.landBoostBps(), v5Contract.superLandBoostBps()
+            ]);
+            const plantsCount = Number(userData.plants);
+            const landsCount = Number(userData.lands);
+            const superLandsCount = Number(userData.superLands);
+            const water = userData.waterBalance;
+
+            const tokensPerDay = parseFloat(ethers.utils.formatUnits(tokensPerDayRaw, 18));
+            const landBoostBps = landBoostBpsRaw.toNumber();
+            const superLandBoostBps = superLandBoostBpsRaw.toNumber();
+            const landBoostPct = (landsCount * landBoostBps) / 100;
+            const superLandBoostPct = (superLandsCount * superLandBoostBps) / 100;
+            const totalBoostPct = 100 + landBoostPct + superLandBoostPct;
+            const dailyBase = plantsCount * tokensPerDay;
+            const dailyWithBoost = dailyBase * totalBoostPct / 100;
+            const dailyDisplay = dailyWithBoost >= 1e6 ? (dailyWithBoost / 1e6).toFixed(2) + "M" : dailyWithBoost >= 1e3 ? (dailyWithBoost / 1e3).toFixed(1) + "K" : dailyWithBoost.toFixed(0);
+            const pendingFormatted = parseFloat(ethers.utils.formatUnits(pendingRaw, 18));
+
+            setV5StakingStats({
+                plants: plantsCount, lands: landsCount, superLands: superLandsCount,
+                capacity: capacity.toNumber(), avgHealth: avgHealth.toNumber(), water, pendingRaw, pendingFormatted,
+                boostPct: totalBoostPct - 100, dailyRewards: dailyDisplay
+            });
+            const display = pendingFormatted >= 1e6 ? (pendingFormatted / 1e6).toFixed(4) + "M" : pendingFormatted >= 1e3 ? (pendingFormatted / 1e3).toFixed(2) + "K" : pendingFormatted.toFixed(2);
+            setV5RealTimePending(display);
+
+            const stakedPlantNums = stakedPlantIds.map((id: any) => Number(id));
+            const stakedLandNums = stakedLandIds.map((id: any) => Number(id));
+            
+            const healthMap: Record<number, number> = {};
+            const waterNeededMap: Record<number, number> = {};
+            if (stakedPlantNums.length > 0) {
+                try {
+                    const healthCalls = stakedPlantNums.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
+                    const waterCalls = stakedPlantNums.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
+                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+                    const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
+                    const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
+                    stakedPlantNums.forEach((id: number, i: number) => {
+                        healthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
+                        waterNeededMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i]), 18));
+                    });
+                    if (stakedPlantNums.length > 0) {
+                        const totalHealth = Object.values(healthMap).reduce((a, b) => a + b, 0);
+                        setV5StakingStats((prev: any) => prev ? { ...prev, avgHealth: Math.round(totalHealth / stakedPlantNums.length) } : prev);
+                    }
+                } catch (err) { stakedPlantNums.forEach((id: number) => { healthMap[id] = 100; waterNeededMap[id] = 0; }); }
+            }
+            setV5PlantHealths(healthMap);
+            setV5WaterNeeded(waterNeededMap);
+            setV5StakedPlants(stakedPlantNums);
+            setV5StakedLands(stakedLandNums);
+
+            const owned = await getOwnedState(userAddress);
+            
+            // Exclude NFTs staked in V4 from available
+            let v4StakedPlantIds: number[] = [];
+            let v4StakedLandIds: number[] = [];
+            try {
+                const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
+                const [v4Plants, v4Lands] = await Promise.all([
+                    v4Contract.plantsOf(userAddress).catch(() => []),
+                    v4Contract.landsOf(userAddress).catch(() => []),
+                ]);
+                v4StakedPlantIds = v4Plants.map((id: any) => Number(id));
+                v4StakedLandIds = v4Lands.map((id: any) => Number(id));
+            } catch (err) { console.log("[V5] Failed to get V4 staked NFTs"); }
+            
+            const allStakedPlants = [...stakedPlantNums, ...v4StakedPlantIds];
+            const allStakedLands = [...stakedLandNums, ...v4StakedLandIds];
+            
+            const availPlants = owned.plants.filter((t: any) => !allStakedPlants.includes(Number(t.tokenId))).map((t: any) => Number(t.tokenId));
+            const availLands = owned.lands.filter((t: any) => !allStakedLands.includes(Number(t.tokenId))).map((t: any) => Number(t.tokenId));
+            const allOwnedSuperLandIds = owned.superLands.map((t: any) => Number(t.tokenId));
+            const stakedSuperLandNums: number[] = [];
+            const availSuperLandNums: number[] = [];
+
+            if (superLandsCount > 0) {
+                const ids = Array.from({ length: 100 }, (_, i) => i + 1);
+                try {
+                    const stakerCalls = ids.map(id => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
+                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+                    const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
+                    ids.forEach((id, i) => {
+                        try {
+                            const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
+                            if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
+                                stakedSuperLandNums.push(id);
+                            }
+                        } catch {}
+                    });
+                } catch {}
+            }
+
+            // Check V4 super lands too
+            let v4StakedSuperLandIds: number[] = [];
+            try {
+                const ids = Array.from({ length: 100 }, (_, i) => i + 1);
+                const v4Calls = ids.map(id => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
+                const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+                const [, v4Results] = await mc.callStatic.aggregate(v4Calls);
+                ids.forEach((id, i) => {
+                    try {
+                        const staker = ethers.utils.defaultAbiCoder.decode(["address"], v4Results[i])[0];
+                        if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
+                            v4StakedSuperLandIds.push(id);
+                        }
+                    } catch {}
+                });
+            } catch {}
+
+            allOwnedSuperLandIds.forEach((id: number) => {
+                if (!stakedSuperLandNums.includes(id) && !v4StakedSuperLandIds.includes(id)) {
+                    availSuperLandNums.push(id);
+                }
+            });
+
+            setV5StakedSuperLands(stakedSuperLandNums);
+            setV5AvailablePlants(availPlants);
+            setV5AvailableLands(availLands);
+            setV5AvailableSuperLands(availSuperLandNums);
+
+        } catch (err) { console.error("[V5Staking] Error:", err); }
+        finally { refreshV5StakingRef.current = false; setLoadingV5Staking(false); }
+    }
+
+    useEffect(() => {
+        if (v5StakingOpen && userAddress && V5_STAKING_ADDRESS) { refreshV5StakingRef.current = false; refreshV5Staking(); }
+    }, [v5StakingOpen, userAddress]);
+
+    useEffect(() => {
+        if (!v5StakingOpen || !v5StakingStats) return;
+        const { pendingRaw, plants } = v5StakingStats;
+        if (!pendingRaw || plants === 0) return;
+        let currentPending = pendingRaw;
+        const tokensPerSecond = ethers.utils.parseUnits("300000", 18).div(86400);
+        const effectivePerSecond = tokensPerSecond.mul(plants);
+        const interval = setInterval(() => {
+            currentPending = currentPending.add(effectivePerSecond.mul(v5StakingStats.avgHealth || 100).div(100));
+            const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
+            setV5RealTimePending(formatted >= 1e6 ? (formatted / 1e6).toFixed(4) + "M" : formatted >= 1e3 ? (formatted / 1e3).toFixed(2) + "K" : formatted.toFixed(2));
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [v5StakingOpen, v5StakingStats]);
+
+    useEffect(() => {
+        if (!v5StakingOpen || v5StakedPlants.length === 0 || !V5_STAKING_ADDRESS) return;
+        const healthInterval = setInterval(async () => {
+            try {
+                const healthCalls = v5StakedPlants.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
+                const waterCalls = v5StakedPlants.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
+                const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+                const [, healthResults] = await mc.callStatic.aggregate(healthCalls);
+                const [, waterResults] = await mc.callStatic.aggregate(waterCalls);
+                const newHealthMap: Record<number, number> = {};
+                const newWaterMap: Record<number, number> = {};
+                v5StakedPlants.forEach((id: number, i: number) => {
+                    newHealthMap[id] = ethers.BigNumber.from(healthResults[i]).toNumber();
+                    newWaterMap[id] = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(waterResults[i]), 18));
+                });
+                setV5PlantHealths(newHealthMap);
+                setV5WaterNeeded(newWaterMap);
+                if (v5StakedPlants.length > 0) {
+                    const avgHealth = Math.round(Object.values(newHealthMap).reduce((a, b) => a + b, 0) / v5StakedPlants.length);
+                    setV5StakingStats((prev: any) => prev ? { ...prev, avgHealth } : prev);
+                }
+            } catch (err) { console.error("[V5] Health update failed:", err); }
+        }, 10000);
+        return () => clearInterval(healthInterval);
+    }, [v5StakingOpen, v5StakedPlants]);
+
+    async function handleV5StakePlants() {
+        if (selectedV5AvailPlants.length === 0) return;
+        try {
+            setActionLoading(true); setV5ActionStatus("Approving...");
+            const ctx = await ensureWallet(); if (!ctx) return;
+            await ensureCollectionApproval(PLANT_ADDRESS, V5_STAKING_ADDRESS, ctx);
+            setV5ActionStatus("Staking plants...");
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakePlants", [selectedV5AvailPlants]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV5ActionStatus("Staked!");
+            setSelectedV5AvailPlants([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV5StakeLands() {
+        if (selectedV5AvailLands.length === 0) return;
+        try {
+            setActionLoading(true); setV5ActionStatus("Approving...");
+            const ctx = await ensureWallet(); if (!ctx) return;
+            await ensureCollectionApproval(LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
+            setV5ActionStatus("Staking lands...");
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakeLands", [selectedV5AvailLands]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV5ActionStatus("Staked!");
+            setSelectedV5AvailLands([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV5StakeSuperLands() {
+        if (selectedV5AvailSuperLands.length === 0) return;
+        try {
+            setActionLoading(true); setV5ActionStatus("Approving...");
+            const ctx = await ensureWallet(); if (!ctx) return;
+            await ensureCollectionApproval(SUPER_LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
+            setV5ActionStatus("Staking super lands...");
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV5AvailSuperLands]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV5ActionStatus("Staked!");
+            setSelectedV5AvailSuperLands([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV5UnstakePlants() {
+        if (selectedV5StakedPlants.length === 0) return;
+        const unhealthy = selectedV5StakedPlants.filter(id => (v5PlantHealths[id] ?? 0) < 100);
+        if (unhealthy.length > 0) {
+            setV5ActionStatus(`Water plants first! ${unhealthy.map(id => `#${id}: ${v5PlantHealths[id] ?? 0}%`).join(", ")}`);
+            return;
+        }
+        try {
+            setActionLoading(true); setV5ActionStatus("Unstaking plants...");
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakePlants", [selectedV5StakedPlants]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV5ActionStatus("Unstaked!");
+            setSelectedV5StakedPlants([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+        } catch (err: any) {
+            if (err.message?.includes("!healthy") || err.reason?.includes("!healthy")) {
+                setV5ActionStatus("Plants need 100% health! Water them first.");
+            } else { setV5ActionStatus("Error: " + (err.reason || err.message || err)); }
+        }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV5UnstakeLands() {
+        if (selectedV5StakedLands.length === 0) return;
+        try {
+            setActionLoading(true); setV5ActionStatus("Unstaking lands...");
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeLands", [selectedV5StakedLands]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV5ActionStatus("Unstaked!");
+            setSelectedV5StakedLands([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV5UnstakeSuperLands() {
+        if (selectedV5StakedSuperLands.length === 0) return;
+        try {
+            setActionLoading(true); setV5ActionStatus("Unstaking super lands...");
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeSuperLands", [selectedV5StakedSuperLands]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV5ActionStatus("Unstaked!");
+            setSelectedV5StakedSuperLands([]);
+            ownedCacheRef.current = { addr: null, state: null };
+            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV5Claim() {
+        if (!v5StakingStats || v5StakingStats.pendingFormatted <= 0) { setV5ActionStatus("No rewards."); return; }
+        try {
+            setActionLoading(true); setV5ActionStatus("Claiming...");
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("claim", []));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV5ActionStatus("Claimed!");
+            setV5RealTimePending("0.00");
+            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+
+    async function handleV5WaterPlants() {
+        if (selectedV5PlantsToWater.length === 0) return;
+        try {
+            setActionLoading(true); setV5ActionStatus("Watering plants...");
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("waterPlants", [selectedV5PlantsToWater]));
+            if (!tx) throw new Error("Tx rejected");
+            await waitForTx(tx);
+            setV5ActionStatus("Plants watered!");
+            setSelectedV5PlantsToWater([]);
+            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        finally { setActionLoading(false); }
+    }
+    // ==================== END V5 STAKING ====================
 
     async function loadWaterShopInfo() {
         try {
@@ -2617,10 +2962,11 @@ export default function Home()
                             <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setV4StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #7c3aed, #a855f7)" }}>🚀 Staking V4 (NEW - LIVE)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setV5StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #10b981, #34d399)" }}>🧪 Staking V5 (TEST)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setV4StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>🚀 Staking V4 (UNSTAKE ONLY)</button>
                         </div>
-                        <div style={{ marginTop: 12, padding: 10, background: "rgba(124,58,237,0.1)", borderRadius: 10, border: "1px solid rgba(124,58,237,0.3)" }}>
-                            <p style={{ fontSize: 11, color: "#a855f7", margin: 0, fontWeight: 600 }}>🚀 Staking V4 is LIVE! Claim enabled 12/18 at 10 AM EST</p>
+                        <div style={{ marginTop: 12, padding: 10, background: "rgba(16,185,129,0.1)", borderRadius: 10, border: "1px solid rgba(16,185,129,0.3)" }}>
+                            <p style={{ fontSize: 11, color: "#10b981", margin: 0, fontWeight: 600 }}>🧪 V5 Testing - Stake your NFTs to test the new contracts!</p>
                         </div>
                     </section>
                 )}
@@ -3166,6 +3512,109 @@ export default function Home()
                     </button>
                 ))}
             </nav>
+
+            {/* V5 Staking Modal */}
+            {v5StakingOpen && (
+                <div className={styles.modalBackdrop}>
+                    <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto" }}>
+                        <header className={styles.modalHeader}>
+                            <h2 className={styles.modalTitle}>🧪 Staking V5 (TEST)</h2>
+                            <button type="button" className={styles.modalClose} onClick={() => setV5StakingOpen(false)}>✕</button>
+                        </header>
+
+                        <div style={{ padding: "8px 12px", background: "rgba(16,185,129,0.1)", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 10 }}>
+                            <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>🧪 V5 TESTING - Test new staking contract features!</p>
+                        </div>
+
+                        {!V5_STAKING_ADDRESS ? (
+                            <div style={{ padding: 20, textAlign: "center" }}>
+                                <p style={{ fontSize: 14, color: "#fbbf24" }}>⏳ V5 Contract Not Yet Deployed</p>
+                            </div>
+                        ) : (
+                            <>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
+                                    <div className={styles.statCard}><span className={styles.statLabel}>Plants</span><span className={styles.statValue}>{v5StakingStats?.plants || 0}</span></div>
+                                    <div className={styles.statCard}><span className={styles.statLabel}>Lands</span><span className={styles.statValue}>{v5StakingStats?.lands || 0}</span></div>
+                                    <div className={styles.statCard}><span className={styles.statLabel}>Super Lands</span><span className={styles.statValue}>{v5StakingStats?.superLands || 0}</span></div>
+                                    <div className={styles.statCard}><span className={styles.statLabel}>Capacity</span><span className={styles.statValue}>{v5StakingStats ? `${v5StakingStats.plants}/${v5StakingStats.capacity}` : "0/1"}</span></div>
+                                    <div className={styles.statCard}><span className={styles.statLabel}>Boost</span><span className={styles.statValue} style={{ color: "#10b981" }}>+{v5StakingStats?.boostPct?.toFixed(1) || 0}%</span></div>
+                                    <div className={styles.statCard}><span className={styles.statLabel}>Daily</span><span className={styles.statValue}>{v5StakingStats?.dailyRewards || "0"}</span></div>
+                                    <div className={styles.statCard}><span className={styles.statLabel}>Avg Health</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v5StakingStats?.avgHealth || 100}%</span></div>
+                                    <div className={styles.statCard} style={{ gridColumn: "span 2" }}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v5StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(v5StakingStats.water, 18))).toFixed(1) : "0"}L</span></div>
+                                    <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #065f46, #10b981)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#a7f3d0", fontSize: 16 }}>{v5RealTimePending}</span></div>
+                                </div>
+
+                                <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
+
+                                {loadingV5Staking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12 }}>Loading NFTs…</p> : (
+                                    <>
+                                        <div style={{ marginBottom: 10 }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                                <span style={{ fontSize: 11, fontWeight: 600 }}>Available ({v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length})</span>
+                                                <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length) > 0 && selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === (v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length)} onChange={() => { if (selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === (v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length)) { setSelectedV5AvailPlants([]); setSelectedV5AvailLands([]); setSelectedV5AvailSuperLands([]); } else { setSelectedV5AvailPlants(v5AvailablePlants); setSelectedV5AvailLands(v5AvailableLands); setSelectedV5AvailSuperLands(v5AvailableSuperLands); } }} />All</label>
+                                            </div>
+                                            <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
+                                                {(v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length) === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No NFTs available to stake</span> : (
+                                                    <>{v5AvailableSuperLands.map((id) => <NftCard key={"v5asl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedV5AvailSuperLands.includes(id)} onChange={() => toggleId(id, selectedV5AvailSuperLands, setSelectedV5AvailSuperLands)} />)}{v5AvailableLands.map((id) => <NftCard key={"v5al-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedV5AvailLands.includes(id)} onChange={() => toggleId(id, selectedV5AvailLands, setSelectedV5AvailLands)} />)}{v5AvailablePlants.map((id) => <NftCard key={"v5ap-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV5AvailPlants.includes(id)} onChange={() => toggleId(id, selectedV5AvailPlants, setSelectedV5AvailPlants)} />)}</>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div style={{ marginBottom: 10 }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                                <span style={{ fontSize: 11, fontWeight: 600 }}>Staked ({v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length})</span>
+                                                <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length) > 0 && selectedV5StakedPlants.length + selectedV5StakedLands.length + selectedV5StakedSuperLands.length === (v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length)} onChange={() => { if (selectedV5StakedPlants.length + selectedV5StakedLands.length + selectedV5StakedSuperLands.length === (v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length)) { setSelectedV5StakedPlants([]); setSelectedV5StakedLands([]); setSelectedV5StakedSuperLands([]); } else { setSelectedV5StakedPlants(v5StakedPlants); setSelectedV5StakedLands(v5StakedLands); setSelectedV5StakedSuperLands(v5StakedSuperLands); } }} />All</label>
+                                            </div>
+                                            <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
+                                                {(v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length) === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No staked NFTs</span> : (
+                                                    <>{v5StakedSuperLands.map((id) => <NftCard key={"v5ssl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedV5StakedSuperLands.includes(id)} onChange={() => toggleId(id, selectedV5StakedSuperLands, setSelectedV5StakedSuperLands)} />)}{v5StakedLands.map((id) => <NftCard key={"v5sl-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedV5StakedLands.includes(id)} onChange={() => toggleId(id, selectedV5StakedLands, setSelectedV5StakedLands)} />)}{v5StakedPlants.map((id) => <NftCard key={"v5sp-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV5StakedPlants.includes(id)} onChange={() => toggleId(id, selectedV5StakedPlants, setSelectedV5StakedPlants)} health={v5PlantHealths[id]} />)}</>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {v5StakedPlants.length > 0 && (
+                                            <div style={{ marginBottom: 10, padding: 8, background: "rgba(16,185,129,0.1)", borderRadius: 8 }}>
+                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                                    <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981" }}>💧 Water Plants</span>
+                                                    <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}>
+                                                        <input type="checkbox" checked={selectedV5PlantsToWater.length === v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100).length && selectedV5PlantsToWater.length > 0} onChange={() => { const needsWater = v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100); if (selectedV5PlantsToWater.length === needsWater.length) { setSelectedV5PlantsToWater([]); } else { setSelectedV5PlantsToWater(needsWater); } }} />All needing water
+                                                    </label>
+                                                </div>
+                                                <div style={{ display: "flex", overflowX: "auto", gap: 4, padding: "4px 0" }}>
+                                                    {v5StakedPlants.map((id) => {
+                                                        const health = v5PlantHealths[id] ?? 100;
+                                                        const waterNeeded = v5WaterNeeded[id] ?? 0;
+                                                        return (
+                                                            <div key={"v5w-" + id} onClick={() => { if (health < 100) toggleId(id, selectedV5PlantsToWater, setSelectedV5PlantsToWater); }} style={{ minWidth: 50, padding: 4, borderRadius: 6, background: selectedV5PlantsToWater.includes(id) ? "rgba(16,185,129,0.3)" : "rgba(0,0,0,0.2)", border: selectedV5PlantsToWater.includes(id) ? "2px solid #10b981" : "1px solid #374151", cursor: health < 100 ? "pointer" : "default", opacity: health >= 100 ? 0.5 : 1, textAlign: "center" }}>
+                                                                <div style={{ fontSize: 9, fontWeight: 600 }}>#{id}</div>
+                                                                <div style={{ fontSize: 8, color: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444" }}>{health}%</div>
+                                                                {health < 100 && <div style={{ fontSize: 7, color: "#60a5fa" }}>{waterNeeded.toFixed(1)}L</div>}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>Your Water: {v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(v5StakingStats.water, 18)).toFixed(2) : "0"}L</div>
+                                                {selectedV5PlantsToWater.length > 0 && (
+                                                    <button type="button" className={styles.btnPrimary} disabled={actionLoading} onClick={handleV5WaterPlants} style={{ width: "100%", marginTop: 6, padding: 8, fontSize: 11, background: "linear-gradient(to right, #0ea5e9, #38bdf8)" }}>
+                                                        {actionLoading ? "Watering..." : `💧 Water ${selectedV5PlantsToWater.length} Plant${selectedV5PlantsToWater.length > 1 ? "s" : ""}`}
+                                                    </button>
+                                                )}
+                                                {v5ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v5ActionStatus}</p>}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V5_STAKING_ADDRESS || (selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === 0)} onClick={async () => { if (selectedV5AvailPlants.length > 0) await handleV5StakePlants(); if (selectedV5AvailLands.length > 0) await handleV5StakeLands(); if (selectedV5AvailSuperLands.length > 0) await handleV5StakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12, background: "linear-gradient(to right, #10b981, #34d399)" }}>{actionLoading ? "Staking..." : "Stake"}</button>
+                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V5_STAKING_ADDRESS || (selectedV5StakedPlants.length + selectedV5StakedLands.length + selectedV5StakedSuperLands.length === 0)} onClick={async () => { if (selectedV5StakedPlants.length > 0) await handleV5UnstakePlants(); if (selectedV5StakedLands.length > 0) await handleV5UnstakeLands(); if (selectedV5StakedSuperLands.length > 0) await handleV5UnstakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Unstaking..." : "Unstake"}</button>
+                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V5_STAKING_ADDRESS || !v5StakingStats || v5StakingStats.pendingFormatted <= 0} onClick={handleV5Claim} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Claiming..." : "Claim"}</button>
+                                </div>
+                                <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 6, textAlign: "center" }}>⚠️ Plants must have 100% health to unstake. Water them first!</p>
+                                {v5ActionStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v5ActionStatus}</p>}
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {v4StakingOpen && (
                 <div className={styles.modalBackdrop}>
