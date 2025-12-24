@@ -1251,7 +1251,8 @@ export default function Home()
         if (selectedV5AvailPlants.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Approving...");
-            const ctx = await ensureWallet(); if (!ctx) return;
+            const ctx = await ensureWallet(); 
+            if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(PLANT_ADDRESS, V5_STAKING_ADDRESS, ctx);
             setV5ActionStatus("Staking plants...");
             const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakePlants", [selectedV5AvailPlants]));
@@ -1269,7 +1270,8 @@ export default function Home()
         if (selectedV5AvailLands.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Approving...");
-            const ctx = await ensureWallet(); if (!ctx) return;
+            const ctx = await ensureWallet(); 
+            if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
             setV5ActionStatus("Staking lands...");
             const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakeLands", [selectedV5AvailLands]));
@@ -1287,7 +1289,8 @@ export default function Home()
         if (selectedV5AvailSuperLands.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Approving...");
-            const ctx = await ensureWallet(); if (!ctx) return;
+            const ctx = await ensureWallet(); 
+            if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(SUPER_LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
             setV5ActionStatus("Staking super lands...");
             const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV5AvailSuperLands]));
@@ -3540,7 +3543,7 @@ export default function Home()
                                     <div className={styles.statCard}><span className={styles.statLabel}>Boost</span><span className={styles.statValue} style={{ color: "#10b981" }}>+{v5StakingStats?.boostPct?.toFixed(1) || 0}%</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Daily</span><span className={styles.statValue}>{v5StakingStats?.dailyRewards || "0"}</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Avg Health</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v5StakingStats?.avgHealth || 100}%</span></div>
-                                    <div className={styles.statCard} style={{ gridColumn: "span 2" }}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v5StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(v5StakingStats.water, 18))).toFixed(1) : "0"}L</span></div>
+                                    <div className={styles.statCard} style={{ gridColumn: "span 2" }}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v5StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18))).toFixed(1) : "0"}L</span></div>
                                     <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #065f46, #10b981)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#a7f3d0", fontSize: 16 }}>{v5RealTimePending}</span></div>
                                 </div>
 
@@ -3592,7 +3595,7 @@ export default function Home()
                                                         );
                                                     })}
                                                 </div>
-                                                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>Your Water: {v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(v5StakingStats.water, 18)).toFixed(2) : "0"}L</div>
+                                                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>Your Water: {v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18)).toFixed(2) : "0"}L</div>
                                                 {selectedV5PlantsToWater.length > 0 && (
                                                     <button type="button" className={styles.btnPrimary} disabled={actionLoading} onClick={handleV5WaterPlants} style={{ width: "100%", marginTop: 6, padding: 8, fontSize: 11, background: "linear-gradient(to right, #0ea5e9, #38bdf8)" }}>
                                                         {actionLoading ? "Watering..." : `💧 Water ${selectedV5PlantsToWater.length} Plant${selectedV5PlantsToWater.length > 1 ? "s" : ""}`}
@@ -3643,7 +3646,7 @@ export default function Home()
                                     <div className={styles.statCard}><span className={styles.statLabel}>Boost</span><span className={styles.statValue} style={{ color: "#a855f7" }}>+{v4StakingStats?.boostPct?.toFixed(1) || 0}%</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Daily</span><span className={styles.statValue}>{v4StakingStats?.dailyRewards || "0"}</span></div>
                                     <div className={styles.statCard}><span className={styles.statLabel}>Avg Health</span><span className={styles.statValue} style={{ color: (v4StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v4StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v4StakingStats?.avgHealth || 100}%</span></div>
-                                    <div className={styles.statCard} style={{ gridColumn: "span 2" }}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v4StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(v4StakingStats.water, 18))).toFixed(1) : "0"}L</span></div>
+                                    <div className={styles.statCard} style={{ gridColumn: "span 2" }}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v4StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18))).toFixed(1) : "0"}L</span></div>
                                     <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #581c87, #7c3aed)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#c4b5fd", fontSize: 16 }}>{v4RealTimePending}</span></div>
                                 </div>
 
@@ -3682,7 +3685,7 @@ export default function Home()
                                                         <input type="checkbox" checked={selectedV4PlantsToWater.length === v4StakedPlants.length && selectedV4PlantsToWater.length > 0} onChange={() => { if (selectedV4PlantsToWater.length === v4StakedPlants.length) { setSelectedV4PlantsToWater([]); } else { setSelectedV4PlantsToWater([...v4StakedPlants]); } }} />All plants
                                                     </label>
                                                 </div>
-                                                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>Your Water: {v4StakingStats?.water ? parseFloat(ethers.utils.formatUnits(v4StakingStats.water, 18)).toFixed(2) : "0"}L</div>
+                                                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>Your Water: {v4StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18)).toFixed(2) : "0"}L</div>
                                                 <div style={{ display: "flex", overflowX: "auto", gap: 4, padding: "4px 0", minHeight: 60 }}>
                                                     {v4StakedPlants.map((id) => (
                                                         <label key={"v4water-" + id} style={{ minWidth: 60, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer", opacity: (v4PlantHealths[id] ?? 100) >= 100 ? 0.5 : 1 }}>
