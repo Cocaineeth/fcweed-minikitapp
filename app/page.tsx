@@ -3815,12 +3815,12 @@ export default function Home()
 
                                 {warsResult.won && (
                                     <p style={{ fontSize: 9, color: "#10b981", margin: "0 0 8px" }}>
-                                        💰 Search fee refunded + rewards claimed!
+                                        💰 Search fee refunded + rewards sent!
                                     </p>
                                 )}
                                 {!warsResult.won && (
                                     <p style={{ fontSize: 9, color: "#ef4444", margin: "0 0 8px" }}>
-                                        💸 Search fee lost to treasury. Defender earned bonus rewards!
+                                        💸 Search fee lost to Defender. Pending rewards lost forever!
                                     </p>
                                 )}
 
