@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import Image from "next/image";
-import { useMiniKit } from "@coinbase/onchainkit/minikit";
+import { useMiniKit, useComposeCast } from "@coinbase/onchainkit/minikit";
 import { ethers } from "ethers";
 import { sdk } from "@farcaster/miniapp-sdk";
 import styles from "./page.module.css";
@@ -71,7 +71,11 @@ import {
 } from "./lib/abis";
 
 // Screenshot and share to Twitter/Farcaster/Base
-async function captureAndShare(elementId: string, fallbackText: string) {
+async function captureAndShare(
+    elementId: string, 
+    fallbackText: string,
+    composeCastFn?: (options: { text: string; embeds?: string[] }) => void
+) {
     try {
         const element = document.getElementById(elementId);
         let imageDataUrl: string | null = null;
@@ -92,20 +96,34 @@ async function captureAndShare(elementId: string, fallbackText: string) {
             }
         }
 
-        // Try Farcaster/Base SDK composeCast (works in both Farcaster and Base App)
+        // Try MiniKit composeCast hook first (recommended for Base App)
+        if (composeCastFn) {
+            try {
+                const castOptions: { text: string; embeds?: string[] } = { text: fallbackText };
+                if (imageDataUrl) {
+                    castOptions.embeds = [imageDataUrl];
+                }
+                composeCastFn(castOptions);
+                console.log('MiniKit composeCast called');
+                return;
+            } catch (e) {
+                console.log('MiniKit composeCast failed:', e);
+            }
+        }
+
+        // Try Farcaster SDK composeCast (fallback)
         try {
             if (sdk && sdk.actions && typeof sdk.actions.composeCast === 'function') {
                 const castOptions: any = { text: fallbackText };
-                // Add image as embed if we have it
                 if (imageDataUrl) {
                     castOptions.embeds = [imageDataUrl];
                 }
                 await sdk.actions.composeCast(castOptions);
-                console.log('composeCast succeeded');
+                console.log('SDK composeCast succeeded');
                 return;
             }
         } catch (e) {
-            console.log('composeCast failed or not available:', e);
+            console.log('SDK composeCast failed or not available:', e);
         }
 
         // Try SDK openUrl to open Twitter (fallback for clients that support it)
@@ -177,6 +195,7 @@ async function captureAndShare(elementId: string, fallbackText: string) {
 export default function Home()
 {
     const { setMiniAppReady, isMiniAppReady } = useMiniKit();
+    const { composeCast } = useComposeCast();
 
     // Theme state (light/dark)
     const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -4361,7 +4380,7 @@ export default function Home()
                                             const text = crateWon.isJackpot 
                                                 ? `🎰 JACKPOT on FCWEED Crates! 🎉\n\nWon ${crateWon.amount} ${crateWon.token}! 💰\n\nTry your luck on @base 🌿\n\nhttps://x420ponzi.com`
                                                 : `🎰 Opened a FCWEED Mystery Crate!\n\nWon ${crateWon.amount} ${crateWon.token}! ${crateWon.isNFT ? '🖼️' : '💰'}\n\nTry your luck on @base 🌿\n\nhttps://x420ponzi.com`;
-                                            captureAndShare('crate-win-card', text);
+                                            captureAndShare('crate-win-card', text, composeCast);
                                         }}
                                         style={{ padding: 12, fontSize: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(29,161,242,0.2)', color: '#1da1f2', cursor: 'pointer' }}
                                     >
@@ -4620,7 +4639,7 @@ export default function Home()
                                             const text = warsResult.won 
                                                 ? `⚔️ VICTORY in FCWEED Cartel Wars! 🎉\n\n💰 Stole ${amountStr} $FCWEED\n💥 Dealt ${warsResult.damageDealt}% damage\n\nBuild your farming empire on @base 🌿\n\nhttps://x420ponzi.com`
                                                 : `⚔️ Battle in FCWEED Cartel Wars! 💀\n\nLost ${amountStr} $FCWEED but I'll be back stronger!\n\nJoin the farming war on @base 🌿\n\nhttps://x420ponzi.com`;
-                                            captureAndShare('wars-result-card', text);
+                                            captureAndShare('wars-result-card', text, composeCast);
                                         }}
                                         style={{ padding: "10px 16px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(255,255,255,0.2)", background: "rgba(29,161,242,0.2)", color: "#1da1f2", cursor: "pointer" }}
                                     >
@@ -4846,7 +4865,7 @@ export default function Home()
                                             const boost = v5StakingStats?.boostPct?.toFixed(1) || 0;
                                             const daily = v5StakingStats?.dailyRewards || "0";
                                             const text = `🌿 My FCWEED Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://x420ponzi.com`;
-                                            captureAndShare('v5-stats-card', text);
+                                            captureAndShare('v5-stats-card', text, composeCast);
                                         }}
                                         style={{ gridColumn: "span 1", padding: 8, borderRadius: 8, border: "1px solid rgba(29,161,242,0.4)", background: "rgba(29,161,242,0.15)", color: "#1da1f2", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}
                                     >
