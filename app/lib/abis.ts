@@ -73,6 +73,7 @@ export const V4_STAKING_ABI = [
     "function capacityOf(address account) external view returns (uint256)",
     "function plantsOf(address account) external view returns (uint256[])",
     "function landsOf(address account) external view returns (uint256[])",
+    "function superLandsOf(address account) external view returns (uint256[])",
     "function superLandStakerOf(uint256 tokenId) external view returns (address)",
     "function users(address) external view returns (uint64 last, uint32 plants, uint32 lands, uint32 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay, uint256 stakedTokens, uint256 tokenStakeTime, address referrer, uint256 referralEarnings, uint32 referralCount, uint256 guildId, uint256 earningBoostBps, uint256 earningBoostExpiry, uint256 capacityBoost, uint256 capacityBoostExpiry, uint256 raidShieldExpiry, uint256 raidAttackBoostBps, uint256 raidAttackBoostExpiry, uint256 seasonPoints, uint256 lastSeasonUpdated)",
     "function getPlantHealth(uint256 tokenId) external view returns (uint256)",

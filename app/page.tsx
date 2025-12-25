@@ -1366,9 +1366,10 @@ export default function Home()
         setLoadingV5Staking(true);
         try {
             const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
-            const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, avgHealth, tokensPerDayRaw, landBoostBpsRaw, superLandBoostBpsRaw] = await Promise.all([
+            const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, stakedSuperLandIds, avgHealth, tokensPerDayRaw, landBoostBpsRaw, superLandBoostBpsRaw] = await Promise.all([
                 v5Contract.users(userAddress), v5Contract.pending(userAddress), v5Contract.capacityOf(userAddress),
-                v5Contract.plantsOf(userAddress), v5Contract.landsOf(userAddress), v5Contract.getAverageHealth(userAddress).catch(() => ethers.BigNumber.from(100)),
+                v5Contract.plantsOf(userAddress), v5Contract.landsOf(userAddress), v5Contract.superLandsOf(userAddress).catch(() => []),
+                v5Contract.getAverageHealth(userAddress).catch(() => ethers.BigNumber.from(100)),
                 v5Contract.tokensPerPlantPerDay(), v5Contract.landBoostBps(), v5Contract.superLandBoostBps()
             ]);
             const plantsCount = Number(userData.plants);
@@ -1397,7 +1398,9 @@ export default function Home()
 
             const stakedPlantNums = stakedPlantIds.map((id: any) => Number(id));
             const stakedLandNums = stakedLandIds.map((id: any) => Number(id));
-            
+            const stakedSuperLandNums = stakedSuperLandIds.map((id: any) => Number(id));
+            console.log("[V5] Staked Super Lands from contract:", stakedSuperLandNums);
+
             const healthMap: Record<number, number> = {};
             const waterNeededMap: Record<number, number> = {};
             if (stakedPlantNums.length > 0) {
@@ -1425,10 +1428,10 @@ export default function Home()
                             } else {
                                 waterNeededMap[id] = 1; // Assume needs water if call failed
                             }
-                        } catch (decodeErr) { 
+                        } catch (decodeErr) {
                             console.error(`[V5] Decode error for plant #${id}:`, decodeErr);
-                            healthMap[id] = 0; 
-                            waterNeededMap[id] = 1; 
+                            healthMap[id] = 0;
+                            waterNeededMap[id] = 1;
                         }
                     });
                     if (stakedPlantNums.length > 0) {
@@ -1441,9 +1444,9 @@ export default function Home()
                         const adjustedDailyDisplay = adjustedDaily >= 1e6 ? (adjustedDaily / 1e6).toFixed(2) + "M" : adjustedDaily >= 1e3 ? (adjustedDaily / 1e3).toFixed(1) + "K" : adjustedDaily.toFixed(0);
                         setV5StakingStats((prev: any) => prev ? { ...prev, avgHealth: calculatedAvgHealth, dailyRewards: adjustedDailyDisplay } : prev);
                     }
-                } catch (err) { 
+                } catch (err) {
                     console.error("[V5] Health multicall error:", err);
-                    stakedPlantNums.forEach((id: number) => { healthMap[id] = 0; waterNeededMap[id] = 1; }); 
+                    stakedPlantNums.forEach((id: number) => { healthMap[id] = 0; waterNeededMap[id] = 1; });
                 }
             }
             setV5PlantHealths(healthMap);
@@ -1452,7 +1455,7 @@ export default function Home()
             setV5StakedLands(stakedLandNums);
 
             const owned = await getOwnedState(userAddress);
-            
+
             // Exclude NFTs staked in V4 from available
             let v4StakedPlantIds: number[] = [];
             let v4StakedLandIds: number[] = [];
@@ -1465,55 +1468,26 @@ export default function Home()
                 v4StakedPlantIds = v4Plants.map((id: any) => Number(id));
                 v4StakedLandIds = v4Lands.map((id: any) => Number(id));
             } catch (err) { console.log("[V5] Failed to get V4 staked NFTs"); }
-            
+
             const allStakedPlants = [...stakedPlantNums, ...v4StakedPlantIds];
             const allStakedLands = [...stakedLandNums, ...v4StakedLandIds];
-            
+
             const availPlants = owned.plants.filter((t: any) => !allStakedPlants.includes(Number(t.tokenId))).map((t: any) => Number(t.tokenId));
             const availLands = owned.lands.filter((t: any) => !allStakedLands.includes(Number(t.tokenId))).map((t: any) => Number(t.tokenId));
             const allOwnedSuperLandIds = owned.superLands.map((t: any) => Number(t.tokenId));
-            const stakedSuperLandNums: number[] = [];
-            const availSuperLandNums: number[] = [];
-
-            if (superLandsCount > 0) {
-                const ids = Array.from({ length: 100 }, (_, i) => i + 1);
-                try {
-                    const stakerCalls = ids.map(id => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
-                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                    const [, stakerResults] = await mc.callStatic.aggregate(stakerCalls);
-                    ids.forEach((id, i) => {
-                        try {
-                            const staker = ethers.utils.defaultAbiCoder.decode(["address"], stakerResults[i])[0];
-                            if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
-                                stakedSuperLandNums.push(id);
-                            }
-                        } catch {}
-                    });
-                } catch {}
-            }
 
             // Check V4 super lands too
             let v4StakedSuperLandIds: number[] = [];
             try {
-                const ids = Array.from({ length: 100 }, (_, i) => i + 1);
-                const v4Calls = ids.map(id => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("superLandStakerOf", [id]) }));
-                const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                const [, v4Results] = await mc.callStatic.aggregate(v4Calls);
-                ids.forEach((id, i) => {
-                    try {
-                        const staker = ethers.utils.defaultAbiCoder.decode(["address"], v4Results[i])[0];
-                        if (staker && staker !== ethers.constants.AddressZero && staker.toLowerCase() === userAddress.toLowerCase()) {
-                            v4StakedSuperLandIds.push(id);
-                        }
-                    } catch {}
-                });
+                const v4Contract = new ethers.Contract(V4_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
+                const v4SuperLands = await v4Contract.superLandsOf(userAddress).catch(() => []);
+                v4StakedSuperLandIds = v4SuperLands.map((id: any) => Number(id));
             } catch {}
 
-            allOwnedSuperLandIds.forEach((id: number) => {
-                if (!stakedSuperLandNums.includes(id) && !v4StakedSuperLandIds.includes(id)) {
-                    availSuperLandNums.push(id);
-                }
-            });
+            // Available super lands = owned but not staked in V5 or V4
+            const availSuperLandNums = allOwnedSuperLandIds.filter((id: number) =>
+                !stakedSuperLandNums.includes(id) && !v4StakedSuperLandIds.includes(id)
+            );
 
             setV5StakedSuperLands(stakedSuperLandNums);
             setV5AvailablePlants(availPlants);
@@ -1597,7 +1571,7 @@ export default function Home()
         if (selectedV5AvailPlants.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Approving...");
-            const ctx = await ensureWallet(); 
+            const ctx = await ensureWallet();
             if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(PLANT_ADDRESS, V5_STAKING_ADDRESS, ctx);
             setV5ActionStatus("Staking plants...");
@@ -1616,7 +1590,7 @@ export default function Home()
         if (selectedV5AvailLands.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Approving...");
-            const ctx = await ensureWallet(); 
+            const ctx = await ensureWallet();
             if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
             setV5ActionStatus("Staking lands...");
@@ -1635,7 +1609,7 @@ export default function Home()
         if (selectedV5AvailSuperLands.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Approving...");
-            const ctx = await ensureWallet(); 
+            const ctx = await ensureWallet();
             if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(SUPER_LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
             setV5ActionStatus("Staking super lands...");
@@ -1806,7 +1780,7 @@ export default function Home()
     // Check backend health when wars tab opens
     async function checkWarsBackend() {
         try {
-            const response = await fetch(`${BACKEND_API_URL}/health`, { 
+            const response = await fetch(`${BACKEND_API_URL}/health`, {
                 method: 'GET',
                 signal: AbortSignal.timeout(5000)
             });
@@ -1913,13 +1887,13 @@ export default function Home()
                 setWarsTarget(activeSearch.target);
                 setWarsTargetLocked(true); // Already paid
                 setWarsSearchExpiry(activeSearch.expiry.toNumber());
-                
+
                 // Fetch target stats directly from V5 staking (more reliable)
                 const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, [
                     "function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)",
                     "function hasRaidShield(address) external view returns (bool)"
                 ], readProvider);
-                
+
                 let tPlants = 0, tLands = 0, tSuperLands = 0, tAvgHealth = 100, tPending = ethers.BigNumber.from(0);
                 try {
                     const targetStats = await v5Contract.getUserBattleStats(activeSearch.target);
@@ -1932,14 +1906,14 @@ export default function Home()
                 } catch (e) {
                     console.error("[Wars] Failed to get target stats:", e);
                 }
-                
+
                 let hasShield = false;
                 try {
                     hasShield = await v5Contract.hasRaidShield(activeSearch.target);
                 } catch (e) {}
-                
+
                 const defenderPower = Math.round((tPlants * 100 + tLands * 50 + tSuperLands * 150) * tAvgHealth / 100);
-                
+
                 setWarsTargetStats({
                     plants: tPlants,
                     lands: tLands,
@@ -1949,14 +1923,14 @@ export default function Home()
                     battlePower: defenderPower,
                     hasShield: hasShield,
                 });
-                
+
                 // Get attacker power from V4 staking contract
                 let attackerPower = 0;
                 const attackerAddress = ctx.userAddress;
                 console.log("[Wars] Calculating attacker power for:", attackerAddress);
                 console.log("[Wars] Target address was:", activeSearch.target);
                 console.log("[Wars] V5_STAKING_ADDRESS:", V5_STAKING_ADDRESS);
-                
+
                 // Method 1: Try V5 contract call
                 try {
                     console.log("[Wars] Calling getUserBattleStats for attacker...");
@@ -2308,7 +2282,7 @@ export default function Home()
                 refreshV5StakingRef.current = false;
                 refreshV5Staking();
             }, 2000);
-            
+
             // Refresh again after a bit more time for blockchain to settle
             setTimeout(() => {
                 refreshV5StakingRef.current = false;
@@ -2592,7 +2566,7 @@ export default function Home()
                 setCrateStatus("");
                 return;
             }
-            
+
             setCrateStatus("Checking approval...");
             const allowance = await fcweedContract.allowance(ctx.userAddress, CRATE_VAULT_ADDRESS);
             console.log("[Crate] Current allowance:", ethers.utils.formatUnits(allowance, 18));
@@ -3268,7 +3242,7 @@ export default function Home()
 
                         {/* Token Supply Stats */}
                         <section style={{ display: "flex", justifyContent: "center", padding: "8px 0" }}>
-                            <div style={{ 
+                            <div style={{
                                 background: "linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(59, 130, 246, 0.15))",
                                 border: "1px solid rgba(16, 185, 129, 0.3)",
                                 borderRadius: 12,
@@ -3359,19 +3333,19 @@ export default function Home()
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
                     <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
                 </div>
-                
+
                 {/* NFT Supply Display */}
-                <div style={{ 
-                    display: "flex", 
-                    justifyContent: "center", 
-                    gap: 12, 
+                <div style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    gap: 12,
                     marginBottom: 16,
                     flexWrap: "wrap"
                 }}>
-                    <div style={{ 
-                        background: "rgba(34, 197, 94, 0.15)", 
-                        border: "1px solid rgba(34, 197, 94, 0.4)", 
-                        borderRadius: 8, 
+                    <div style={{
+                        background: "rgba(34, 197, 94, 0.15)",
+                        border: "1px solid rgba(34, 197, 94, 0.4)",
+                        borderRadius: 8,
                         padding: "8px 14px",
                         minWidth: 90
                     }}>
@@ -3380,10 +3354,10 @@ export default function Home()
                             {nftSupply.loading ? "..." : `${nftSupply.plants}/1111`}
                         </div>
                     </div>
-                    <div style={{ 
-                        background: "rgba(139, 92, 246, 0.15)", 
-                        border: "1px solid rgba(139, 92, 246, 0.4)", 
-                        borderRadius: 8, 
+                    <div style={{
+                        background: "rgba(139, 92, 246, 0.15)",
+                        border: "1px solid rgba(139, 92, 246, 0.4)",
+                        borderRadius: 8,
                         padding: "8px 14px",
                         minWidth: 90
                     }}>
@@ -3392,10 +3366,10 @@ export default function Home()
                             {nftSupply.loading ? "..." : `${nftSupply.lands}/420`}
                         </div>
                     </div>
-                    <div style={{ 
-                        background: "rgba(251, 191, 36, 0.15)", 
-                        border: "1px solid rgba(251, 191, 36, 0.4)", 
-                        borderRadius: 8, 
+                    <div style={{
+                        background: "rgba(251, 191, 36, 0.15)",
+                        border: "1px solid rgba(251, 191, 36, 0.4)",
+                        borderRadius: 8,
                         padding: "8px 14px",
                         minWidth: 90
                     }}>
@@ -3594,26 +3568,26 @@ export default function Home()
                         <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#ef4444" }}>⚔️ Cartel Wars</h2>
 
                         {/* Backend Status Indicator */}
-                        <div style={{ 
-                            display: "flex", 
-                            justifyContent: "center", 
-                            alignItems: "center", 
-                            gap: 6, 
+                        <div style={{
+                            display: "flex",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            gap: 6,
                             marginBottom: 12,
                             fontSize: 10,
                             color: warsBackendStatus === "online" ? "#10b981" : warsBackendStatus === "offline" ? "#ef4444" : "#9ca3af"
                         }}>
-                            <span style={{ 
-                                width: 8, 
-                                height: 8, 
-                                borderRadius: "50%", 
+                            <span style={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: "50%",
                                 background: warsBackendStatus === "online" ? "#10b981" : warsBackendStatus === "offline" ? "#ef4444" : "#6b7280"
                             }} />
                             Backend: {warsBackendStatus === "online" ? "Online" : warsBackendStatus === "offline" ? "Offline" : "Checking..."}
                             {warsBackendStatus === "offline" && (
-                                <button 
-                                    type="button" 
-                                    onClick={checkWarsBackend} 
+                                <button
+                                    type="button"
+                                    onClick={checkWarsBackend}
                                     style={{ fontSize: 9, padding: "2px 6px", background: "#374151", border: "1px solid #4b5563", borderRadius: 4, color: "#fff", cursor: "pointer" }}
                                 >
                                     Retry
@@ -3775,10 +3749,10 @@ export default function Home()
                                             </button>
                                         </div>
                                     )}
-                                    
+
                                     <div style={{ fontSize: 9, color: "#6b7280", textAlign: "center" }}>
-                                        {!warsTargetLocked 
-                                            ? `Pay ${warsSearchFee} FCWEED to reveal stats and fight, or find another opponent` 
+                                        {!warsTargetLocked
+                                            ? `Pay ${warsSearchFee} FCWEED to reveal stats and fight, or find another opponent`
                                             : `Find different opponent for ${warsSearchFee} FCWEED (resets 10min timer)`
                                         }
                                     </div>
@@ -4018,7 +3992,7 @@ export default function Home()
                         </header>
 
                         <div style={{ padding: "8px 12px", background: "rgba(16,185,129,0.1)", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>🚀 V5 is LIVE! Claim will be enabled on 12/25 @ Midnight 12AM EST</p>
+                            <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>🚀 V5 is LIVE! Stake your NFTs and claim your $FCWEED rewards!</p>
                         </div>
 
                         {!V5_STAKING_ADDRESS ? (
@@ -4132,12 +4106,13 @@ export default function Home()
                 <div className={styles.modalBackdrop}>
                     <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto" }}>
                         <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle}>⬅️ Staking V4 (UNSTAKE ONLY)</h2>
+                            <h2 className={styles.modalTitle}>⬅️ Staking V4 (MIGRATION MODE)</h2>
                             <button type="button" className={styles.modalClose} onClick={() => setV4StakingOpen(false)}>✕</button>
                         </header>
 
-                        <div style={{ padding: "8px 12px", background: "rgba(124,58,237,0.1)", borderRadius: 8, border: "1px solid rgba(124,58,237,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#fbbf24", margin: 0, fontWeight: 600 }}>⚠️ V4 is deprecated. Please unstake and migrate to V5!</p>
+                        <div style={{ padding: "8px 12px", background: "rgba(239,68,68,0.15)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.4)", marginBottom: 10 }}>
+                            <p style={{ fontSize: 10, color: "#f87171", margin: 0, fontWeight: 600 }}>🚨 V4 is DEPRECATED - Staking &amp; Claiming DISABLED</p>
+                            <p style={{ fontSize: 9, color: "#fca5a5", margin: "4px 0 0 0" }}>Water your plants → Unstake everything → Move to V5 to continue earning!</p>
                         </div>
 
                         {!V4_STAKING_ADDRESS ? (
@@ -4163,17 +4138,7 @@ export default function Home()
 
                                 {loadingV4Staking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12 }}>Loading NFTs…</p> : (
                                     <>
-                                        <div style={{ marginBottom: 10 }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                                <span style={{ fontSize: 11, fontWeight: 600 }}>Available ({v4AvailablePlants.length + v4AvailableLands.length + v4AvailableSuperLands.length})</span>
-                                                <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v4AvailablePlants.length + v4AvailableLands.length + v4AvailableSuperLands.length) > 0 && selectedV4AvailPlants.length + selectedV4AvailLands.length + selectedV4AvailSuperLands.length === (v4AvailablePlants.length + v4AvailableLands.length + v4AvailableSuperLands.length)} onChange={() => { if (selectedV4AvailPlants.length + selectedV4AvailLands.length + selectedV4AvailSuperLands.length === (v4AvailablePlants.length + v4AvailableLands.length + v4AvailableSuperLands.length)) { setSelectedV4AvailPlants([]); setSelectedV4AvailLands([]); setSelectedV4AvailSuperLands([]); } else { setSelectedV4AvailPlants(v4AvailablePlants); setSelectedV4AvailLands(v4AvailableLands); setSelectedV4AvailSuperLands(v4AvailableSuperLands); } }} />All</label>
-                                            </div>
-                                            <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                                {(v4AvailablePlants.length + v4AvailableLands.length + v4AvailableSuperLands.length) === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No NFTs available to stake</span> : (
-                                                    <>{v4AvailableSuperLands.map((id) => <NftCard key={"v4asl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedV4AvailSuperLands.includes(id)} onChange={() => toggleId(id, selectedV4AvailSuperLands, setSelectedV4AvailSuperLands)} />)}{v4AvailableLands.map((id) => <NftCard key={"v4al-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedV4AvailLands.includes(id)} onChange={() => toggleId(id, selectedV4AvailLands, setSelectedV4AvailLands)} />)}{v4AvailablePlants.map((id) => <NftCard key={"v4ap-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV4AvailPlants.includes(id)} onChange={() => toggleId(id, selectedV4AvailPlants, setSelectedV4AvailPlants)} />)}</>
-                                                )}
-                                            </div>
-                                        </div>
+                                        {/* Available section hidden - staking disabled */}
                                         <div style={{ marginBottom: 10 }}>
                                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                                                 <span style={{ fontSize: 11, fontWeight: 600 }}>Staked ({v4StakedPlants.length + v4StakedLands.length + v4StakedSuperLands.length})</span>
@@ -4242,11 +4207,11 @@ export default function Home()
                                     </>
                                 )}
                                 <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V4_STAKING_ADDRESS || (selectedV4AvailPlants.length + selectedV4AvailLands.length + selectedV4AvailSuperLands.length === 0)} onClick={async () => { if (selectedV4AvailPlants.length > 0) await handleV4StakePlants(); if (selectedV4AvailLands.length > 0) await handleV4StakeLands(); if (selectedV4AvailSuperLands.length > 0) await handleV4StakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12, background: "linear-gradient(to right, #7c3aed, #a855f7)" }}>{actionLoading ? "Staking..." : "Stake"}</button>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V4_STAKING_ADDRESS || (selectedV4StakedPlants.length + selectedV4StakedLands.length + selectedV4StakedSuperLands.length === 0)} onClick={async () => { if (selectedV4StakedPlants.length > 0) await handleV4UnstakePlants(); if (selectedV4StakedLands.length > 0) await handleV4UnstakeLands(); if (selectedV4StakedSuperLands.length > 0) await handleV4UnstakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Unstaking..." : "Unstake"}</button>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V4_STAKING_ADDRESS || !v4StakingStats || v4StakingStats.pendingFormatted <= 0} onClick={handleV4Claim} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Claiming..." : "Claim"}</button>
+                                    <button type="button" className={styles.btnPrimary} disabled={true} style={{ flex: 1, padding: 10, fontSize: 12, background: "#374151", color: "#6b7280", cursor: "not-allowed" }}>Stake (Disabled)</button>
+                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V4_STAKING_ADDRESS || (selectedV4StakedPlants.length + selectedV4StakedLands.length + selectedV4StakedSuperLands.length === 0)} onClick={async () => { if (selectedV4StakedPlants.length > 0) await handleV4UnstakePlants(); if (selectedV4StakedLands.length > 0) await handleV4UnstakeLands(); if (selectedV4StakedSuperLands.length > 0) await handleV4UnstakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12, background: "linear-gradient(to right, #dc2626, #ef4444)" }}>{actionLoading ? "Unstaking..." : "Unstake"}</button>
+                                    <button type="button" className={styles.btnPrimary} disabled={true} style={{ flex: 1, padding: 10, fontSize: 12, background: "#374151", color: "#6b7280", cursor: "not-allowed" }}>Claim (Disabled)</button>
                                 </div>
-                                <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 6, textAlign: "center" }}>⚠️ Plants must have 100% health to unstake. Water them first!</p>
+                                <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 6, textAlign: "center" }}>⚠️ V4 is deprecated! Water plants to 100% health, unstake, then move to V5.</p>
                                 {v4ActionStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v4ActionStatus}</p>}
                             </>
                         )}
