@@ -3556,41 +3556,44 @@ export default function Home()
             onClick={connected ? () => setShowDisconnectModal(true) : handleConnectWallet}
             onTouchEnd={connected ? () => setShowDisconnectModal(true) : handleConnectWallet}
             style={{
-                padding: "8px 14px",
-                borderRadius: 12,
-                border: `1px solid ${theme === "light" ? "#cbd5e1" : "rgba(255,255,255,0.25)"}`,
+                padding: userAvatar && connected ? "6px 14px 6px 6px" : "10px 16px",
+                borderRadius: 14,
+                border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`,
                 background: theme === "light" 
-                    ? (connected ? "#ffffff" : "#ffffff")
-                    : (connected ? "rgba(0,200,130,0.18)" : "rgba(39,95,255,0.55)"),
-                boxShadow: theme === "light" ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-                fontSize: 12,
+                    ? "#ffffff"
+                    : (connected ? "rgba(15,23,42,0.9)" : "rgba(39,95,255,0.55)"),
+                boxShadow: theme === "light" ? "0 2px 4px rgba(0,0,0,0.06)" : "0 2px 4px rgba(0,0,0,0.2)",
+                fontSize: 13,
                 fontWeight: 600,
                 color: theme === "light" ? "#1e293b" : "#fff",
                 cursor: connecting ? "wait" : "pointer",
                 touchAction: "manipulation",
                 WebkitTapHighlightColor: "transparent",
                 userSelect: "none",
-                minHeight: 40,
+                minHeight: 42,
                 opacity: connecting ? 0.7 : 1,
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
+                transition: "all 0.2s ease",
             }}
         >
-            {userAvatar && connected && (
+            {userAvatar && connected ? (
                 <img 
                     src={userAvatar} 
                     alt="avatar" 
                     style={{ 
-                        width: 28, 
-                        height: 28, 
-                        borderRadius: "50%",
+                        width: 30, 
+                        height: 30, 
+                        borderRadius: 10,
                         objectFit: "cover",
-                        border: `2px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.3)"}`
+                        border: `2px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`
                     }} 
                 />
+            ) : !connected && (
+                <span style={{ fontSize: 16 }}>🔗</span>
             )}
-            {connecting ? "Connecting..." : getDisplayName()}
+            <span>{connecting ? "Connecting..." : getDisplayName()}</span>
         </button>
     );
 
@@ -3960,6 +3963,7 @@ export default function Home()
                                 walletRank={userLeaderboardRank}
                                 walletRow={userLeaderboardRow}
                                 onRefresh={refreshLeaderboard}
+                                theme={theme}
                             />
                         </section>
                         <section className={styles.infoCard} style={getCardStyle()}>
@@ -4254,7 +4258,7 @@ export default function Home()
                             gap: 6,
                             marginBottom: 12,
                             fontSize: 10,
-                            color: warsBackendStatus === "online" ? "#10b981" : warsBackendStatus === "offline" ? "#ef4444" : "#9ca3af"
+                            color: warsBackendStatus === "online" ? "#10b981" : warsBackendStatus === "offline" ? "#ef4444" : theme === "light" ? "#64748b" : "#9ca3af"
                         }}>
                             <span style={{
                                 width: 8,
@@ -4267,7 +4271,7 @@ export default function Home()
                                 <button
                                     type="button"
                                     onClick={checkWarsBackend}
-                                    style={{ fontSize: 9, padding: "2px 6px", background: "#374151", border: "1px solid #4b5563", borderRadius: 4, color: "#fff", cursor: "pointer" }}
+                                    style={{ fontSize: 9, padding: "2px 6px", background: theme === "light" ? "#e2e8f0" : "#374151", border: `1px solid ${theme === "light" ? "#cbd5e1" : "#4b5563"}`, borderRadius: 4, color: theme === "light" ? "#1e293b" : "#fff", cursor: "pointer" }}
                                 >
                                     Retry
                                 </button>
@@ -4277,26 +4281,26 @@ export default function Home()
                         {connected && warsPlayerStats && (
                             <>
                                 {warsPlayerStats.hasShield && (
-                                    <div style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
-                                        <div style={{ fontSize: 11, color: "#60a5fa", fontWeight: 600 }}>🛡️ Raid Shield ACTIVE</div>
-                                        <div style={{ fontSize: 9, color: "#9ca3af" }}>You are protected from attacks. Attacking others will remove your shield!</div>
+                                    <div style={{ background: theme === "light" ? "rgba(59,130,246,0.1)" : "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
+                                        <div style={{ fontSize: 11, color: "#3b82f6", fontWeight: 600 }}>🛡️ Raid Shield ACTIVE</div>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>You are protected from attacks. Attacking others will remove your shield!</div>
                                     </div>
                                 )}
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, marginBottom: 12 }}>
-                                    <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                        <div style={{ fontSize: 8, color: "#9ca3af" }}>WINS</div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
+                                        <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>WINS</div>
                                         <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
                                     </div>
-                                    <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                        <div style={{ fontSize: 8, color: "#9ca3af" }}>LOSSES</div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
+                                        <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOSSES</div>
                                         <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
                                     </div>
-                                    <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                        <div style={{ fontSize: 8, color: "#9ca3af" }}>STREAK</div>
-                                        <div style={{ fontSize: 14, color: "#fbbf24", fontWeight: 700 }}>{warsPlayerStats.winStreak || 0}🔥</div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
+                                        <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>STREAK</div>
+                                        <div style={{ fontSize: 14, color: theme === "light" ? "#d97706" : "#fbbf24", fontWeight: 700 }}>{warsPlayerStats.bestStreak || warsPlayerStats.winStreak || 0}🔥</div>
                                     </div>
-                                    <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                        <div style={{ fontSize: 8, color: "#9ca3af" }}>STOLEN</div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
+                                        <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>STOLEN</div>
                                         <div style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>{warsPlayerStats.rewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
                                     </div>
                                 </div>
@@ -4304,16 +4308,16 @@ export default function Home()
                         )}
 
                         {warsCooldown > 0 && (
-                            <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
-                                <div style={{ fontSize: 10, color: "#fbbf24" }}>⏳ Attack Cooldown: {Math.floor(warsCooldown / 3600)}h {Math.floor((warsCooldown % 3600) / 60)}m</div>
+                            <div style={{ background: theme === "light" ? "rgba(251,191,36,0.08)" : "rgba(251,191,36,0.1)", border: `1px solid ${theme === "light" ? "rgba(217,119,6,0.3)" : "rgba(251,191,36,0.3)"}`, borderRadius: 8, padding: 8, marginBottom: 12 }}>
+                                <div style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24" }}>⏳ Attack Cooldown: {Math.floor(warsCooldown / 3600)}h {Math.floor((warsCooldown % 3600) / 60)}m</div>
                             </div>
                         )}
 
                         {!warsTarget ? (
                             <div style={{ marginBottom: 12 }}>
-                                <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+                                <div style={{ background: theme === "light" ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
                                     <div style={{ fontSize: 32, marginBottom: 8 }}>🎯</div>
-                                    <p style={{ fontSize: 11, color: "#c0c9f4", margin: "0 0 12px" }}>Search for an opponent to raid their pending rewards!</p>
+                                    <p style={{ fontSize: 11, color: theme === "light" ? "#475569" : "#c0c9f4", margin: "0 0 12px" }}>Search for an opponent to raid their pending rewards!</p>
                                     <button
                                         type="button"
                                         onClick={handleWarsSearch}
@@ -4323,7 +4327,7 @@ export default function Home()
                                     >
                                         {warsSearching ? "🔍 Searching..." : `🔍 Search for Opponent (${warsSearchFee})`}
                                     </button>
-                                    {warsStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 8 }}>{warsStatus}</p>}
+                                    {warsStatus && <p style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24", marginTop: 8 }}>{warsStatus}</p>}
                                 </div>
                             </div>
                         ) : (
@@ -4663,42 +4667,42 @@ export default function Home()
 
             {/* V5 Staking Modal */}
             {v5StakingOpen && (
-                <div className={styles.modalBackdrop}>
-                    <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto" }}>
+                <div className={styles.modalBackdrop} style={{ background: theme === "light" ? "rgba(0,0,0,0.4)" : undefined }}>
+                    <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto", background: theme === "light" ? "#ffffff" : undefined, color: theme === "light" ? "#1e293b" : undefined }}>
                         <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle}>🚀 Staking V5</h2>
-                            <button type="button" className={styles.modalClose} onClick={() => setV5StakingOpen(false)}>✕</button>
+                            <h2 className={styles.modalTitle} style={{ color: theme === "light" ? "#1e293b" : undefined }}>🚀 Staking V5</h2>
+                            <button type="button" className={styles.modalClose} onClick={() => setV5StakingOpen(false)} style={{ background: theme === "light" ? "#f1f5f9" : undefined, color: theme === "light" ? "#64748b" : undefined }}>✕</button>
                         </header>
 
-                        <div style={{ padding: "8px 12px", background: "rgba(16,185,129,0.1)", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 10 }}>
+                        <div style={{ padding: "8px 12px", background: theme === "light" ? "rgba(16,185,129,0.08)" : "rgba(16,185,129,0.1)", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 10 }}>
                             <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>🚀 V5 is LIVE! Stake your NFTs and claim your $FCWEED rewards!</p>
                         </div>
 
                         {!V5_STAKING_ADDRESS ? (
                             <div style={{ padding: 20, textAlign: "center" }}>
-                                <p style={{ fontSize: 14, color: "#fbbf24" }}>⏳ V5 Contract Not Yet Deployed</p>
+                                <p style={{ fontSize: 14, color: theme === "light" ? "#d97706" : "#fbbf24" }}>⏳ V5 Contract Not Yet Deployed</p>
                             </div>
                         ) : (
                             <>
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Plants</span><span className={styles.statValue}>{v5StakingStats?.plants || 0}</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Lands</span><span className={styles.statValue}>{v5StakingStats?.lands || 0}</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Super Lands</span><span className={styles.statValue}>{v5StakingStats?.superLands || 0}</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Capacity</span><span className={styles.statValue}>{v5StakingStats ? `${v5StakingStats.plants}/${v5StakingStats.capacity}` : "0/1"}</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Boost</span><span className={styles.statValue} style={{ color: "#10b981" }}>+{v5StakingStats?.boostPct?.toFixed(1) || 0}%</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Daily (Live)</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) < 100 ? "#fbbf24" : "#10b981" }}>{v5StakingStats?.dailyRewards || "0"}</span></div>
-                                    <div className={styles.statCard}><span className={styles.statLabel}>Avg Health</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? "#fbbf24" : "#ef4444" }}>{v5StakingStats?.avgHealth || 100}%</span></div>
-                                    <div className={styles.statCard} style={{ gridColumn: "span 2" }}><span className={styles.statLabel}>Water</span><span className={styles.statValue} style={{ color: "#60a5fa" }}>{v5StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18))).toFixed(1) : "0"}L</span></div>
+                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Plants</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats?.plants || 0}</span></div>
+                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Lands</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats?.lands || 0}</span></div>
+                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Super Lands</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats?.superLands || 0}</span></div>
+                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Capacity</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats ? `${v5StakingStats.plants}/${v5StakingStats.capacity}` : "0/1"}</span></div>
+                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Boost</span><span className={styles.statValue} style={{ color: "#10b981" }}>+{v5StakingStats?.boostPct?.toFixed(1) || 0}%</span></div>
+                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Daily (Live)</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) < 100 ? (theme === "light" ? "#d97706" : "#fbbf24") : "#10b981" }}>{v5StakingStats?.dailyRewards || "0"}</span></div>
+                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Avg Health</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? (theme === "light" ? "#d97706" : "#fbbf24") : "#ef4444" }}>{v5StakingStats?.avgHealth || 100}%</span></div>
+                                    <div className={styles.statCard} style={{ gridColumn: "span 2", background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Water</span><span className={styles.statValue} style={{ color: "#3b82f6" }}>{v5StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18))).toFixed(1) : "0"}L</span></div>
                                     <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #065f46, #10b981)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#a7f3d0", fontSize: 16 }}>{v5RealTimePending}</span></div>
                                 </div>
 
-                                <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 5-10 seconds to ensure NFTs load properly</p>
+                                <p style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 5-10 seconds to ensure NFTs load properly</p>
 
-                                {loadingV5Staking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12 }}>Loading NFTs…</p> : (
+                                {loadingV5Staking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12, color: theme === "light" ? "#475569" : undefined }}>Loading NFTs…</p> : (
                                     <>
                                         <div style={{ marginBottom: 10 }}>
                                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                                <span style={{ fontSize: 11, fontWeight: 600 }}>Available ({v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length})</span>
+                                                <span style={{ fontSize: 11, fontWeight: 600, color: theme === "light" ? "#1e293b" : undefined }}>Available ({v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length})</span>
                                                 <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length) > 0 && selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === (v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length)} onChange={() => { if (selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === (v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length)) { setSelectedV5AvailPlants([]); setSelectedV5AvailLands([]); setSelectedV5AvailSuperLands([]); } else { setSelectedV5AvailPlants(v5AvailablePlants); setSelectedV5AvailLands(v5AvailableLands); setSelectedV5AvailSuperLands(v5AvailableSuperLands); } }} />All</label>
                                             </div>
                                             <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>

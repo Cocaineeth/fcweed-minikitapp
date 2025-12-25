@@ -11,6 +11,7 @@ export function CrimeLadder(props: {
     walletRank: number | null;
     walletRow: LeaderboardItem | null;
     onRefresh?: () => Promise<void> | void;
+    theme?: "dark" | "light";
 })
 {
     const {
@@ -20,10 +21,13 @@ export function CrimeLadder(props: {
         farmerCount,
         walletRank,
         walletRow,
+        theme = "dark",
     } = props;
 
+    const isLight = theme === "light";
+
     return (
-        <section className={styles.infoCard}>
+        <>
             <div
                 style={{
                     display: "flex",
@@ -32,13 +36,18 @@ export function CrimeLadder(props: {
                     marginBottom: 8,
                 }}
             >
-                <h2 className={styles.heading}>Crime Ladder — (Top Farmers)</h2>
+                <h2 className={styles.heading} style={{ color: isLight ? "#1e293b" : undefined }}>Crime Ladder — (Top Farmers)</h2>
                 {props.onRefresh && (
                     <button
                         type="button"
                         className={styles.btnSecondary}
                         disabled={props.loading}
                         onClick={() => void props.onRefresh?.()}
+                        style={{
+                            background: isLight ? "#f1f5f9" : undefined,
+                            borderColor: isLight ? "#cbd5e1" : undefined,
+                            color: isLight ? "#1e293b" : undefined,
+                        }}
                     >
                         {props.loading ? "Refreshing…" : "Refresh"}
                     </button>
@@ -52,8 +61,9 @@ export function CrimeLadder(props: {
                         margin: "4px 0 10px",
                         padding: "6px 8px",
                         borderRadius: 10,
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        background: "rgba(5,8,20,0.8)",
+                        border: `1px solid ${isLight ? "#e2e8f0" : "rgba(255,255,255,0.12)"}`,
+                        background: isLight ? "#f8fafc" : "rgba(5,8,20,0.8)",
+                        color: isLight ? "#1e293b" : undefined,
                     }}
                 >
                     {walletRow && walletRank ? (
@@ -95,9 +105,9 @@ export function CrimeLadder(props: {
             )}
 
             {loading ? (
-                <p style={{ fontSize: 13, opacity: 0.8 }}>Loading ladder…</p>
+                <p style={{ fontSize: 13, opacity: 0.8, color: isLight ? "#64748b" : undefined }}>Loading ladder…</p>
             ) : rows.length === 0 ? (
-                <p style={{ fontSize: 13, opacity: 0.8 }}>
+                <p style={{ fontSize: 13, opacity: 0.8, color: isLight ? "#64748b" : undefined }}>
                     Stake Plants + Land to appear on the Crime Ladder.
                 </p>
             ) : (
@@ -107,16 +117,17 @@ export function CrimeLadder(props: {
                             width: "100%",
                             borderCollapse: "collapse",
                             fontSize: 12,
+                            color: isLight ? "#1e293b" : undefined,
                         }}
                     >
                         <thead>
-                            <tr>
-                                <th style={{ textAlign: "left", padding: "4px 6px" }}>Rank</th>
-                                <th style={{ textAlign: "left", padding: "4px 6px" }}>Farmer</th>
-                                <th style={{ textAlign: "right", padding: "4px 6px" }}>Plants</th>
-                                <th style={{ textAlign: "right", padding: "4px 6px" }}>Lands</th>
-                                <th style={{ textAlign: "right", padding: "4px 6px" }}>Super</th>
-                                <th style={{ textAlign: "right", padding: "4px 6px" }}>Score</th>
+                            <tr style={{ borderBottom: `1px solid ${isLight ? "#e2e8f0" : "rgba(255,255,255,0.1)"}` }}>
+                                <th style={{ textAlign: "left", padding: "4px 6px", color: isLight ? "#64748b" : "#9ca3af" }}>Rank</th>
+                                <th style={{ textAlign: "left", padding: "4px 6px", color: isLight ? "#64748b" : "#9ca3af" }}>Farmer</th>
+                                <th style={{ textAlign: "right", padding: "4px 6px", color: isLight ? "#64748b" : "#9ca3af" }}>Plants</th>
+                                <th style={{ textAlign: "right", padding: "4px 6px", color: isLight ? "#64748b" : "#9ca3af" }}>Lands</th>
+                                <th style={{ textAlign: "right", padding: "4px 6px", color: isLight ? "#64748b" : "#9ca3af" }}>Super</th>
+                                <th style={{ textAlign: "right", padding: "4px 6px", color: isLight ? "#64748b" : "#9ca3af" }}>Score</th>
                             </tr>
                         </thead>
 
@@ -130,23 +141,26 @@ export function CrimeLadder(props: {
                                     <tr
                                         key={row.staker}
                                         style={{
-                                            background: isMe ? "rgba(0, 200, 130, 0.12)" : undefined,
+                                            background: isMe 
+                                                ? (isLight ? "rgba(16, 185, 129, 0.1)" : "rgba(0, 200, 130, 0.12)") 
+                                                : undefined,
+                                            borderBottom: `1px solid ${isLight ? "#f1f5f9" : "rgba(255,255,255,0.05)"}`,
                                         }}
                                     >
-                                        <td style={{ padding: "4px 6px" }}>{idx + 1}</td>
-                                        <td style={{ padding: "4px 6px" }}>
+                                        <td style={{ padding: "6px", fontWeight: isMe ? 600 : undefined }}>{idx + 1}</td>
+                                        <td style={{ padding: "6px", fontWeight: isMe ? 600 : undefined }}>
                                             {row.staker.slice(0, 6)}…{row.staker.slice(-4)}
                                         </td>
-                                        <td style={{ padding: "4px 6px", textAlign: "right" }}>
+                                        <td style={{ padding: "6px", textAlign: "right" }}>
                                             {row.plants}
                                         </td>
-                                        <td style={{ padding: "4px 6px", textAlign: "right" }}>
+                                        <td style={{ padding: "6px", textAlign: "right" }}>
                                             {row.lands}
                                         </td>
-                                        <td style={{ padding: "4px 6px", textAlign: "right" }}>
+                                        <td style={{ padding: "6px", textAlign: "right" }}>
                                             {row.superLands}
                                         </td>
-                                        <td style={{ padding: "4px 6px", textAlign: "right" }}>
+                                        <td style={{ padding: "6px", textAlign: "right", fontWeight: 600, color: isLight ? "#16a34a" : "#10b981" }}>
                                             {row.score}
                                         </td>
                                     </tr>
@@ -156,6 +170,6 @@ export function CrimeLadder(props: {
                     </table>
                 </div>
             )}
-        </section>
+        </>
     );
 }
