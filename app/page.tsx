@@ -480,8 +480,17 @@ export default function Home()
     const shortAddr = (addr?: string | null) =>
         addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
 
-    // Resolve username from Basenames or ENS
-    async function resolveUsername(address: string): Promise<string | null> {
+    // Avatar state
+    const [userAvatar, setUserAvatar] = useState<string | null>(null);
+    
+    // Disconnect modal state
+    const [showDisconnectModal, setShowDisconnectModal] = useState(false);
+
+    // Resolve username and avatar from Basenames, ENS, or Farcaster
+    async function resolveUserProfile(address: string): Promise<{ name: string | null; avatar: string | null }> {
+        let name: string | null = null;
+        let avatar: string | null = null;
+        
         try {
             // Try Basenames first (Base's native naming service)
             const basenameResponse = await fetch(
@@ -491,50 +500,96 @@ export default function Home()
             if (basenameResponse?.ok) {
                 const data = await basenameResponse.json();
                 if (data?.basename) {
-                    return data.basename;
+                    name = data.basename;
+                    // Try to get avatar from basename
+                    if (data?.avatar) {
+                        avatar = data.avatar;
+                    }
                 }
             }
             
             // Try ENS via public resolver
-            const ensResponse = await fetch(
-                `https://api.ensideas.com/ens/resolve/${address}`
-            ).catch(() => null);
-            
-            if (ensResponse?.ok) {
-                const data = await ensResponse.json();
-                if (data?.name) {
-                    return data.name;
+            if (!name) {
+                const ensResponse = await fetch(
+                    `https://api.ensideas.com/ens/resolve/${address}`
+                ).catch(() => null);
+                
+                if (ensResponse?.ok) {
+                    const data = await ensResponse.json();
+                    if (data?.name) {
+                        name = data.name;
+                    }
+                    if (data?.avatar) {
+                        avatar = data.avatar;
+                    }
                 }
             }
             
-            // Try Farcaster username if in mini app
+            // Try Farcaster profile
             if (usingMiniApp) {
                 try {
                     const context = await sdk.context;
-                    if (context?.user?.username) {
-                        return context.user.username;
+                    if (context?.user) {
+                        if (!name && context.user.username) {
+                            name = context.user.username;
+                        }
+                        if (!avatar && context.user.pfpUrl) {
+                            avatar = context.user.pfpUrl;
+                        }
                     }
                 } catch {}
             }
             
-            return null;
+            // Try Farcaster API for avatar if still no avatar
+            if (!avatar) {
+                try {
+                    const fcResponse = await fetch(
+                        `https://searchcaster.xyz/api/profiles?connected_address=${address}`
+                    ).catch(() => null);
+                    
+                    if (fcResponse?.ok) {
+                        const data = await fcResponse.json();
+                        if (data?.[0]?.body?.avatarUrl) {
+                            avatar = data[0].body.avatarUrl;
+                            if (!name && data[0].body?.username) {
+                                name = data[0].body.username;
+                            }
+                        }
+                    }
+                } catch {}
+            }
+            
+            return { name, avatar };
         } catch (err) {
-            console.error("[Username] Resolution failed:", err);
-            return null;
+            console.error("[Profile] Resolution failed:", err);
+            return { name: null, avatar: null };
         }
     }
     
-    // Fetch username when address changes
+    // Fetch profile when address changes
     useEffect(() => {
         if (!userAddress) {
             setDisplayName(null);
+            setUserAvatar(null);
             return;
         }
         
-        resolveUsername(userAddress).then((name) => {
+        resolveUserProfile(userAddress).then(({ name, avatar }) => {
             setDisplayName(name);
+            setUserAvatar(avatar);
         });
     }, [userAddress, usingMiniApp]);
+    
+    // Disconnect wallet function
+    const disconnectWallet = () => {
+        setProvider(null);
+        setSigner(null);
+        setUserAddress(null);
+        setDisplayName(null);
+        setUserAvatar(null);
+        setUsingMiniApp(false);
+        setMiniAppEthProvider(null);
+        setShowDisconnectModal(false);
     
     // Get display name or shortened address
     const getDisplayName = () => {
@@ -3471,24 +3526,41 @@ export default function Home()
         <button
             type="button"
             disabled={connecting}
-            onClick={handleConnectWallet}
-            onTouchEnd={handleConnectWallet}
+            onClick={connected ? () => setShowDisconnectModal(true) : handleConnectWallet}
+            onTouchEnd={connected ? () => setShowDisconnectModal(true) : handleConnectWallet}
             style={{
-                padding: "8px 16px",
+                padding: "6px 12px",
                 borderRadius: 999,
-                border: "1px solid rgba(255,255,255,0.25)",
-                background: connected ? "rgba(0,200,130,0.18)" : "rgba(39,95,255,0.55)",
+                border: `1px solid ${theme === "light" ? "#cbd5e1" : "rgba(255,255,255,0.25)"}`,
+                background: theme === "light" 
+                    ? (connected ? "rgba(16,185,129,0.15)" : "rgba(59,130,246,0.15)")
+                    : (connected ? "rgba(0,200,130,0.18)" : "rgba(39,95,255,0.55)"),
                 fontSize: 11,
                 fontWeight: 500,
-                color: "#fff",
+                color: theme === "light" ? "#1e293b" : "#fff",
                 cursor: connecting ? "wait" : "pointer",
                 touchAction: "manipulation",
                 WebkitTapHighlightColor: "transparent",
                 userSelect: "none",
                 minHeight: 36,
                 opacity: connecting ? 0.7 : 1,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
             }}
         >
+            {userAvatar && connected && (
+                <img 
+                    src={userAvatar} 
+                    alt="avatar" 
+                    style={{ 
+                        width: 24, 
+                        height: 24, 
+                        borderRadius: "50%",
+                        objectFit: "cover"
+                    }} 
+                />
+            )}
             {connecting ? "Connecting..." : getDisplayName()}
         </button>
     );
@@ -3506,6 +3578,13 @@ export default function Home()
             data-theme={theme}
             onPointerDown={() => { if (!isPlaying && !manualPause && audioRef.current) audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {}); }}
         >
+            {/* CSS Keyframes for scrolling text */}
+            <style>{`
+                @keyframes scrollText {
+                    0% { transform: translateX(0); }
+                    100% { transform: translateX(-100%); }
+                }
+            `}</style>
             {/* Onboarding Modal */}
             {showOnboarding && (
                 <div style={{
@@ -3597,18 +3676,156 @@ export default function Home()
                                 color: "#fff",
                                 fontWeight: 600,
                                 fontSize: 15,
-                                cursor: "pointer"
+                                cursor: "pointer",
+                                marginBottom: 10
                             }}
                         >
                             Start Farming 🚀
+                        </button>
+                        
+                        <button
+                            onClick={() => {
+                                // Trigger add to home screen / mini apps
+                                try {
+                                    if ((window as any).ethereum?.request) {
+                                        (window as any).ethereum.request({
+                                            method: 'wallet_addToMiniApps',
+                                            params: [{
+                                                url: window.location.origin,
+                                                name: 'FCWEED',
+                                                iconUrl: 'https://bafybeickwgk2dnzpg7mx3dgz43v2uotxaueu2b3giz57ppx4yoe6ypnbxq.ipfs.dweb.link'
+                                            }]
+                                        }).catch(() => {});
+                                    }
+                                    // For Farcaster
+                                    sdk.actions.addFrame?.().catch(() => {});
+                                } catch {}
+                                dismissOnboarding();
+                            }}
+                            style={{
+                                width: "100%",
+                                padding: "12px 24px",
+                                borderRadius: 12,
+                                border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`,
+                                background: "transparent",
+                                color: theme === "light" ? "#1e293b" : "#fff",
+                                fontWeight: 500,
+                                fontSize: 13,
+                                cursor: "pointer"
+                            }}
+                        >
+                            ➕ Add to My Apps
                         </button>
                     </div>
                 </div>
             )}
             
-            <header className={styles.headerWrapper}>
+            {/* Disconnect Modal */}
+            {showDisconnectModal && (
+                <div style={{
+                    position: "fixed",
+                    inset: 0,
+                    background: "rgba(0,0,0,0.85)",
+                    backdropFilter: "blur(10px)",
+                    zIndex: 1000,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: 16
+                }} onClick={() => setShowDisconnectModal(false)}>
+                    <div 
+                        style={{
+                            background: theme === "light" ? "#ffffff" : "#0f172a",
+                            borderRadius: 20,
+                            border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.1)"}`,
+                            maxWidth: 320,
+                            width: "100%",
+                            padding: 24,
+                            textAlign: "center"
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {userAvatar && (
+                            <img 
+                                src={userAvatar} 
+                                alt="avatar" 
+                                style={{ 
+                                    width: 64, 
+                                    height: 64, 
+                                    borderRadius: "50%",
+                                    objectFit: "cover",
+                                    marginBottom: 12,
+                                    border: `3px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`
+                                }} 
+                            />
+                        )}
+                        <h3 style={{ 
+                            fontSize: 18, 
+                            fontWeight: 600, 
+                            marginBottom: 4,
+                            color: theme === "light" ? "#1e293b" : "#fff"
+                        }}>
+                            {displayName || shortAddr(userAddress)}
+                        </h3>
+                        <p style={{ 
+                            fontSize: 11, 
+                            color: theme === "light" ? "#64748b" : "#94a3b8",
+                            marginBottom: 20,
+                            wordBreak: "break-all"
+                        }}>
+                            {userAddress}
+                        </p>
+                        
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                            <button
+                                onClick={() => {
+                                    navigator.clipboard.writeText(userAddress || "");
+                                    setShowDisconnectModal(false);
+                                }}
+                                style={{
+                                    width: "100%",
+                                    padding: "12px 20px",
+                                    borderRadius: 12,
+                                    border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`,
+                                    background: "transparent",
+                                    color: theme === "light" ? "#1e293b" : "#fff",
+                                    fontWeight: 500,
+                                    fontSize: 13,
+                                    cursor: "pointer"
+                                }}
+                            >
+                                📋 Copy Address
+                            </button>
+                            <button
+                                onClick={disconnectWallet}
+                                style={{
+                                    width: "100%",
+                                    padding: "12px 20px",
+                                    borderRadius: 12,
+                                    border: "none",
+                                    background: "linear-gradient(135deg, #ef4444, #dc2626)",
+                                    color: "#fff",
+                                    fontWeight: 600,
+                                    fontSize: 13,
+                                    cursor: "pointer"
+                                }}
+                            >
+                                🔌 Disconnect
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            <header className={styles.headerWrapper} style={{
+                background: theme === "light" ? "rgba(255,255,255,0.9)" : undefined,
+                borderBottom: theme === "light" ? "1px solid #e2e8f0" : undefined
+            }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
-                    <div className={styles.brand}><span className={styles.liveDot} /><span className={styles.brandText}>FCWEED</span></div>
+                    <div className={styles.brand} style={{ color: theme === "light" ? "#1e293b" : undefined }}>
+                        <span className={styles.liveDot} />
+                        <span className={styles.brandText} style={{ color: theme === "light" ? "#1e293b" : undefined }}>FCWEED</span>
+                    </div>
                     <ConnectWalletButton />
                 </div>
                 <div className={styles.headerRight}>
@@ -3619,18 +3836,32 @@ export default function Home()
                         onClick={toggleTheme}
                         style={{ 
                             background: theme === "light" ? "#e2e8f0" : undefined,
-                            color: theme === "light" ? "#1e293b" : undefined
+                            color: theme === "light" ? "#1e293b" : undefined,
+                            borderColor: theme === "light" ? "#cbd5e1" : undefined
                         }}
                         title={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
                     >
                         {theme === "dark" ? "☀️" : "🌙"}
                     </button>
                     <div className={styles.radioPill} style={{
-                        background: theme === "light" ? "#e2e8f0" : undefined,
+                        background: theme === "light" ? "#f1f5f9" : undefined,
                         borderColor: theme === "light" ? "#cbd5e1" : undefined
                     }}>
                         <span className={styles.radioLabel} style={{ color: theme === "light" ? "#475569" : undefined }}>Base Radio</span>
-                        <div className={styles.radioTitleWrap}><span className={styles.radioTitleInner}>{currentTrackMeta.title}</span></div>
+                        <div className={styles.radioTitleWrap} style={{ overflow: "hidden", maxWidth: 100 }}>
+                            <span 
+                                className={styles.radioTitleInner} 
+                                style={{ 
+                                    color: theme === "light" ? "#1e293b" : undefined,
+                                    display: "inline-block",
+                                    whiteSpace: "nowrap",
+                                    animation: "scrollText 10s linear infinite",
+                                    paddingLeft: "100%"
+                                }}
+                            >
+                                {currentTrackMeta.title}
+                            </span>
+                        </div>
                         <button type="button" className={styles.iconButtonSmall} onClick={handlePrevTrack}>‹</button>
                         <button type="button" className={styles.iconButtonSmall} onClick={handlePlayPause}>{isPlaying ? "❚❚" : "▶"}</button>
                         <button type="button" className={styles.iconButtonSmall} onClick={handleNextTrack}>›</button>
@@ -3645,20 +3876,25 @@ export default function Home()
                         <section style={{ textAlign: "center", padding: "10px 0", display: "flex", justifyContent: "center" }}>
                             <Image src={GIFS[gifIndex]} alt="FCWEED" width={280} height={100} style={{ borderRadius: 14, objectFit: "cover" }} />
                         </section>
-                        <section className={styles.infoCard}>
-                            <h1 style={{ fontSize: 20, margin: "0 0 6px", color: "#7cb3ff" }}>FCWEED Farming on Base</h1>
-                            <p style={{ fontSize: 12, color: "#b5c3f2", margin: 0, lineHeight: 1.5 }}>
+                        <section className={styles.infoCard} style={{
+                            background: theme === "light" ? "#ffffff" : undefined,
+                            borderColor: theme === "light" ? "#e2e8f0" : undefined
+                        }}>
+                            <h1 style={{ fontSize: 20, margin: "0 0 6px", color: theme === "light" ? "#2563eb" : "#7cb3ff" }}>FCWEED Farming on Base</h1>
+                            <p style={{ fontSize: 12, color: theme === "light" ? "#475569" : "#b5c3f2", margin: 0, lineHeight: 1.5 }}>
                                 Stake-to-earn Farming — Powered by FCWEED on Base<br />
                                 Collect <b>Land</b> &amp; <b>Plant NFTs</b>, stake them to grow yields, and boost rewards with expansion.<br />
-                    Every Land NFT unlocks more Plant slots and increases your <span style={{ color: "#38e0a3" }}>Land Boost</span> for higher payouts.
+                    Every Land NFT unlocks more Plant slots and increases your <span style={{ color: "#16a34a" }}>Land Boost</span> for higher payouts.
                             </p>
                         </section>
 
                         {/* Token Supply Stats */}
                         <section style={{ display: "flex", justifyContent: "center", padding: "8px 0" }}>
                             <div style={{
-                                background: "linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(59, 130, 246, 0.15))",
-                                border: "1px solid rgba(16, 185, 129, 0.3)",
+                                background: theme === "light" 
+                                    ? "linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.1))"
+                                    : "linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(59, 130, 246, 0.15))",
+                                border: `1px solid ${theme === "light" ? "rgba(16, 185, 129, 0.2)" : "rgba(16, 185, 129, 0.3)"}`,
                                 borderRadius: 12,
                                 padding: "12px 20px",
                                 display: "flex",
@@ -3668,25 +3904,28 @@ export default function Home()
                                 maxWidth: 420
                             }}>
                                 <div style={{ textAlign: "center", minWidth: 80 }}>
-                                    <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2 }}>🔥 Burned</div>
+                                    <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 2 }}>🔥 Burned</div>
                                     <div style={{ fontSize: 13, fontWeight: 700, color: "#ef4444" }}>{tokenStats.loading ? "..." : tokenStats.burned}</div>
                                 </div>
                                 <div style={{ textAlign: "center", minWidth: 80 }}>
-                                    <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2 }}>🏦 Treasury</div>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#fbbf24" }}>{tokenStats.loading ? "..." : tokenStats.treasury}</div>
+                                    <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 2 }}>🏦 Treasury</div>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: theme === "light" ? "#d97706" : "#fbbf24" }}>{tokenStats.loading ? "..." : tokenStats.treasury}</div>
                                 </div>
                                 <div style={{ textAlign: "center", minWidth: 80 }}>
-                                    <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2 }}>🔒 Controlled</div>
+                                    <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 2 }}>🔒 Controlled</div>
                                     <div style={{ fontSize: 13, fontWeight: 700, color: "#a855f7" }}>{tokenStats.loading ? "..." : tokenStats.controlledPct + "%"}</div>
                                 </div>
                                 <div style={{ textAlign: "center", minWidth: 80 }}>
-                                    <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2 }}>💰 Circulating</div>
+                                    <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 2 }}>💰 Circulating</div>
                                     <div style={{ fontSize: 13, fontWeight: 700, color: "#10b981" }}>{tokenStats.loading ? "..." : tokenStats.circulatingPct + "%"}</div>
                                 </div>
                             </div>
                         </section>
 
-                        <section className={styles.infoCard}>
+                        <section className={styles.infoCard} style={{
+                            background: theme === "light" ? "#ffffff" : undefined,
+                            borderColor: theme === "light" ? "#e2e8f0" : undefined
+                        }}>
                             <CrimeLadder
                                 connected={!!userAddress}
                                 loading={leaderboardLoading}
@@ -4427,7 +4666,7 @@ export default function Home()
                                     <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #065f46, #10b981)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#a7f3d0", fontSize: 16 }}>{v5RealTimePending}</span></div>
                                 </div>
 
-                                <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
+                                <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 5-10 seconds to ensure NFTs load properly</p>
 
                                 {loadingV5Staking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12 }}>Loading NFTs…</p> : (
                                     <>
@@ -4548,7 +4787,7 @@ export default function Home()
                                     <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #581c87, #7c3aed)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#c4b5fd", fontSize: 16 }}>{v4RealTimePending}</span></div>
                                 </div>
 
-                                <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 20-30 seconds to ensure NFTs load properly</p>
+                                <p style={{ fontSize: 10, color: "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 5-10 seconds to ensure NFTs load properly</p>
 
                                 {loadingV4Staking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12 }}>Loading NFTs…</p> : (
                                     <>

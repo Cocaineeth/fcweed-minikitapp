@@ -49,21 +49,54 @@ body {
   transition: background 0.3s ease, color 0.3s ease;
 }
 
-/* Light mode specific overrides */
-[data-theme="light"] .infoCard,
+/* Light mode card styles */
+[data-theme="light"] .infoCard {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #1e293b !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
 [data-theme="light"] .modal {
-  background: var(--card-bg) !important;
-  border-color: var(--card-border) !important;
-  color: var(--text-primary) !important;
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
 }
 
 [data-theme="light"] .btnSecondary {
-  background: var(--btn-secondary-bg) !important;
-  border-color: var(--btn-secondary-border) !important;
-  color: var(--text-primary) !important;
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #1e293b !important;
+}
+
+[data-theme="light"] .btnPrimary {
+  background: linear-gradient(90deg, #16a34a, #2563eb) !important;
 }
 
 [data-theme="light"] .page {
   background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%) !important;
-  color: var(--text-primary) !important;
+}
+
+[data-theme="light"] .heading {
+  color: #1e293b !important;
+}
+
+[data-theme="light"] .heroCard {
+  background: linear-gradient(135deg, #f1f5f9, #e2e8f0) !important;
+  border-color: #cbd5e1 !important;
+}
+
+[data-theme="light"] table th,
+[data-theme="light"] table td {
+  color: #1e293b !important;
+}
+
+[data-theme="light"] .headerWrapper {
+  background: rgba(255,255,255,0.95) !important;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+/* Scrolling animation */
+@keyframes scrollText {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
 }
