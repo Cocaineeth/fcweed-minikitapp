@@ -5,7 +5,6 @@ import Image from "next/image";
 import { useMiniKit } from "@coinbase/onchainkit/minikit";
 import { ethers } from "ethers";
 import { sdk } from "@farcaster/miniapp-sdk";
-import html2canvas from "html2canvas";
 import styles from "./page.module.css";
 import { CrimeLadder } from "./components/CrimeLadder";
 import { loadOwnedTokens } from "./lib/tokens";
@@ -71,20 +70,16 @@ import {
     v4BattlesInterface,
 } from "./lib/abis";
 
-// Screenshot and share utility function
+// Screenshot and share to Twitter
 async function captureAndShare(elementId: string, fallbackText: string) {
     try {
         const element = document.getElementById(elementId);
         if (!element) {
-            // Fallback to text share
-            if (navigator.share) {
-                await navigator.share({ text: fallbackText });
-            } else {
-                window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
-            }
+            window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
             return;
         }
 
+        const html2canvas = (await import('html2canvas')).default;
         const canvas = await html2canvas(element, {
             backgroundColor: '#0f172a',
             scale: 2,
@@ -92,52 +87,28 @@ async function captureAndShare(elementId: string, fallbackText: string) {
             useCORS: true,
         });
 
-        canvas.toBlob(async (blob) => {
+        canvas.toBlob((blob) => {
             if (!blob) {
-                // Fallback to text
-                if (navigator.share) {
-                    await navigator.share({ text: fallbackText });
-                } else {
-                    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
-                }
+                window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
                 return;
             }
 
-            const file = new File([blob], 'fcweed-share.png', { type: 'image/png' });
-
-            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                try {
-                    await navigator.share({
-                        text: fallbackText,
-                        files: [file],
-                    });
-                } catch (e) {
-                    // User cancelled or error - try without file
-                    if (navigator.share) {
-                        await navigator.share({ text: fallbackText }).catch(() => {});
-                    }
-                }
-            } else {
-                // Can't share files, download instead and open Twitter
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'fcweed-share.png';
-                a.click();
-                URL.revokeObjectURL(url);
-                
-                // Also open Twitter with text
+            // Download the image
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'fcweed-share.png';
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            // Open Twitter compose after short delay
+            setTimeout(() => {
                 window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
-            }
+            }, 500);
         }, 'image/png');
     } catch (e) {
         console.error('Screenshot failed:', e);
-        // Fallback to text share
-        if (navigator.share) {
-            await navigator.share({ text: fallbackText }).catch(() => {});
-        } else {
-            window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
-        }
+        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
     }
 }
 
@@ -4319,8 +4290,7 @@ export default function Home()
                                 <div style={{ fontSize: 48, marginBottom: 6 }}>{crateIcon(crateWon.token)}</div>
                                 <h2 style={{ fontSize: 18, color: crateWon.color, margin: '0 0 2px', fontWeight: 800 }}>{crateWon.name}</h2>
                                 <div style={{ fontSize: 28, fontWeight: 900, color: crateWon.color, marginBottom: 6 }}>{crateWon.amount} <span style={{ fontSize: 12, opacity: 0.8 }}>{crateWon.token}</span></div>
-                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 8px' }}>{crateWon.isJackpot ? '🎉 JACKPOT! 🎉' : crateWon.token === 'DUST' ? 'For use in Item Shop later!' : crateWon.isNFT ? 'NFT sent!' : 'Sent!'}</p>
-                                <div style={{ fontSize: 8, color: '#64748b', marginBottom: 12 }}>x420ponzi.com</div>
+                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>{crateWon.isJackpot ? '🎉 JACKPOT! 🎉' : crateWon.token === 'DUST' ? 'For use in Item Shop later!' : crateWon.isNFT ? 'NFT sent!' : 'Sent!'}</p>
                                 <div style={{ display: 'flex', gap: 8 }}>
                                     <button type="button" onClick={onCrateClose} className={styles.btnPrimary} style={{ flex: 1, padding: 12, fontSize: 12, background: crateWon.token === 'DUST' ? 'linear-gradient(135deg, #4b5563, #6b7280)' : 'linear-gradient(135deg, #059669, #10b981)' }}>{crateWon.token === 'DUST' ? 'Collect' : 'Awesome!'}</button>
                                     <button 
@@ -4575,8 +4545,6 @@ export default function Home()
                                         💸 Search fee lost to Defender. Pending rewards lost forever!
                                     </p>
                                 )}
-                                
-                                <div style={{ textAlign: "center", fontSize: 8, color: "#64748b", marginBottom: 8 }}>x420ponzi.com</div>
 
                                 <div style={{ display: "flex", gap: 8 }}>
                                     <button type="button" onClick={() => setWarsResult(null)} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsResult.won ? "linear-gradient(135deg, #059669, #10b981)" : "linear-gradient(135deg, #374151, #4b5563)" }}>
@@ -4815,7 +4783,8 @@ export default function Home()
                                             const superLands = v5StakingStats?.superLands || 0;
                                             const boost = v5StakingStats?.boostPct?.toFixed(1) || 0;
                                             const daily = v5StakingStats?.dailyRewards || "0";
-                                            const text = `🌿 My FCWEED Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://x420ponzi.com
+                                            const text = `🌿 My FCWEED Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://x420ponzi.com`;
+                                            captureAndShare('v5-stats-card', text);
                                         }}
                                         style={{ gridColumn: "span 1", padding: 8, borderRadius: 8, border: "1px solid rgba(29,161,242,0.4)", background: "rgba(29,161,242,0.15)", color: "#1da1f2", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}
                                     >
