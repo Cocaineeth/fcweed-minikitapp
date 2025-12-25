@@ -96,30 +96,48 @@ async function captureAndShare(
             }
         }
 
-        // Detect if we're in Farcaster (Warpcast) vs Base App
-        // Farcaster context has user.fid, Base App may not or has different structure
+        // Detect environment
         let isFarcaster = false;
+        let isBaseApp = false;
         try {
             const context = await sdk.context;
-            // Farcaster/Warpcast typically has client info
-            isFarcaster = !!(context?.client?.clientFid || context?.user?.fid);
+            // Check for Farcaster-specific fields
+            if (context?.client?.clientFid || context?.user?.fid) {
+                isFarcaster = true;
+            }
+            // Base App detection - has context but no Farcaster-specific fields
+            if (context && !isFarcaster) {
+                isBaseApp = true;
+            }
         } catch (e) {
             console.log('Could not detect context:', e);
         }
 
-        // Try MiniKit composeCast hook (works for both but Base App doesn't support image paste yet)
-        if (composeCastFn) {
+        // For Base App: Skip composeCast since pasting isn't supported yet
+        // Go straight to clipboard copy
+        if (isBaseApp) {
+            try {
+                await navigator.clipboard.writeText(fallbackText);
+                alert('✅ Copied!\n\nBase App doesn\'t support pasting yet.\nGo to your feed, tap "+", and type your post manually.\n\nYour stats: check the text you copied!');
+                return;
+            } catch (e) {
+                prompt('Copy this to share on Base:', fallbackText);
+                return;
+            }
+        }
+
+        // For Farcaster: Use composeCast with image embed
+        if (isFarcaster && composeCastFn) {
             try {
                 const castOptions: { text: string; embeds?: string[] } = { text: fallbackText };
-                // Only add image embed for Farcaster since Base App doesn't support media paste yet
-                if (imageDataUrl && isFarcaster) {
+                if (imageDataUrl) {
                     castOptions.embeds = [imageDataUrl];
                 }
                 composeCastFn(castOptions);
-                console.log('MiniKit composeCast called successfully');
+                console.log('Farcaster composeCast called');
                 return;
             } catch (e) {
-                console.log('MiniKit composeCast failed:', e);
+                console.log('Farcaster composeCast failed:', e);
             }
         }
 
@@ -127,8 +145,7 @@ async function captureAndShare(
         try {
             if (sdk && sdk.actions && typeof sdk.actions.composeCast === 'function') {
                 const castOptions: any = { text: fallbackText };
-                // Only add image embed for Farcaster
-                if (imageDataUrl && isFarcaster) {
+                if (imageDataUrl) {
                     castOptions.embeds = [imageDataUrl];
                 }
                 await sdk.actions.composeCast(castOptions);
@@ -139,7 +156,7 @@ async function captureAndShare(
             console.log('SDK composeCast failed or not available:', e);
         }
 
-        // Try SDK openUrl to open Twitter (fallback for clients that support it)
+        // Try SDK openUrl to open Twitter
         try {
             if (sdk && sdk.actions && typeof sdk.actions.openUrl === 'function') {
                 const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`;
@@ -151,7 +168,7 @@ async function captureAndShare(
             console.log('openUrl failed or not available:', e);
         }
 
-        // Try native Web Share API with image (mobile browsers)
+        // Try native Web Share API with image
         if (imageDataUrl && navigator.share) {
             try {
                 const response = await fetch(imageDataUrl);
@@ -163,7 +180,6 @@ async function captureAndShare(
                         text: fallbackText,
                         files: [file],
                     });
-                    console.log('Native share with file succeeded');
                     return;
                 }
             } catch (e) {
@@ -175,30 +191,27 @@ async function captureAndShare(
         if (navigator.share) {
             try {
                 await navigator.share({ text: fallbackText });
-                console.log('Native share text succeeded');
                 return;
             } catch (e) {
                 console.log('Native share failed:', e);
             }
         }
 
-        // Fallback: Copy to clipboard and alert user
+        // Fallback: Copy to clipboard
         try {
             await navigator.clipboard.writeText(fallbackText);
-            alert('✅ Copied to clipboard!\n\nPaste this in your Base App feed or on X/Twitter to share.');
+            alert('✅ Copied to clipboard!\n\nPaste on X/Twitter or type manually on Base App.');
             return;
         } catch (e) {
             console.log('Clipboard failed:', e);
         }
         
-        // Last resort: prompt with text
         prompt('Copy this to share:', fallbackText);
     } catch (e) {
         console.error('Share failed:', e);
-        // Ultimate fallback
         try {
             await navigator.clipboard.writeText(fallbackText);
-            alert('✅ Copied to clipboard!\n\nPaste this in your Base App feed or on X/Twitter.');
+            alert('✅ Copied to clipboard!');
         } catch {
             prompt('Copy this to share:', fallbackText);
         }
