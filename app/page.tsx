@@ -3556,25 +3556,26 @@ export default function Home()
             onClick={connected ? () => setShowDisconnectModal(true) : handleConnectWallet}
             onTouchEnd={connected ? () => setShowDisconnectModal(true) : handleConnectWallet}
             style={{
-                padding: userAvatar && connected ? "6px 14px 6px 6px" : "10px 16px",
+                padding: userAvatar && connected ? "6px 10px 6px 6px" : "10px 14px",
                 borderRadius: 14,
                 border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`,
                 background: theme === "light" 
                     ? "#ffffff"
                     : (connected ? "rgba(15,23,42,0.9)" : "rgba(39,95,255,0.55)"),
                 boxShadow: theme === "light" ? "0 2px 4px rgba(0,0,0,0.06)" : "0 2px 4px rgba(0,0,0,0.2)",
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: 600,
                 color: theme === "light" ? "#1e293b" : "#fff",
                 cursor: connecting ? "wait" : "pointer",
                 touchAction: "manipulation",
                 WebkitTapHighlightColor: "transparent",
                 userSelect: "none",
-                minHeight: 42,
+                minHeight: 38,
+                maxWidth: 160,
                 opacity: connecting ? 0.7 : 1,
                 display: "flex",
                 alignItems: "center",
-                gap: 10,
+                gap: 8,
                 transition: "all 0.2s ease",
             }}
         >
@@ -3583,17 +3584,23 @@ export default function Home()
                     src={userAvatar} 
                     alt="avatar" 
                     style={{ 
-                        width: 30, 
-                        height: 30, 
-                        borderRadius: 10,
+                        width: 26, 
+                        height: 26, 
+                        borderRadius: 8,
                         objectFit: "cover",
+                        flexShrink: 0,
                         border: `2px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`
                     }} 
                 />
             ) : !connected && (
-                <span style={{ fontSize: 16 }}>🔗</span>
+                <span style={{ fontSize: 14, flexShrink: 0 }}>🔗</span>
             )}
-            <span>{connecting ? "Connecting..." : getDisplayName()}</span>
+            <span style={{ 
+                overflow: "hidden", 
+                textOverflow: "ellipsis", 
+                whiteSpace: "nowrap",
+                maxWidth: connected && userAvatar ? 90 : 110
+            }}>{connecting ? "Connecting..." : getDisplayName()}</span>
         </button>
     );
 
@@ -3628,31 +3635,33 @@ export default function Home()
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    padding: 16
+                    padding: 12
                 }}>
                     <div style={{
                         background: theme === "light" ? "#ffffff" : "#0f172a",
-                        borderRadius: 20,
+                        borderRadius: 16,
                         border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.1)"}`,
-                        maxWidth: 400,
+                        maxWidth: 340,
                         width: "100%",
-                        padding: 24,
-                        textAlign: "center"
+                        padding: 18,
+                        textAlign: "center",
+                        maxHeight: "90vh",
+                        overflowY: "auto"
                     }}>
-                        <div style={{ fontSize: 48, marginBottom: 16 }}>🌿</div>
+                        <div style={{ fontSize: 36, marginBottom: 10 }}>🌿</div>
                         <h2 style={{ 
-                            fontSize: 24, 
+                            fontSize: 20, 
                             fontWeight: 700, 
-                            marginBottom: 12,
+                            marginBottom: 8,
                             color: theme === "light" ? "#1e293b" : "#fff"
                         }}>
                             Welcome to FCWEED
                         </h2>
                         <p style={{ 
-                            fontSize: 14, 
+                            fontSize: 12, 
                             color: theme === "light" ? "#64748b" : "#94a3b8", 
-                            marginBottom: 20,
-                            lineHeight: 1.6
+                            marginBottom: 14,
+                            lineHeight: 1.5
                         }}>
                             The ultimate stake-to-earn farming game on Base. Grow your empire by collecting NFTs and earning rewards!
                         </p>
@@ -3660,39 +3669,39 @@ export default function Home()
                         <div style={{ 
                             display: "flex", 
                             flexDirection: "column", 
-                            gap: 12, 
+                            gap: 8, 
                             textAlign: "left",
                             background: theme === "light" ? "#f8fafc" : "rgba(255,255,255,0.05)",
-                            borderRadius: 12,
-                            padding: 16,
-                            marginBottom: 20
+                            borderRadius: 10,
+                            padding: 12,
+                            marginBottom: 14
                         }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                                <span style={{ fontSize: 24 }}>🌱</span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <span style={{ fontSize: 20 }}>🌱</span>
                                 <div>
-                                    <div style={{ fontWeight: 600, fontSize: 13, color: theme === "light" ? "#1e293b" : "#fff" }}>Mint Plant NFTs</div>
-                                    <div style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Each plant earns FCWEED tokens daily</div>
+                                    <div style={{ fontWeight: 600, fontSize: 11, color: theme === "light" ? "#1e293b" : "#fff" }}>Mint Plant NFTs</div>
+                                    <div style={{ fontSize: 10, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Each plant earns FCWEED tokens daily</div>
                                 </div>
                             </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                                <span style={{ fontSize: 24 }}>🏠</span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <span style={{ fontSize: 20 }}>🏠</span>
                                 <div>
-                                    <div style={{ fontWeight: 600, fontSize: 13, color: theme === "light" ? "#1e293b" : "#fff" }}>Collect Land NFTs</div>
-                                    <div style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Unlock more plant slots & boost rewards</div>
+                                    <div style={{ fontWeight: 600, fontSize: 11, color: theme === "light" ? "#1e293b" : "#fff" }}>Collect Land NFTs</div>
+                                    <div style={{ fontSize: 10, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Unlock more plant slots & boost rewards</div>
                                 </div>
                             </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                                <span style={{ fontSize: 24 }}>⚔️</span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <span style={{ fontSize: 20 }}>⚔️</span>
                                 <div>
-                                    <div style={{ fontWeight: 600, fontSize: 13, color: theme === "light" ? "#1e293b" : "#fff" }}>Battle in Cartel Wars</div>
-                                    <div style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Raid other farmers and steal rewards</div>
+                                    <div style={{ fontWeight: 600, fontSize: 11, color: theme === "light" ? "#1e293b" : "#fff" }}>Battle in Cartel Wars</div>
+                                    <div style={{ fontSize: 10, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Raid other farmers and steal rewards</div>
                                 </div>
                             </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                                <span style={{ fontSize: 24 }}>🎰</span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <span style={{ fontSize: 20 }}>🎰</span>
                                 <div>
-                                    <div style={{ fontWeight: 600, fontSize: 13, color: theme === "light" ? "#1e293b" : "#fff" }}>Open Mystery Crates</div>
-                                    <div style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Win NFTs, tokens, and rare items</div>
+                                    <div style={{ fontWeight: 600, fontSize: 11, color: theme === "light" ? "#1e293b" : "#fff" }}>Open Mystery Crates</div>
+                                    <div style={{ fontSize: 10, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Win NFTs, tokens, and rare items</div>
                                 </div>
                             </div>
                         </div>
@@ -3701,15 +3710,15 @@ export default function Home()
                             onClick={dismissOnboarding}
                             style={{
                                 width: "100%",
-                                padding: "14px 24px",
-                                borderRadius: 12,
+                                padding: "12px 20px",
+                                borderRadius: 10,
                                 border: "none",
                                 background: "linear-gradient(135deg, #22c55e, #16a34a)",
                                 color: "#fff",
                                 fontWeight: 600,
-                                fontSize: 15,
+                                fontSize: 14,
                                 cursor: "pointer",
-                                marginBottom: 10
+                                marginBottom: 8
                             }}
                         >
                             Start Farming 🚀
@@ -3736,13 +3745,13 @@ export default function Home()
                             }}
                             style={{
                                 width: "100%",
-                                padding: "12px 24px",
-                                borderRadius: 12,
+                                padding: "10px 20px",
+                                borderRadius: 10,
                                 border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`,
                                 background: "transparent",
                                 color: theme === "light" ? "#1e293b" : "#fff",
                                 fontWeight: 500,
-                                fontSize: 13,
+                                fontSize: 12,
                                 cursor: "pointer"
                             }}
                         >
