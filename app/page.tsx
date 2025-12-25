@@ -598,6 +598,32 @@ export default function Home()
         return shortAddr(userAddress);
     };
     
+    // Helper function for card/box styling based on theme
+    const getCardStyle = (additionalStyles: React.CSSProperties = {}): React.CSSProperties => ({
+        background: theme === "light" ? "#ffffff" : "rgba(5, 8, 20, 0.9)",
+        border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255, 255, 255, 0.08)"}`,
+        boxShadow: theme === "light" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+        color: theme === "light" ? "#1e293b" : "#ffffff",
+        ...additionalStyles
+    });
+    
+    // Helper for text colors in light mode
+    const getTextColor = (type: "primary" | "secondary" | "muted" = "primary") => {
+        if (theme === "light") {
+            switch (type) {
+                case "primary": return "#1e293b";
+                case "secondary": return "#475569";
+                case "muted": return "#64748b";
+            }
+        } else {
+            switch (type) {
+                case "primary": return "#ffffff";
+                case "secondary": return "#94a3b8";
+                case "muted": return "#64748b";
+            }
+        }
+    };
+    
     // Check for first-time user and show onboarding
     useEffect(() => {
         if (typeof window !== 'undefined') {
@@ -3530,24 +3556,25 @@ export default function Home()
             onClick={connected ? () => setShowDisconnectModal(true) : handleConnectWallet}
             onTouchEnd={connected ? () => setShowDisconnectModal(true) : handleConnectWallet}
             style={{
-                padding: "6px 12px",
-                borderRadius: 999,
+                padding: "8px 14px",
+                borderRadius: 12,
                 border: `1px solid ${theme === "light" ? "#cbd5e1" : "rgba(255,255,255,0.25)"}`,
                 background: theme === "light" 
-                    ? (connected ? "rgba(16,185,129,0.15)" : "rgba(59,130,246,0.15)")
+                    ? (connected ? "#ffffff" : "#ffffff")
                     : (connected ? "rgba(0,200,130,0.18)" : "rgba(39,95,255,0.55)"),
-                fontSize: 11,
-                fontWeight: 500,
+                boxShadow: theme === "light" ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                fontSize: 12,
+                fontWeight: 600,
                 color: theme === "light" ? "#1e293b" : "#fff",
                 cursor: connecting ? "wait" : "pointer",
                 touchAction: "manipulation",
                 WebkitTapHighlightColor: "transparent",
                 userSelect: "none",
-                minHeight: 36,
+                minHeight: 40,
                 opacity: connecting ? 0.7 : 1,
                 display: "flex",
                 alignItems: "center",
-                gap: 8,
+                gap: 10,
             }}
         >
             {userAvatar && connected && (
@@ -3555,10 +3582,11 @@ export default function Home()
                     src={userAvatar} 
                     alt="avatar" 
                     style={{ 
-                        width: 24, 
-                        height: 24, 
+                        width: 28, 
+                        height: 28, 
                         borderRadius: "50%",
-                        objectFit: "cover"
+                        objectFit: "cover",
+                        border: `2px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.3)"}`
                     }} 
                 />
             )}
@@ -3923,10 +3951,7 @@ export default function Home()
                             </div>
                         </section>
 
-                        <section className={styles.infoCard} style={{
-                            background: theme === "light" ? "#ffffff" : undefined,
-                            borderColor: theme === "light" ? "#e2e8f0" : undefined
-                        }}>
+                        <section className={styles.infoCard} style={getCardStyle()}>
                             <CrimeLadder
                                 connected={!!userAddress}
                                 loading={leaderboardLoading}
@@ -3937,18 +3962,18 @@ export default function Home()
                                 onRefresh={refreshLeaderboard}
                             />
                         </section>
-                        <section className={styles.infoCard}>
-                            <h2 className={styles.heading}>How it Works</h2>
-                            <ul className={styles.bulletList}>
+                        <section className={styles.infoCard} style={getCardStyle()}>
+                            <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>How it Works</h2>
+                            <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
                                 <li>Connect your wallet on Base to begin.</li>
                                 <li>Mint <b>Plant Bud NFTs</b> and stake them for yield.</li>
                                 <li>Mint <b>Land NFTs</b> (all Lands are equal rarity).</li>
-                                <li>Each Land allows you to stake <b style={{ color: "#38e0a3" }}>+3 extra Plant Buds</b>.</li>
-                                <li>Each Land grants a <b style={{ color: "#38e0a3" }}>+2.5% token boost</b> to all yield earned.</li>
+                                <li>Each Land allows you to stake <b style={{ color: "#16a34a" }}>+3 extra Plant Buds</b>.</li>
+                                <li>Each Land grants a <b style={{ color: "#16a34a" }}>+2.5% token boost</b> to all yield earned.</li>
                                 <li>The more Land you stack — the stronger your multiplier will be.</li>
-                                <li style={{ color: "#fbbf24" }}><b>NEW: Super Land</b> — Burn 1 Land + 2M FCWEED to upgrade!</li>
-                                <li>Each Super Land grants <b style={{ color: "#fbbf24" }}>+12% token boost</b>.</li>
-                                <li style={{ color: "#fbbf24" }}><b>NEW: Open Crates</b> for Prizes by spending <b>200,000 $FCWEED</b>!</li>
+                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}><b>NEW: Super Land</b> — Burn 1 Land + 2M FCWEED to upgrade!</li>
+                                <li>Each Super Land grants <b style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}>+12% token boost</b>.</li>
+                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}><b>NEW: Open Crates</b> for Prizes by spending <b>200,000 $FCWEED</b>!</li>
                                 <li style={{ color: "#ef4444", marginTop: 8 }}><b>NEW: Cartel Wars</b> — Battle other farmers!</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Search for opponents (50K FCWEED fee, refunded on win)</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Attack other farmers to steal <b>up to 50%</b> of their pending rewards</li>
@@ -3959,8 +3984,8 @@ export default function Home()
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Water Shop open <b>12PM-6PM EST</b> daily with limited supply</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• More decay = more water needed (neglect is expensive!)</li>
                             </ul>
-                            <h2 className={styles.heading}>Use of Funds</h2>
-                            <ul className={styles.bulletList}>
+                            <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
+                            <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
                                 <li><b>50% of all mint funds</b> are routed to periodic <b>buyback and burns</b> of $FCWEED.</li>
                                 <li>$FCWEED has a <b>3% buy &amp; sell tax</b>:
                     <ul style={{ marginTop: 4, marginLeft: 16 }}>
@@ -3971,19 +3996,19 @@ export default function Home()
                                 <li>The more you farm and climb the ladder, the larger your share of <b>USDC rewards</b> from the tax pool.</li>
                             </ul>
                         </section>
-                        <section className={styles.infoCard}>
-                            <h2 className={styles.heading}>Coming Soon</h2>
-                            <ul className={styles.bulletList}>
-                                <li style={{ color: "#fbbf24" }}>🎁 Referrals — Earn rewards for inviting friends</li>
-                                <li style={{ color: "#fbbf24" }}>🛒 More Shop Items — Boosts, shields, and more</li>
+                        <section className={styles.infoCard} style={getCardStyle()}>
+                            <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Coming Soon</h2>
+                            <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
+                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}>🎁 Referrals — Earn rewards for inviting friends</li>
+                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}>🛒 More Shop Items — Boosts, shields, and more</li>
                             </ul>
                         </section>
                     </>
                 )}
 
         {activeTab === "mint" && (
-            <section className={styles.infoCard} style={{ textAlign: "center", padding: 20 }}>
-                <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#7cb3ff" }}>Mint NFTs</h2>
+            <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 20 })}>
+                <h2 style={{ fontSize: 18, margin: "0 0 12px", color: theme === "light" ? "#2563eb" : "#7cb3ff" }}>Mint NFTs</h2>
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
                     <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
                 </div>
@@ -4049,7 +4074,7 @@ export default function Home()
         )}
 
                 {activeTab === "stake" && (
-                    <section className={styles.infoCard} style={{ textAlign: "center", padding: 20 }}>
+                    <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 20 })}>
                         <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#7cb3ff" }}>Staking</h2>
                         <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
                             <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
@@ -4077,7 +4102,7 @@ export default function Home()
                             .c-jack{animation:jackpot 1s ease-in-out infinite}
                         `}</style>
 
-                        <section className={styles.infoCard} style={{ padding: '14px 10px' }}>
+                        <section className={styles.infoCard} style={getCardStyle({ padding: '14px 10px' })}>
                             <h2 style={{ fontSize: 15, margin: '0 0 10px', color: '#7cb3ff', textAlign: 'center' }}>Open Crates for Prizes</h2>
 
                             <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 10 }}>
@@ -4218,7 +4243,7 @@ export default function Home()
                 )}
 
                 {activeTab === "wars" && (
-                    <section className={styles.infoCard} style={{ textAlign: "center", padding: 16 }}>
+                    <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 16 })}>
                         <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#ef4444" }}>⚔️ Cartel Wars</h2>
 
                         {/* Backend Status Indicator */}
@@ -4517,7 +4542,7 @@ export default function Home()
                 )}
 
                 {activeTab === "referrals" && (
-                    <section className={styles.infoCard} style={{ position: "relative", textAlign: "center", padding: 40, minHeight: 300 }}>
+                    <section className={styles.infoCard} style={getCardStyle({ position: "relative", textAlign: "center", padding: 40, minHeight: 300 })}>
                         <div style={{ position: "absolute", inset: 0, background: "rgba(5,8,18,0.85)", backdropFilter: "blur(8px)", borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
                             <div>
                                 <div style={{ fontSize: 48, marginBottom: 12 }}>🎁</div>
@@ -4529,7 +4554,7 @@ export default function Home()
                 )}
 
                 {activeTab === "shop" && (
-                    <section className={styles.infoCard} style={{ textAlign: "center", padding: 16 }}>
+                    <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 16 })}>
                         <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#10b981" }}>🛒 Item Shop</h2>
 
                         <div style={{ background: "linear-gradient(135deg, rgba(96,165,250,0.15), rgba(59,130,246,0.1))", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 12, padding: 16, marginBottom: 16 }}>
