@@ -4320,15 +4320,15 @@ export default function Home()
                                 <h2 style={{ fontSize: 18, color: crateWon.color, margin: '0 0 2px', fontWeight: 800 }}>{crateWon.name}</h2>
                                 <div style={{ fontSize: 28, fontWeight: 900, color: crateWon.color, marginBottom: 6 }}>{crateWon.amount} <span style={{ fontSize: 12, opacity: 0.8 }}>{crateWon.token}</span></div>
                                 <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 8px' }}>{crateWon.isJackpot ? '🎉 JACKPOT! 🎉' : crateWon.token === 'DUST' ? 'For use in Item Shop later!' : crateWon.isNFT ? 'NFT sent!' : 'Sent!'}</p>
-                                <div style={{ fontSize: 8, color: '#64748b', marginBottom: 12 }}>fcweed-minikitapp.vercel.app</div>
+                                <div style={{ fontSize: 8, color: '#64748b', marginBottom: 12 }}>x420ponzi.com</div>
                                 <div style={{ display: 'flex', gap: 8 }}>
                                     <button type="button" onClick={onCrateClose} className={styles.btnPrimary} style={{ flex: 1, padding: 12, fontSize: 12, background: crateWon.token === 'DUST' ? 'linear-gradient(135deg, #4b5563, #6b7280)' : 'linear-gradient(135deg, #059669, #10b981)' }}>{crateWon.token === 'DUST' ? 'Collect' : 'Awesome!'}</button>
                                     <button 
                                         type="button" 
                                         onClick={() => {
                                             const text = crateWon.isJackpot 
-                                                ? `🎰 JACKPOT on FCWEED Crates! 🎉\n\nWon ${crateWon.amount} ${crateWon.token}! 💰\n\nTry your luck on @base 🌿\n\nhttps://fcweed-minikitapp.vercel.app`
-                                                : `🎰 Opened a FCWEED Mystery Crate!\n\nWon ${crateWon.amount} ${crateWon.token}! ${crateWon.isNFT ? '🖼️' : '💰'}\n\nTry your luck on @base 🌿\n\nhttps://fcweed-minikitapp.vercel.app`;
+                                                ? `🎰 JACKPOT on FCWEED Crates! 🎉\n\nWon ${crateWon.amount} ${crateWon.token}! 💰\n\nTry your luck on @base 🌿\n\nhttps://x420ponzi.com`
+                                                : `🎰 Opened a FCWEED Mystery Crate!\n\nWon ${crateWon.amount} ${crateWon.token}! ${crateWon.isNFT ? '🖼️' : '💰'}\n\nTry your luck on @base 🌿\n\nhttps://x420ponzi.com`;
                                             captureAndShare('crate-win-card', text);
                                         }}
                                         style={{ padding: 12, fontSize: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(29,161,242,0.2)', color: '#1da1f2', cursor: 'pointer' }}
@@ -4576,7 +4576,7 @@ export default function Home()
                                     </p>
                                 )}
                                 
-                                <div style={{ textAlign: "center", fontSize: 8, color: "#64748b", marginBottom: 8 }}>fcweed-minikitapp.vercel.app</div>
+                                <div style={{ textAlign: "center", fontSize: 8, color: "#64748b", marginBottom: 8 }}>x420ponzi.com</div>
 
                                 <div style={{ display: "flex", gap: 8 }}>
                                     <button type="button" onClick={() => setWarsResult(null)} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsResult.won ? "linear-gradient(135deg, #059669, #10b981)" : "linear-gradient(135deg, #374151, #4b5563)" }}>
@@ -4588,8 +4588,8 @@ export default function Home()
                                             const amount = parseFloat(ethers.utils.formatUnits(warsResult.rewardsTransferred || 0, 18));
                                             const amountStr = amount >= 1000 ? (amount / 1000).toFixed(1) + "K" : amount.toFixed(0);
                                             const text = warsResult.won 
-                                                ? `⚔️ VICTORY in FCWEED Cartel Wars! 🎉\n\n💰 Stole ${amountStr} $FCWEED\n💥 Dealt ${warsResult.damageDealt}% damage\n\nBuild your farming empire on @base 🌿\n\nhttps://fcweed-minikitapp.vercel.app`
-                                                : `⚔️ Battle in FCWEED Cartel Wars! 💀\n\nLost ${amountStr} $FCWEED but I'll be back stronger!\n\nJoin the farming war on @base 🌿\n\nhttps://fcweed-minikitapp.vercel.app`;
+                                                ? `⚔️ VICTORY in FCWEED Cartel Wars! 🎉\n\n💰 Stole ${amountStr} $FCWEED\n💥 Dealt ${warsResult.damageDealt}% damage\n\nBuild your farming empire on @base 🌿\n\nhttps://x420ponzi.com`
+                                                : `⚔️ Battle in FCWEED Cartel Wars! 💀\n\nLost ${amountStr} $FCWEED but I'll be back stronger!\n\nJoin the farming war on @base 🌿\n\nhttps://x420ponzi.com`;
                                             captureAndShare('wars-result-card', text);
                                         }}
                                         style={{ padding: "10px 16px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(255,255,255,0.2)", background: "rgba(29,161,242,0.2)", color: "#1da1f2", cursor: "pointer" }}
@@ -4815,8 +4815,7 @@ export default function Home()
                                             const superLands = v5StakingStats?.superLands || 0;
                                             const boost = v5StakingStats?.boostPct?.toFixed(1) || 0;
                                             const daily = v5StakingStats?.dailyRewards || "0";
-                                            const text = `🌿 My FCWEED Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://fcweed-minikitapp.vercel.app`;
-                                            captureAndShare('v5-stats-card', text);
+                                            const text = `🌿 My FCWEED Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://x420ponzi.com
                                         }}
                                         style={{ gridColumn: "span 1", padding: 8, borderRadius: 8, border: "1px solid rgba(29,161,242,0.4)", background: "rgba(29,161,242,0.15)", color: "#1da1f2", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}
                                     >
