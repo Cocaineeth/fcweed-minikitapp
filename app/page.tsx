@@ -76,6 +76,12 @@ async function captureAndShare(
     fallbackText: string,
     composeCastFn?: (options: { text: string; embeds?: string[] }) => void
 ) {
+    // Show loading indicator
+    const originalButtonText = document.activeElement?.textContent;
+    if (document.activeElement instanceof HTMLButtonElement) {
+        document.activeElement.textContent = '⏳...';
+    }
+    
     try {
         const element = document.getElementById(elementId);
         let imageDataUrl: string | null = null;
@@ -96,7 +102,7 @@ async function captureAndShare(
             }
         }
 
-        // Try MiniKit composeCast hook first (recommended for Base App)
+        // Try MiniKit composeCast hook first (recommended for Base App & Farcaster)
         if (composeCastFn) {
             try {
                 const castOptions: { text: string; embeds?: string[] } = { text: fallbackText };
@@ -104,7 +110,7 @@ async function captureAndShare(
                     castOptions.embeds = [imageDataUrl];
                 }
                 composeCastFn(castOptions);
-                console.log('MiniKit composeCast called');
+                console.log('MiniKit composeCast called successfully');
                 return;
             } catch (e) {
                 console.log('MiniKit composeCast failed:', e);
@@ -172,7 +178,7 @@ async function captureAndShare(
         // Fallback: Copy to clipboard and alert user
         try {
             await navigator.clipboard.writeText(fallbackText);
-            alert('Copied to clipboard! You can paste this on Twitter/X or Farcaster.');
+            alert('✅ Copied to clipboard!\n\nPaste this in your Base App feed or on X/Twitter to share.');
             return;
         } catch (e) {
             console.log('Clipboard failed:', e);
@@ -185,9 +191,14 @@ async function captureAndShare(
         // Ultimate fallback
         try {
             await navigator.clipboard.writeText(fallbackText);
-            alert('Copied to clipboard!');
+            alert('✅ Copied to clipboard!\n\nPaste this in your Base App feed or on X/Twitter.');
         } catch {
             prompt('Copy this to share:', fallbackText);
+        }
+    } finally {
+        // Restore button text
+        if (document.activeElement instanceof HTMLButtonElement && originalButtonText) {
+            document.activeElement.textContent = originalButtonText;
         }
     }
 }
