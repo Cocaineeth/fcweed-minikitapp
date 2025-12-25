@@ -590,6 +590,7 @@ export default function Home()
         setUsingMiniApp(false);
         setMiniAppEthProvider(null);
         setShowDisconnectModal(false);
+    };
     
     // Get display name or shortened address
     const getDisplayName = () => {
