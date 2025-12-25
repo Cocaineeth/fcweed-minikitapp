@@ -70,45 +70,99 @@ import {
     v4BattlesInterface,
 } from "./lib/abis";
 
-// Screenshot and share to Twitter
+// Screenshot and share to Twitter/Farcaster
 async function captureAndShare(elementId: string, fallbackText: string) {
     try {
         const element = document.getElementById(elementId);
-        if (!element) {
-            window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
-            return;
+        let imageDataUrl: string | null = null;
+        
+        // Try to capture screenshot
+        if (element) {
+            try {
+                const html2canvas = (await import('html2canvas')).default;
+                const canvas = await html2canvas(element, {
+                    backgroundColor: '#0f172a',
+                    scale: 2,
+                    logging: false,
+                    useCORS: true,
+                });
+                imageDataUrl = canvas.toDataURL('image/png');
+            } catch (e) {
+                console.error('Screenshot capture failed:', e);
+            }
         }
 
-        const html2canvas = (await import('html2canvas')).default;
-        const canvas = await html2canvas(element, {
-            backgroundColor: '#0f172a',
-            scale: 2,
-            logging: false,
-            useCORS: true,
-        });
-
-        canvas.toBlob((blob) => {
-            if (!blob) {
-                window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
+        // Try Farcaster SDK composeCast first (for Farcaster mini app)
+        try {
+            if (sdk && sdk.actions && typeof sdk.actions.composeCast === 'function') {
+                await sdk.actions.composeCast({
+                    text: fallbackText,
+                    embeds: imageDataUrl ? [imageDataUrl] : undefined
+                });
                 return;
             }
+        } catch (e) {
+            console.log('Farcaster composeCast not available:', e);
+        }
 
-            // Download the image
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'fcweed-share.png';
-            a.click();
-            URL.revokeObjectURL(url);
-            
-            // Open Twitter compose after short delay
-            setTimeout(() => {
-                window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
-            }, 500);
-        }, 'image/png');
+        // Try Farcaster SDK openUrl (for opening Twitter)
+        try {
+            if (sdk && sdk.actions && typeof sdk.actions.openUrl === 'function') {
+                await sdk.actions.openUrl({
+                    url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`
+                });
+                return;
+            }
+        } catch (e) {
+            console.log('Farcaster openUrl not available:', e);
+        }
+
+        // Try native Web Share API with image (mobile browsers)
+        if (imageDataUrl && navigator.share) {
+            try {
+                const response = await fetch(imageDataUrl);
+                const blob = await response.blob();
+                const file = new File([blob], 'fcweed-share.png', { type: 'image/png' });
+                
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    await navigator.share({
+                        text: fallbackText,
+                        files: [file],
+                    });
+                    return;
+                }
+            } catch (e) {
+                console.log('Native share with file failed:', e);
+            }
+        }
+
+        // Try native Web Share API text only
+        if (navigator.share) {
+            try {
+                await navigator.share({ text: fallbackText });
+                return;
+            } catch (e) {
+                console.log('Native share failed:', e);
+            }
+        }
+
+        // Fallback: Copy to clipboard and alert user
+        try {
+            await navigator.clipboard.writeText(fallbackText);
+            alert('Tweet copied to clipboard! Open Twitter to paste and share.');
+        } catch (e) {
+            // Last resort: prompt with text
+            prompt('Copy this tweet:', fallbackText);
+        }
     } catch (e) {
-        console.error('Screenshot failed:', e);
-        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
+        console.error('Share failed:', e);
+        // Ultimate fallback
+        try {
+            await navigator.clipboard.writeText(fallbackText);
+            alert('Tweet copied to clipboard!');
+        } catch {
+            prompt('Copy this tweet:', fallbackText);
+        }
     }
 }
 
