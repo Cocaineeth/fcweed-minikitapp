@@ -3401,7 +3401,7 @@ export default function Home()
                             <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setV5StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #10b981, #34d399)" }}>🚀 Staking V5 (NEW - LIVE)</button>
+                            <button type="button" className={styles.btnPrimary} onClick={() => setV5StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #10b981, #34d399)" }}>🚀 Staking V5</button>
                             <button type="button" className={styles.btnPrimary} onClick={() => setV4StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>⬅️ Staking V4 (UNSTAKE ONLY)</button>
                         </div>
                         <div style={{ marginTop: 12, padding: 10, background: "rgba(16,185,129,0.1)", borderRadius: 10, border: "1px solid rgba(16,185,129,0.3)" }}>
@@ -3987,7 +3987,7 @@ export default function Home()
                 <div className={styles.modalBackdrop}>
                     <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto" }}>
                         <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle}>🚀 Staking V5 (NEW - LIVE)</h2>
+                            <h2 className={styles.modalTitle}>🚀 Staking V5</h2>
                             <button type="button" className={styles.modalClose} onClick={() => setV5StakingOpen(false)}>✕</button>
                         </header>
 
