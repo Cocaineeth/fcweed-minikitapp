@@ -1,8 +1,38 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Dark theme (default) */
+  --background: #050814;
+  --foreground: #ffffff;
+  --card-bg: rgba(5, 8, 20, 0.9);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --text-primary: #ffffff;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent-green: #22c55e;
+  --accent-blue: #3b82f6;
+  --accent-purple: #8b5cf6;
+  --accent-yellow: #fbbf24;
+  --btn-primary-bg: linear-gradient(90deg, #2df19b, #35a4ff);
+  --btn-secondary-bg: transparent;
+  --btn-secondary-border: rgba(255, 255, 255, 0.2);
+}
+
+[data-theme="light"] {
+  --background: #f8fafc;
+  --foreground: #1e293b;
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --text-primary: #1e293b;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --accent-green: #16a34a;
+  --accent-blue: #2563eb;
+  --accent-purple: #7c3aed;
+  --accent-yellow: #d97706;
+  --btn-primary-bg: linear-gradient(90deg, #16a34a, #2563eb);
+  --btn-secondary-bg: #f1f5f9;
+  --btn-secondary-border: #cbd5e1;
 }
 
 @theme inline {
@@ -12,15 +42,28 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* Light mode specific overrides */
+[data-theme="light"] .infoCard,
+[data-theme="light"] .modal {
+  background: var(--card-bg) !important;
+  border-color: var(--card-border) !important;
+  color: var(--text-primary) !important;
+}
+
+[data-theme="light"] .btnSecondary {
+  background: var(--btn-secondary-bg) !important;
+  border-color: var(--btn-secondary-border) !important;
+  color: var(--text-primary) !important;
+}
+
+[data-theme="light"] .page {
+  background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%) !important;
+  color: var(--text-primary) !important;
 }

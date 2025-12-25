@@ -74,6 +74,16 @@ export default function Home()
 {
     const { setMiniAppReady, isMiniAppReady } = useMiniKit();
 
+    // Theme state (light/dark)
+    const [theme, setTheme] = useState<"dark" | "light">("dark");
+    
+    // Username display state
+    const [displayName, setDisplayName] = useState<string | null>(null);
+    
+    // Onboarding state
+    const [showOnboarding, setShowOnboarding] = useState(false);
+    const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
+
     const [provider, setProvider] =
         useState<ethers.providers.Web3Provider | null>(null);
     const [signer, setSigner] = useState<ethers.Signer | null>(null);
@@ -380,8 +390,208 @@ export default function Home()
                 };
         }, [isMiniAppReady, setMiniAppReady, userAddress]);
 
+    // Paymaster URL for sponsored transactions (Coinbase Developer Platform)
+    const PAYMASTER_URL = "https://api.developer.coinbase.com/rpc/v1/base/LBqFJaxfsfmt8cL44zkpJ3BHgill7Sw4";
+    
+    // Check if wallet supports sponsored transactions (Smart Wallet)
+    const [supportsSponsorship, setSupportsSponsorship] = useState(false);
+    
+    // Check wallet capabilities when connected
+    useEffect(() => {
+        if (!provider || !userAddress) {
+            setSupportsSponsorship(false);
+            return;
+        }
+        
+        // Check if the wallet supports wallet_getCapabilities (Smart Wallet indicator)
+        const checkCapabilities = async () => {
+            try {
+                const anyProvider = (window as any).ethereum;
+                if (anyProvider?.request) {
+                    const capabilities = await anyProvider.request({
+                        method: 'wallet_getCapabilities',
+                        params: [userAddress]
+                    }).catch(() => null);
+                    
+                    // Check if paymasterService is supported on Base (chainId 8453)
+                    if (capabilities?.['0x2105']?.paymasterService?.supported || 
+                        capabilities?.['8453']?.paymasterService?.supported) {
+                        console.log("[Paymaster] Smart Wallet detected, sponsorship available");
+                        setSupportsSponsorship(true);
+                    } else {
+                        console.log("[Paymaster] Standard wallet, no sponsorship");
+                        setSupportsSponsorship(false);
+                    }
+                }
+            } catch (err) {
+                console.log("[Paymaster] Capability check failed:", err);
+                setSupportsSponsorship(false);
+            }
+        };
+        
+        checkCapabilities();
+    }, [provider, userAddress]);
+    
+    // Send sponsored transaction using wallet_sendCalls (EIP-5792)
+    async function sendSponsoredTransaction(
+        to: string, 
+        data: string, 
+        value: string = "0x0"
+    ): Promise<string | null> {
+        try {
+            const anyProvider = (window as any).ethereum;
+            if (!anyProvider?.request || !userAddress) {
+                console.log("[Paymaster] No provider for sponsored tx");
+                return null;
+            }
+            
+            console.log("[Paymaster] Sending sponsored transaction to:", to);
+            
+            const calls = [{
+                to,
+                data,
+                value
+            }];
+            
+            const result = await anyProvider.request({
+                method: 'wallet_sendCalls',
+                params: [{
+                    version: '1.0',
+                    chainId: '0x2105', // Base mainnet
+                    from: userAddress,
+                    calls,
+                    capabilities: {
+                        paymasterService: {
+                            url: PAYMASTER_URL
+                        }
+                    }
+                }]
+            });
+            
+            console.log("[Paymaster] Sponsored tx result:", result);
+            return result;
+        } catch (err: any) {
+            console.error("[Paymaster] Sponsored tx failed:", err);
+            // Return null to fall back to regular transaction
+            return null;
+        }
+    }
+
     const shortAddr = (addr?: string | null) =>
         addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
+
+    // Resolve username from Basenames or ENS
+    async function resolveUsername(address: string): Promise<string | null> {
+        try {
+            // Try Basenames first (Base's native naming service)
+            const basenameResponse = await fetch(
+                `https://api.basename.app/v1/address/${address}/basename`
+            ).catch(() => null);
+            
+            if (basenameResponse?.ok) {
+                const data = await basenameResponse.json();
+                if (data?.basename) {
+                    return data.basename;
+                }
+            }
+            
+            // Try ENS via public resolver
+            const ensResponse = await fetch(
+                `https://api.ensideas.com/ens/resolve/${address}`
+            ).catch(() => null);
+            
+            if (ensResponse?.ok) {
+                const data = await ensResponse.json();
+                if (data?.name) {
+                    return data.name;
+                }
+            }
+            
+            // Try Farcaster username if in mini app
+            if (usingMiniApp) {
+                try {
+                    const context = await sdk.context;
+                    if (context?.user?.username) {
+                        return context.user.username;
+                    }
+                } catch {}
+            }
+            
+            return null;
+        } catch (err) {
+            console.error("[Username] Resolution failed:", err);
+            return null;
+        }
+    }
+    
+    // Fetch username when address changes
+    useEffect(() => {
+        if (!userAddress) {
+            setDisplayName(null);
+            return;
+        }
+        
+        resolveUsername(userAddress).then((name) => {
+            setDisplayName(name);
+        });
+    }, [userAddress, usingMiniApp]);
+    
+    // Get display name or shortened address
+    const getDisplayName = () => {
+        if (displayName) return displayName;
+        return shortAddr(userAddress);
+    };
+    
+    // Check for first-time user and show onboarding
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const seen = localStorage.getItem('fcweed_onboarding_seen');
+            if (!seen) {
+                setShowOnboarding(true);
+            } else {
+                setHasSeenOnboarding(true);
+            }
+        }
+    }, []);
+    
+    const dismissOnboarding = () => {
+        setShowOnboarding(false);
+        setHasSeenOnboarding(true);
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('fcweed_onboarding_seen', 'true');
+        }
+    };
+    
+    // Theme toggle
+    const toggleTheme = () => {
+        setTheme(prev => prev === "dark" ? "light" : "dark");
+    };
+    
+    // Apply theme to document
+    useEffect(() => {
+        if (typeof document !== 'undefined') {
+            document.documentElement.setAttribute('data-theme', theme);
+        }
+    }, [theme]);
+    
+    // Detect system preference on mount
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const savedTheme = localStorage.getItem('fcweed_theme') as "dark" | "light" | null;
+            if (savedTheme) {
+                setTheme(savedTheme);
+            } else if (window.matchMedia?.('(prefers-color-scheme: light)').matches) {
+                setTheme('light');
+            }
+        }
+    }, []);
+    
+    // Save theme preference
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('fcweed_theme', theme);
+        }
+    }, [theme]);
 
     async function ensureWallet() {
         if (signer && provider && userAddress) {
@@ -478,7 +688,7 @@ export default function Home()
                             throw new Error("No accounts available");
                         }
                     } catch (accErr) {
-                        throw new Error("Could not get wallet address. Please make sure you have a wallet connected in Farcaster.");
+                        throw new Error("Could not get wallet address. Please make sure you have a wallet connected.");
                     }
                 }
 
@@ -493,7 +703,7 @@ export default function Home()
 
                 if (!browserProvider) {
                     const errorMsg = isMobile
-                        ? "No wallet found. Please open this app inside the Farcaster app to connect your wallet."
+                        ? "No wallet found. Please install Coinbase Wallet or MetaMask."
                         : "No wallet found. Please install MetaMask or another Web3 wallet.";
                     setMintStatus(errorMsg);
                     setConnecting(false);
@@ -589,7 +799,7 @@ export default function Home()
 
     async function handleMintLand() {
         try {
-            setMintStatus("Preparing to mint 1 Land (199.99 USDC + gas)…");
+            setMintStatus("Preparing to mint 1 Land (199.99 USDC)…");
             const okAllowance = await txAction().ensureUsdcAllowance(
                 LAND_ADDRESS,
                 LAND_PRICE_USDC
@@ -597,6 +807,19 @@ export default function Home()
             if (!okAllowance) return;
 
             const data = landInterface.encodeFunctionData("mint", []);
+            
+            // Try sponsored transaction first if wallet supports it
+            if (supportsSponsorship) {
+                setMintStatus("Minting Land (gas sponsored)…");
+                const sponsoredResult = await sendSponsoredTransaction(LAND_ADDRESS, data);
+                if (sponsoredResult) {
+                    setMintStatus("Land mint submitted ✅ Gas was sponsored!");
+                    return;
+                }
+                // Fall back to regular tx if sponsored fails
+                setMintStatus("Sponsorship unavailable, using regular transaction…");
+            }
+            
             const tx = await txAction().sendContractTx(LAND_ADDRESS, data);
             if (!tx) return;
             setMintStatus("Land mint transaction sent. Waiting for confirmation…");
@@ -618,7 +841,7 @@ export default function Home()
 
     async function handleMintPlant() {
         try {
-            setMintStatus("Preparing to mint 1 Plant (49.99 USDC + gas)…");
+            setMintStatus("Preparing to mint 1 Plant (49.99 USDC)…");
             const okAllowance = await txAction().ensureUsdcAllowance(
                 PLANT_ADDRESS,
                 PLANT_PRICE_USDC
@@ -626,6 +849,19 @@ export default function Home()
             if (!okAllowance) return;
 
             const data = plantInterface.encodeFunctionData("mint", []);
+            
+            // Try sponsored transaction first if wallet supports it
+            if (supportsSponsorship) {
+                setMintStatus("Minting Plant (gas sponsored)…");
+                const sponsoredResult = await sendSponsoredTransaction(PLANT_ADDRESS, data);
+                if (sponsoredResult) {
+                    setMintStatus("Plant mint submitted ✅ Gas was sponsored!");
+                    return;
+                }
+                // Fall back to regular tx if sponsored fails
+                setMintStatus("Sponsorship unavailable, using regular transaction…");
+            }
+            
             const tx = await txAction().sendContractTx(PLANT_ADDRESS, data);
             if (!tx) return;
             setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
@@ -1574,8 +1810,25 @@ export default function Home()
             const ctx = await ensureWallet();
             if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(PLANT_ADDRESS, V5_STAKING_ADDRESS, ctx);
+            
+            const data = v4StakingInterface.encodeFunctionData("stakePlants", [selectedV5AvailPlants]);
+            
+            // Try sponsored transaction first
+            if (supportsSponsorship) {
+                setV5ActionStatus("Staking plants (gas sponsored)...");
+                const sponsoredResult = await sendSponsoredTransaction(V5_STAKING_ADDRESS, data);
+                if (sponsoredResult) {
+                    setV5ActionStatus("Staked! Gas was sponsored ✅");
+                    setSelectedV5AvailPlants([]);
+                    ownedCacheRef.current = { addr: null, state: null };
+                    setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+                    setActionLoading(false);
+                    return;
+                }
+            }
+            
             setV5ActionStatus("Staking plants...");
-            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakePlants", [selectedV5AvailPlants]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, data);
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Staked!");
@@ -1593,8 +1846,25 @@ export default function Home()
             const ctx = await ensureWallet();
             if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
+            
+            const data = v4StakingInterface.encodeFunctionData("stakeLands", [selectedV5AvailLands]);
+            
+            // Try sponsored transaction first
+            if (supportsSponsorship) {
+                setV5ActionStatus("Staking lands (gas sponsored)...");
+                const sponsoredResult = await sendSponsoredTransaction(V5_STAKING_ADDRESS, data);
+                if (sponsoredResult) {
+                    setV5ActionStatus("Staked! Gas was sponsored ✅");
+                    setSelectedV5AvailLands([]);
+                    ownedCacheRef.current = { addr: null, state: null };
+                    setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+                    setActionLoading(false);
+                    return;
+                }
+            }
+            
             setV5ActionStatus("Staking lands...");
-            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakeLands", [selectedV5AvailLands]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, data);
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Staked!");
@@ -1612,8 +1882,25 @@ export default function Home()
             const ctx = await ensureWallet();
             if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(SUPER_LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
+            
+            const data = v4StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV5AvailSuperLands]);
+            
+            // Try sponsored transaction first
+            if (supportsSponsorship) {
+                setV5ActionStatus("Staking super lands (gas sponsored)...");
+                const sponsoredResult = await sendSponsoredTransaction(V5_STAKING_ADDRESS, data);
+                if (sponsoredResult) {
+                    setV5ActionStatus("Staked! Gas was sponsored ✅");
+                    setSelectedV5AvailSuperLands([]);
+                    ownedCacheRef.current = { addr: null, state: null };
+                    setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+                    setActionLoading(false);
+                    return;
+                }
+            }
+            
             setV5ActionStatus("Staking super lands...");
-            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV5AvailSuperLands]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, data);
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Staked!");
@@ -3202,20 +3489,147 @@ export default function Home()
                 opacity: connecting ? 0.7 : 1,
             }}
         >
-            {connecting ? "Connecting..." : shortAddr(userAddress)}
+            {connecting ? "Connecting..." : getDisplayName()}
         </button>
     );
 
     return (
-        <div className={styles.page} style={{ paddingBottom: 70 }} onPointerDown={() => { if (!isPlaying && !manualPause && audioRef.current) audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {}); }}>
+        <div 
+            className={styles.page} 
+            style={{ 
+                paddingBottom: 70,
+                background: theme === "light" 
+                    ? "linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%)" 
+                    : undefined,
+                color: theme === "light" ? "#1e293b" : undefined
+            }} 
+            data-theme={theme}
+            onPointerDown={() => { if (!isPlaying && !manualPause && audioRef.current) audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {}); }}
+        >
+            {/* Onboarding Modal */}
+            {showOnboarding && (
+                <div style={{
+                    position: "fixed",
+                    inset: 0,
+                    background: "rgba(0,0,0,0.85)",
+                    backdropFilter: "blur(10px)",
+                    zIndex: 1000,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: 16
+                }}>
+                    <div style={{
+                        background: theme === "light" ? "#ffffff" : "#0f172a",
+                        borderRadius: 20,
+                        border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.1)"}`,
+                        maxWidth: 400,
+                        width: "100%",
+                        padding: 24,
+                        textAlign: "center"
+                    }}>
+                        <div style={{ fontSize: 48, marginBottom: 16 }}>🌿</div>
+                        <h2 style={{ 
+                            fontSize: 24, 
+                            fontWeight: 700, 
+                            marginBottom: 12,
+                            color: theme === "light" ? "#1e293b" : "#fff"
+                        }}>
+                            Welcome to FCWEED
+                        </h2>
+                        <p style={{ 
+                            fontSize: 14, 
+                            color: theme === "light" ? "#64748b" : "#94a3b8", 
+                            marginBottom: 20,
+                            lineHeight: 1.6
+                        }}>
+                            The ultimate stake-to-earn farming game on Base. Grow your empire by collecting NFTs and earning rewards!
+                        </p>
+                        
+                        <div style={{ 
+                            display: "flex", 
+                            flexDirection: "column", 
+                            gap: 12, 
+                            textAlign: "left",
+                            background: theme === "light" ? "#f8fafc" : "rgba(255,255,255,0.05)",
+                            borderRadius: 12,
+                            padding: 16,
+                            marginBottom: 20
+                        }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                <span style={{ fontSize: 24 }}>🌱</span>
+                                <div>
+                                    <div style={{ fontWeight: 600, fontSize: 13, color: theme === "light" ? "#1e293b" : "#fff" }}>Mint Plant NFTs</div>
+                                    <div style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Each plant earns FCWEED tokens daily</div>
+                                </div>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                <span style={{ fontSize: 24 }}>🏠</span>
+                                <div>
+                                    <div style={{ fontWeight: 600, fontSize: 13, color: theme === "light" ? "#1e293b" : "#fff" }}>Collect Land NFTs</div>
+                                    <div style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Unlock more plant slots & boost rewards</div>
+                                </div>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                <span style={{ fontSize: 24 }}>⚔️</span>
+                                <div>
+                                    <div style={{ fontWeight: 600, fontSize: 13, color: theme === "light" ? "#1e293b" : "#fff" }}>Battle in Cartel Wars</div>
+                                    <div style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Raid other farmers and steal rewards</div>
+                                </div>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                <span style={{ fontSize: 24 }}>🎰</span>
+                                <div>
+                                    <div style={{ fontWeight: 600, fontSize: 13, color: theme === "light" ? "#1e293b" : "#fff" }}>Open Mystery Crates</div>
+                                    <div style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Win NFTs, tokens, and rare items</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button
+                            onClick={dismissOnboarding}
+                            style={{
+                                width: "100%",
+                                padding: "14px 24px",
+                                borderRadius: 12,
+                                border: "none",
+                                background: "linear-gradient(135deg, #22c55e, #16a34a)",
+                                color: "#fff",
+                                fontWeight: 600,
+                                fontSize: 15,
+                                cursor: "pointer"
+                            }}
+                        >
+                            Start Farming 🚀
+                        </button>
+                    </div>
+                </div>
+            )}
+            
             <header className={styles.headerWrapper}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
                     <div className={styles.brand}><span className={styles.liveDot} /><span className={styles.brandText}>FCWEED</span></div>
                     <ConnectWalletButton />
                 </div>
                 <div className={styles.headerRight}>
-                    <div className={styles.radioPill}>
-                        <span className={styles.radioLabel}>Farcaster Radio</span>
+                    {/* Theme Toggle Button */}
+                    <button 
+                        type="button" 
+                        className={styles.iconButton}
+                        onClick={toggleTheme}
+                        style={{ 
+                            background: theme === "light" ? "#e2e8f0" : undefined,
+                            color: theme === "light" ? "#1e293b" : undefined
+                        }}
+                        title={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
+                    >
+                        {theme === "dark" ? "☀️" : "🌙"}
+                    </button>
+                    <div className={styles.radioPill} style={{
+                        background: theme === "light" ? "#e2e8f0" : undefined,
+                        borderColor: theme === "light" ? "#cbd5e1" : undefined
+                    }}>
+                        <span className={styles.radioLabel} style={{ color: theme === "light" ? "#475569" : undefined }}>Base Radio</span>
                         <div className={styles.radioTitleWrap}><span className={styles.radioTitleInner}>{currentTrackMeta.title}</span></div>
                         <button type="button" className={styles.iconButtonSmall} onClick={handlePrevTrack}>‹</button>
                         <button type="button" className={styles.iconButtonSmall} onClick={handlePlayPause}>{isPlaying ? "❚❚" : "▶"}</button>
