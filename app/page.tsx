@@ -76,12 +76,6 @@ async function captureAndShare(
     fallbackText: string,
     composeCastFn?: (options: { text: string; embeds?: string[] }) => void
 ) {
-    // Show loading indicator
-    const originalButtonText = document.activeElement?.textContent;
-    if (document.activeElement instanceof HTMLButtonElement) {
-        document.activeElement.textContent = '⏳...';
-    }
-    
     try {
         const element = document.getElementById(elementId);
         let imageDataUrl: string | null = null;
@@ -102,11 +96,23 @@ async function captureAndShare(
             }
         }
 
-        // Try MiniKit composeCast hook first (recommended for Base App & Farcaster)
+        // Detect if we're in Farcaster (Warpcast) vs Base App
+        // Farcaster context has user.fid, Base App may not or has different structure
+        let isFarcaster = false;
+        try {
+            const context = await sdk.context;
+            // Farcaster/Warpcast typically has client info
+            isFarcaster = !!(context?.client?.clientFid || context?.user?.fid);
+        } catch (e) {
+            console.log('Could not detect context:', e);
+        }
+
+        // Try MiniKit composeCast hook (works for both but Base App doesn't support image paste yet)
         if (composeCastFn) {
             try {
                 const castOptions: { text: string; embeds?: string[] } = { text: fallbackText };
-                if (imageDataUrl) {
+                // Only add image embed for Farcaster since Base App doesn't support media paste yet
+                if (imageDataUrl && isFarcaster) {
                     castOptions.embeds = [imageDataUrl];
                 }
                 composeCastFn(castOptions);
@@ -121,7 +127,8 @@ async function captureAndShare(
         try {
             if (sdk && sdk.actions && typeof sdk.actions.composeCast === 'function') {
                 const castOptions: any = { text: fallbackText };
-                if (imageDataUrl) {
+                // Only add image embed for Farcaster
+                if (imageDataUrl && isFarcaster) {
                     castOptions.embeds = [imageDataUrl];
                 }
                 await sdk.actions.composeCast(castOptions);
@@ -194,11 +201,6 @@ async function captureAndShare(
             alert('✅ Copied to clipboard!\n\nPaste this in your Base App feed or on X/Twitter.');
         } catch {
             prompt('Copy this to share:', fallbackText);
-        }
-    } finally {
-        // Restore button text
-        if (document.activeElement instanceof HTMLButtonElement && originalButtonText) {
-            document.activeElement.textContent = originalButtonText;
         }
     }
 }
