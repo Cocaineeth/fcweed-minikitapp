@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useMiniKit } from "@coinbase/onchainkit/minikit";
 import { ethers } from "ethers";
 import { sdk } from "@farcaster/miniapp-sdk";
+import html2canvas from "html2canvas";
 import styles from "./page.module.css";
 import { CrimeLadder } from "./components/CrimeLadder";
 import { loadOwnedTokens } from "./lib/tokens";
@@ -69,6 +70,76 @@ import {
     v4StakingInterface, 
     v4BattlesInterface,
 } from "./lib/abis";
+
+// Screenshot and share utility function
+async function captureAndShare(elementId: string, fallbackText: string) {
+    try {
+        const element = document.getElementById(elementId);
+        if (!element) {
+            // Fallback to text share
+            if (navigator.share) {
+                await navigator.share({ text: fallbackText });
+            } else {
+                window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
+            }
+            return;
+        }
+
+        const canvas = await html2canvas(element, {
+            backgroundColor: '#0f172a',
+            scale: 2,
+            logging: false,
+            useCORS: true,
+        });
+
+        canvas.toBlob(async (blob) => {
+            if (!blob) {
+                // Fallback to text
+                if (navigator.share) {
+                    await navigator.share({ text: fallbackText });
+                } else {
+                    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
+                }
+                return;
+            }
+
+            const file = new File([blob], 'fcweed-share.png', { type: 'image/png' });
+
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                try {
+                    await navigator.share({
+                        text: fallbackText,
+                        files: [file],
+                    });
+                } catch (e) {
+                    // User cancelled or error - try without file
+                    if (navigator.share) {
+                        await navigator.share({ text: fallbackText }).catch(() => {});
+                    }
+                }
+            } else {
+                // Can't share files, download instead and open Twitter
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'fcweed-share.png';
+                a.click();
+                URL.revokeObjectURL(url);
+                
+                // Also open Twitter with text
+                window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
+            }
+        }, 'image/png');
+    } catch (e) {
+        console.error('Screenshot failed:', e);
+        // Fallback to text share
+        if (navigator.share) {
+            await navigator.share({ text: fallbackText }).catch(() => {});
+        } else {
+            window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`, '_blank');
+        }
+    }
+}
 
 export default function Home()
 {
@@ -4243,13 +4314,28 @@ export default function Home()
                 {/* Crate Win Modal */}
                 {crateShowWin && crateWon && (
                     <div className={styles.modalBackdrop} onClick={onCrateClose}>
-                        <div className={`${styles.modal} c-pop ${crateWon.isJackpot ? 'c-jack' : ''}`} onClick={e => e.stopPropagation()} style={{ maxWidth: 300, padding: 20, background: crateWon.isJackpot ? 'linear-gradient(135deg, #1a1a2e, #16213e)' : '#0f172a', border: crateWon.isJackpot ? '2px solid #ffd700' : '1px solid #334155' }}>
+                        <div id="crate-win-card" className={`${styles.modal} c-pop ${crateWon.isJackpot ? 'c-jack' : ''}`} onClick={e => e.stopPropagation()} style={{ maxWidth: 300, padding: 20, background: crateWon.isJackpot ? 'linear-gradient(135deg, #1a1a2e, #16213e)' : '#0f172a', border: crateWon.isJackpot ? '2px solid #ffd700' : '1px solid #334155' }}>
                             <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 48, marginBottom: 6 }}>{crateIcon(crateWon.token)}</div>
                                 <h2 style={{ fontSize: 18, color: crateWon.color, margin: '0 0 2px', fontWeight: 800 }}>{crateWon.name}</h2>
                                 <div style={{ fontSize: 28, fontWeight: 900, color: crateWon.color, marginBottom: 6 }}>{crateWon.amount} <span style={{ fontSize: 12, opacity: 0.8 }}>{crateWon.token}</span></div>
-                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>{crateWon.isJackpot ? '🎉 JACKPOT! 🎉' : crateWon.token === 'DUST' ? 'For use in Item Shop later!' : crateWon.isNFT ? 'NFT sent!' : 'Sent!'}</p>
-                                <button type="button" onClick={onCrateClose} className={styles.btnPrimary} style={{ width: '100%', padding: 12, fontSize: 12, background: crateWon.token === 'DUST' ? 'linear-gradient(135deg, #4b5563, #6b7280)' : 'linear-gradient(135deg, #059669, #10b981)' }}>{crateWon.token === 'DUST' ? 'Collect' : 'Awesome!'}</button>
+                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 8px' }}>{crateWon.isJackpot ? '🎉 JACKPOT! 🎉' : crateWon.token === 'DUST' ? 'For use in Item Shop later!' : crateWon.isNFT ? 'NFT sent!' : 'Sent!'}</p>
+                                <div style={{ fontSize: 8, color: '#64748b', marginBottom: 12 }}>fcweed-minikitapp.vercel.app</div>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    <button type="button" onClick={onCrateClose} className={styles.btnPrimary} style={{ flex: 1, padding: 12, fontSize: 12, background: crateWon.token === 'DUST' ? 'linear-gradient(135deg, #4b5563, #6b7280)' : 'linear-gradient(135deg, #059669, #10b981)' }}>{crateWon.token === 'DUST' ? 'Collect' : 'Awesome!'}</button>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => {
+                                            const text = crateWon.isJackpot 
+                                                ? `🎰 JACKPOT on FCWEED Crates! 🎉\n\nWon ${crateWon.amount} ${crateWon.token}! 💰\n\nTry your luck on @base 🌿\n\nhttps://fcweed-minikitapp.vercel.app`
+                                                : `🎰 Opened a FCWEED Mystery Crate!\n\nWon ${crateWon.amount} ${crateWon.token}! ${crateWon.isNFT ? '🖼️' : '💰'}\n\nTry your luck on @base 🌿\n\nhttps://fcweed-minikitapp.vercel.app`;
+                                            captureAndShare('crate-win-card', text);
+                                        }}
+                                        style={{ padding: 12, fontSize: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(29,161,242,0.2)', color: '#1da1f2', cursor: 'pointer' }}
+                                    >
+                                        📸
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -4453,7 +4539,7 @@ export default function Home()
                         )}
 
                         {warsResult && (
-                            <div style={{ background: warsResult.won ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)", border: `2px solid ${warsResult.won ? "rgba(16,185,129,0.6)" : "rgba(239,68,68,0.6)"}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+                            <div id="wars-result-card" style={{ background: warsResult.won ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)", border: `2px solid ${warsResult.won ? "rgba(16,185,129,0.6)" : "rgba(239,68,68,0.6)"}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
                                 <div style={{ fontSize: 48, marginBottom: 8 }}>{warsResult.won ? "🎉" : "💀"}</div>
                                 <div style={{ fontSize: 20, color: warsResult.won ? "#10b981" : "#ef4444", fontWeight: 800, marginBottom: 8 }}>{warsResult.won ? "VICTORY!" : "DEFEAT!"}</div>
 
@@ -4489,10 +4575,28 @@ export default function Home()
                                         💸 Search fee lost to Defender. Pending rewards lost forever!
                                     </p>
                                 )}
+                                
+                                <div style={{ textAlign: "center", fontSize: 8, color: "#64748b", marginBottom: 8 }}>fcweed-minikitapp.vercel.app</div>
 
-                                <button type="button" onClick={() => setWarsResult(null)} className={styles.btnPrimary} style={{ padding: "10px 24px", fontSize: 12, background: warsResult.won ? "linear-gradient(135deg, #059669, #10b981)" : "linear-gradient(135deg, #374151, #4b5563)" }}>
-                                    {warsResult.won ? "Celebrate! 🎊" : "Try Again"}
-                                </button>
+                                <div style={{ display: "flex", gap: 8 }}>
+                                    <button type="button" onClick={() => setWarsResult(null)} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsResult.won ? "linear-gradient(135deg, #059669, #10b981)" : "linear-gradient(135deg, #374151, #4b5563)" }}>
+                                        {warsResult.won ? "Celebrate! 🎊" : "Try Again"}
+                                    </button>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => {
+                                            const amount = parseFloat(ethers.utils.formatUnits(warsResult.rewardsTransferred || 0, 18));
+                                            const amountStr = amount >= 1000 ? (amount / 1000).toFixed(1) + "K" : amount.toFixed(0);
+                                            const text = warsResult.won 
+                                                ? `⚔️ VICTORY in FCWEED Cartel Wars! 🎉\n\n💰 Stole ${amountStr} $FCWEED\n💥 Dealt ${warsResult.damageDealt}% damage\n\nBuild your farming empire on @base 🌿\n\nhttps://fcweed-minikitapp.vercel.app`
+                                                : `⚔️ Battle in FCWEED Cartel Wars! 💀\n\nLost ${amountStr} $FCWEED but I'll be back stronger!\n\nJoin the farming war on @base 🌿\n\nhttps://fcweed-minikitapp.vercel.app`;
+                                            captureAndShare('wars-result-card', text);
+                                        }}
+                                        style={{ padding: "10px 16px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(255,255,255,0.2)", background: "rgba(29,161,242,0.2)", color: "#1da1f2", cursor: "pointer" }}
+                                    >
+                                        📸 Share
+                                    </button>
+                                </div>
                             </div>
                         )}
 
@@ -4693,7 +4797,7 @@ export default function Home()
                             </div>
                         ) : (
                             <>
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
+                                <div id="v5-stats-card" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
                                     <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Plants</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats?.plants || 0}</span></div>
                                     <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Lands</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats?.lands || 0}</span></div>
                                     <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Super Lands</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats?.superLands || 0}</span></div>
@@ -4702,7 +4806,22 @@ export default function Home()
                                     <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Daily (Live)</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) < 100 ? (theme === "light" ? "#d97706" : "#fbbf24") : "#10b981" }}>{v5StakingStats?.dailyRewards || "0"}</span></div>
                                     <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Avg Health</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? (theme === "light" ? "#d97706" : "#fbbf24") : "#ef4444" }}>{v5StakingStats?.avgHealth || 100}%</span></div>
                                     <div className={styles.statCard} style={{ gridColumn: "span 2", background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Water</span><span className={styles.statValue} style={{ color: "#3b82f6" }}>{v5StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18))).toFixed(1) : "0"}L</span></div>
-                                    <div className={styles.statCard} style={{ gridColumn: "span 3", background: "linear-gradient(135deg, #065f46, #10b981)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#a7f3d0", fontSize: 16 }}>{v5RealTimePending}</span></div>
+                                    <div className={styles.statCard} style={{ gridColumn: "span 2", background: "linear-gradient(135deg, #065f46, #10b981)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#a7f3d0", fontSize: 16 }}>{v5RealTimePending}</span></div>
+                                    <button 
+                                        type="button"
+                                        onClick={() => {
+                                            const plants = v5StakingStats?.plants || 0;
+                                            const lands = v5StakingStats?.lands || 0;
+                                            const superLands = v5StakingStats?.superLands || 0;
+                                            const boost = v5StakingStats?.boostPct?.toFixed(1) || 0;
+                                            const daily = v5StakingStats?.dailyRewards || "0";
+                                            const text = `🌿 My FCWEED Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://fcweed-minikitapp.vercel.app`;
+                                            captureAndShare('v5-stats-card', text);
+                                        }}
+                                        style={{ gridColumn: "span 1", padding: 8, borderRadius: 8, border: "1px solid rgba(29,161,242,0.4)", background: "rgba(29,161,242,0.15)", color: "#1da1f2", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}
+                                    >
+                                        📸 Share
+                                    </button>
                                 </div>
 
                                 <p style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 5-10 seconds to ensure NFTs load properly</p>
