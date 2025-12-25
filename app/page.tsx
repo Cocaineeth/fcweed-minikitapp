@@ -70,7 +70,7 @@ import {
     v4BattlesInterface,
 } from "./lib/abis";
 
-// Screenshot and share to Twitter/Farcaster
+// Screenshot and share to Twitter/Farcaster/Base
 async function captureAndShare(elementId: string, fallbackText: string) {
     try {
         const element = document.getElementById(elementId);
@@ -92,29 +92,32 @@ async function captureAndShare(elementId: string, fallbackText: string) {
             }
         }
 
-        // Try Farcaster SDK composeCast first (for Farcaster mini app)
+        // Try Farcaster/Base SDK composeCast (works in both Farcaster and Base App)
         try {
             if (sdk && sdk.actions && typeof sdk.actions.composeCast === 'function') {
-                await sdk.actions.composeCast({
-                    text: fallbackText,
-                    embeds: imageDataUrl ? [imageDataUrl] : undefined
-                });
+                const castOptions: any = { text: fallbackText };
+                // Add image as embed if we have it
+                if (imageDataUrl) {
+                    castOptions.embeds = [imageDataUrl];
+                }
+                await sdk.actions.composeCast(castOptions);
+                console.log('composeCast succeeded');
                 return;
             }
         } catch (e) {
-            console.log('Farcaster composeCast not available:', e);
+            console.log('composeCast failed or not available:', e);
         }
 
-        // Try Farcaster SDK openUrl (for opening Twitter)
+        // Try SDK openUrl to open Twitter (fallback for clients that support it)
         try {
             if (sdk && sdk.actions && typeof sdk.actions.openUrl === 'function') {
-                await sdk.actions.openUrl({
-                    url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`
-                });
+                const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(fallbackText)}`;
+                await sdk.actions.openUrl({ url: twitterUrl });
+                console.log('openUrl succeeded');
                 return;
             }
         } catch (e) {
-            console.log('Farcaster openUrl not available:', e);
+            console.log('openUrl failed or not available:', e);
         }
 
         // Try native Web Share API with image (mobile browsers)
@@ -129,6 +132,7 @@ async function captureAndShare(elementId: string, fallbackText: string) {
                         text: fallbackText,
                         files: [file],
                     });
+                    console.log('Native share with file succeeded');
                     return;
                 }
             } catch (e) {
@@ -140,6 +144,7 @@ async function captureAndShare(elementId: string, fallbackText: string) {
         if (navigator.share) {
             try {
                 await navigator.share({ text: fallbackText });
+                console.log('Native share text succeeded');
                 return;
             } catch (e) {
                 console.log('Native share failed:', e);
@@ -149,19 +154,22 @@ async function captureAndShare(elementId: string, fallbackText: string) {
         // Fallback: Copy to clipboard and alert user
         try {
             await navigator.clipboard.writeText(fallbackText);
-            alert('Tweet copied to clipboard! Open Twitter to paste and share.');
+            alert('Copied to clipboard! You can paste this on Twitter/X or Farcaster.');
+            return;
         } catch (e) {
-            // Last resort: prompt with text
-            prompt('Copy this tweet:', fallbackText);
+            console.log('Clipboard failed:', e);
         }
+        
+        // Last resort: prompt with text
+        prompt('Copy this to share:', fallbackText);
     } catch (e) {
         console.error('Share failed:', e);
         // Ultimate fallback
         try {
             await navigator.clipboard.writeText(fallbackText);
-            alert('Tweet copied to clipboard!');
+            alert('Copied to clipboard!');
         } catch {
-            prompt('Copy this tweet:', fallbackText);
+            prompt('Copy this to share:', fallbackText);
         }
     }
 }
