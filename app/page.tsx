@@ -292,6 +292,7 @@ export default function Home()
     const [selectedV5StakedSuperLands, setSelectedV5StakedSuperLands] = useState<number[]>([]);
     const [loadingV5Staking, setLoadingV5Staking] = useState(false);
     const [v5RealTimePending, setV5RealTimePending] = useState<string>("0.00");
+    const [v5ClaimCooldown, setV5ClaimCooldown] = useState<number>(0);
     const [v5PlantHealths, setV5PlantHealths] = useState<Record<number, number>>({});
     const [v5WaterNeeded, setV5WaterNeeded] = useState<Record<number, number>>({});
     const [selectedV5PlantsToWater, setSelectedV5PlantsToWater] = useState<number[]>([]);
@@ -1863,6 +1864,19 @@ export default function Home()
             const display = pendingFormatted >= 1e6 ? (pendingFormatted / 1e6).toFixed(4) + "M" : pendingFormatted >= 1e3 ? (pendingFormatted / 1e3).toFixed(2) + "K" : pendingFormatted.toFixed(2);
             setV5RealTimePending(display);
 
+            try {
+                const cooldownAbi = ["function getNextClaimTime(address) view returns (uint256)"];
+                const v5CooldownContract = new ethers.Contract(V5_STAKING_ADDRESS, cooldownAbi, readProvider);
+                const nextClaimTime = await v5CooldownContract.getNextClaimTime(userAddress);
+                const nextClaimTs = nextClaimTime.toNumber();
+                const now = Math.floor(Date.now() / 1000);
+                const remaining = nextClaimTs > now ? nextClaimTs - now : 0;
+                setV5ClaimCooldown(remaining);
+            } catch (e) {
+                console.error("[V5] Failed to get claim cooldown:", e);
+                setV5ClaimCooldown(0);
+            }
+
             const stakedPlantNums = stakedPlantIds.map((id: any) => Number(id));
             const stakedLandNums = stakedLandIds.map((id: any) => Number(id));
             const stakedSuperLandNums = stakedSuperLandIds.map((id: any) => Number(id));
@@ -1983,6 +1997,14 @@ export default function Home()
         }, 1000);
         return () => clearInterval(interval);
     }, [v5StakingOpen, v5StakingStats]);
+
+    useEffect(() => {
+        if (!v5StakingOpen || v5ClaimCooldown <= 0) return;
+        const interval = setInterval(() => {
+            setV5ClaimCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [v5StakingOpen, v5ClaimCooldown > 0]);
 
     useEffect(() => {
         if (!v5StakingOpen || v5StakedPlants.length === 0 || !V5_STAKING_ADDRESS) return;
@@ -4458,23 +4480,44 @@ export default function Home()
                                         <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>You are protected from attacks. Attacking others will remove your shield!</div>
                                     </div>
                                 )}
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, marginBottom: 12 }}>
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
-                                        <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>WINS</div>
-                                        <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
+                                
+                                {/* Defense Stats Box */}
+                                <div style={{ background: theme === "light" ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 8, padding: 8, marginBottom: 8 }}>
+                                    <div style={{ fontSize: 9, color: "#60a5fa", fontWeight: 700, textAlign: "center", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>🛡️ Defense Stats</div>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4 }}>
+                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
+                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>WINS</div>
+                                            <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.defWins || 0}</div>
+                                        </div>
+                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
+                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOSSES</div>
+                                            <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.defLosses || 0}</div>
+                                        </div>
                                     </div>
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
-                                        <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOSSES</div>
-                                        <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
+                                </div>
+                                
+                                {/* Attack Stats Box */}
+                                <div style={{ background: theme === "light" ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
+                                    <div style={{ fontSize: 9, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>⚔️ Attack Stats</div>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4 }}>
+                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
+                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>WINS</div>
+                                            <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
+                                        </div>
+                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
+                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOSSES</div>
+                                            <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
+                                        </div>
+                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
+                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>STREAK</div>
+                                            <div style={{ fontSize: 14, color: theme === "light" ? "#d97706" : "#fbbf24", fontWeight: 700 }}>{warsPlayerStats.winStreak || 0}🔥</div>
+                                        </div>
+                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
+                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>STOLEN</div>
+                                            <div style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>{warsPlayerStats.rewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
+                                        </div>
                                     </div>
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
-                                        <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>STREAK</div>
-                                        <div style={{ fontSize: 14, color: theme === "light" ? "#d97706" : "#fbbf24", fontWeight: 700 }}>{warsPlayerStats.bestStreak || warsPlayerStats.winStreak || 0}🔥</div>
-                                    </div>
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
-                                        <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>STOLEN</div>
-                                        <div style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>{warsPlayerStats.rewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
-                                    </div>
+                                    <div style={{ fontSize: 8, color: "#6b7280", textAlign: "center", marginTop: 6, fontStyle: "italic" }}>* Streak includes attack & defense wins</div>
                                 </div>
                             </>
                         )}
@@ -4861,6 +4904,14 @@ export default function Home()
                             <h2 className={styles.modalTitle} style={{ color: theme === "light" ? "#1e293b" : undefined }}>🚀 Staking V5</h2>
                             <button type="button" className={styles.modalClose} onClick={() => setV5StakingOpen(false)} style={{ background: theme === "light" ? "#f1f5f9" : undefined, color: theme === "light" ? "#64748b" : undefined }}>✕</button>
                         </header>
+
+                        {v5ClaimCooldown > 0 && (
+                            <div style={{ padding: "8px 12px", background: theme === "light" ? "rgba(251,191,36,0.08)" : "rgba(251,191,36,0.1)", borderRadius: 8, border: `1px solid ${theme === "light" ? "rgba(217,119,6,0.3)" : "rgba(251,191,36,0.3)"}`, marginBottom: 10, textAlign: "center" }}>
+                                <span style={{ fontSize: 12, color: theme === "light" ? "#d97706" : "#fbbf24", fontWeight: 600 }}>
+                                    ⏳ Claim Cooldown: {Math.floor(v5ClaimCooldown / 3600)}h {Math.floor((v5ClaimCooldown % 3600) / 60)}m {v5ClaimCooldown % 60}s
+                                </span>
+                            </div>
+                        )}
 
                         <div style={{ padding: "8px 12px", background: theme === "light" ? "rgba(16,185,129,0.08)" : "rgba(16,185,129,0.1)", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 10 }}>
                             <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>🚀 V5 is LIVE! Stake your NFTs and claim your $FCWEED rewards!</p>
