@@ -1,6 +1,5 @@
 // lib/tx.ts
 import { ethers } from "ethers";
-import { sdk } from "@farcaster/miniapp-sdk";
 
 export type EnsureWalletCtx = {
   signer: ethers.Signer;
@@ -56,129 +55,41 @@ export function makeTxActions(deps: TxDeps)
   {
     if (!ethProvider) throw new Error("Mini app provider not available");
 
-    const chainIdHex = ethers.utils.hexValue(CHAIN_ID);
+    const req =
+      ethProvider.request?.bind(ethProvider) ??
+      ethProvider.send?.bind(ethProvider);
+
+    if (!req) throw new Error("Mini app provider missing request/send method");
+
     let txHash: string | null = null;
 
-    // Method 1: Try Farcaster SDK's sendTransaction directly (most reliable for Farcaster)
-    try {
-      console.log("[TX] Trying sdk.wallet.sendTransaction...");
-      if (sdk && sdk.wallet && typeof sdk.wallet.sendTransaction === 'function') {
-        const result = await sdk.wallet.sendTransaction({
-          chainId: `eip155:${CHAIN_ID}`,
-          transaction: {
-            to,
-            data,
-            value: "0x0",
-          }
-        });
-        
-        console.log("[TX] sdk.wallet.sendTransaction result:", result);
-        
-        if (result && typeof result === 'object') {
-          txHash = result.transactionHash || result.hash || result.txHash || null;
-        } else if (typeof result === 'string' && result.startsWith('0x')) {
-          txHash = result;
-        }
-        
-        if (txHash) {
-          console.log("[TX] sdk.wallet.sendTransaction succeeded:", txHash);
-        }
-      }
-    } catch (sdkError: any) {
-      console.warn("[TX] sdk.wallet.sendTransaction failed:", sdkError?.message || sdkError);
-      // If user rejected via SDK, throw immediately
-      if (sdkError?.message?.toLowerCase().includes("rejected") || 
-          sdkError?.message?.toLowerCase().includes("denied") ||
-          sdkError?.message?.toLowerCase().includes("cancelled")) {
-        throw sdkError;
-      }
-    }
+    // Just use eth_sendTransaction - it's the most reliable
+    console.log("[TX] Sending transaction via eth_sendTransaction...");
+    const result = await req({
+      method: "eth_sendTransaction",
+      params: [
+        { from, to, data, value: "0x0", gas: gasLimit },
+      ],
+    });
 
-    // Method 2: Try eth_sendTransaction via provider
-    if (!txHash) {
-      const req =
-        ethProvider.request?.bind(ethProvider) ??
-        ethProvider.send?.bind(ethProvider);
-
-      if (!req) throw new Error("Mini app provider missing request/send method");
-
-      try
-      {
-        console.log("[TX] Trying eth_sendTransaction...");
-        const result = await req({
-          method: "eth_sendTransaction",
-          params: [
-            { from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit },
-          ],
-        });
-
-        if (typeof result === "string" && result.startsWith("0x")) txHash = result;
-        else txHash = result?.hash || result?.txHash || null;
-        
-        if (txHash) {
-          console.log("[TX] eth_sendTransaction succeeded:", txHash);
-        }
-      }
-      catch (sendTxError: any)
-      {
-        console.warn("[TX] eth_sendTransaction failed:", sendTxError?.message || sendTxError);
-        
-        // If user explicitly rejected, don't try fallback
-        if (sendTxError?.code === 4001 || 
-            sendTxError?.message?.toLowerCase().includes("user rejected") ||
-            sendTxError?.message?.toLowerCase().includes("user denied")) {
-          throw sendTxError;
-        }
-        
-        // Method 3: Try wallet_sendCalls as last resort
-        // Add a small delay to let any popup close properly
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        try
-        {
-          console.log("[TX] Trying wallet_sendCalls as fallback...");
-          const result = await req({
-            method: "wallet_sendCalls",
-            params: [
-              {
-                from,
-                chainId: chainIdHex,
-                atomicRequired: false,
-                capabilities: { paymasterService: {} },
-                calls: [{ to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit }],
-              },
-            ],
-          });
-
-          txHash =
-            result?.txHashes?.[0] ||
-            result?.txHash ||
-            result?.hash ||
-            result?.id ||
-            (typeof result === "string" && result.startsWith("0x") ? result : null);
-          
-          if (txHash) {
-            console.log("[TX] wallet_sendCalls succeeded:", txHash);
-          }
-        }
-        catch (sendCallsError: any)
-        {
-          console.error("[TX] wallet_sendCalls also failed:", sendCallsError?.message || sendCallsError);
-          throw sendCallsError;
-        }
-      }
+    if (typeof result === "string" && result.startsWith("0x")) {
+      txHash = result;
+    } else if (result?.hash) {
+      txHash = result.hash;
+    } else if (result?.txHash) {
+      txHash = result.txHash;
     }
 
     if (!txHash || typeof txHash !== "string" || !txHash.startsWith("0x") || txHash.length < 66)
     {
-      console.warn("[TX] No valid txHash received, returning placeholder");
+      console.warn("[TX] No valid txHash received:", result);
       return {
         hash: "0x" + "0".repeat(64),
         wait: async () => null,
       } as any;
     }
 
-    console.log("[TX] Final txHash:", txHash);
+    console.log("[TX] Got txHash:", txHash);
 
     const fakeTx: any = {
       hash: txHash,
@@ -223,15 +134,22 @@ export function makeTxActions(deps: TxDeps)
 
     try
     {
+      // Detect if we're on mobile
+      const isMobile = typeof window !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      
       // Use ethProvider from context if available (fresh from ensureWallet)
-      // Fall back to deps.miniAppEthProvider for backward compatibility
       const ethProvider = ctx.ethProvider || deps.miniAppEthProvider;
       
-      if (ctx.isMini && ethProvider)
+      // On mobile mini app, use raw provider for better compatibility
+      // On desktop (even in Farcaster iframe), use signer for more stable popup handling
+      if (ctx.isMini && ethProvider && isMobile)
       {
+        console.log("[TX] Using raw provider (mobile mini app)");
         return await sendWalletCallsWithProvider(ethProvider, ctx.userAddress, to, data, gasLimit);
       }
 
+      // Use signer for desktop (including desktop Farcaster) - more stable
+      console.log("[TX] Using signer.sendTransaction");
       const tx = await ctx.signer.sendTransaction({
         to,
         data,
@@ -262,6 +180,9 @@ export function makeTxActions(deps: TxDeps)
 
     const { signer: s, userAddress: addr, isMini } = ctx;
     const ethProvider = ctx.ethProvider || deps.miniAppEthProvider;
+    
+    // Detect if we're on mobile
+    const isMobile = typeof window !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
     setMintStatus("Checking USDC contract on Base…");
     const code = await readProvider.getCode(USDC_ADDRESS);
@@ -295,7 +216,8 @@ export function makeTxActions(deps: TxDeps)
 
     try
     {
-      if (isMini && ethProvider)
+      // Only use raw provider on mobile mini app
+      if (isMini && ethProvider && isMobile)
       {
         const data = usdcInterface.encodeFunctionData("approve", [spender, required]);
         await sendWalletCallsWithProvider(ethProvider, addr, USDC_ADDRESS, data);
@@ -328,6 +250,7 @@ export function makeTxActions(deps: TxDeps)
       }
       else
       {
+        // Use signer for desktop (including desktop Farcaster)
         const tx = await usdcWrite.approve(spender, required);
         await waitForTx(tx);
         setMintStatus("USDC approve confirmed. Sending mint transaction…");
