@@ -6,7 +6,7 @@ export type EnsureWalletCtx = {
   provider: ethers.providers.Provider;
   userAddress: string;
   isMini: boolean;
-  ethProvider?: any; // Fresh eth provider from ensureWallet
+  ethProvider?: any; // Fresh provider from ensureWallet
 };
 
 export type EnsureWalletFn = () => Promise<EnsureWalletCtx | null>;
@@ -44,7 +44,8 @@ export function makeTxActions(deps: TxDeps)
     setMintStatus,
   } = deps;
 
-  async function sendWalletCalls(
+  // Internal function that takes ethProvider as parameter (avoids stale closure)
+  async function sendWalletCallsInternal(
     ethProvider: any,
     from: string,
     to: string,
@@ -136,6 +137,17 @@ export function makeTxActions(deps: TxDeps)
     return fakeTx as ethers.providers.TransactionResponse;
   }
 
+  // Legacy function for backward compatibility (uses deps.miniAppEthProvider)
+  async function sendWalletCalls(
+    from: string,
+    to: string,
+    data: string,
+    gasLimit: string = "0x1E8480"
+  ): Promise<ethers.providers.TransactionResponse>
+  {
+    return sendWalletCallsInternal(deps.miniAppEthProvider, from, to, data, gasLimit);
+  }
+
   async function sendContractTx(
     to: string,
     data: string,
@@ -145,14 +157,14 @@ export function makeTxActions(deps: TxDeps)
     const ctx = await ensureWallet();
     if (!ctx) return null;
 
-    // Use fresh ethProvider from context, fallback to deps for backward compat
+    // Use fresh ethProvider from ctx, fallback to deps for backward compat
     const ethProvider = ctx.ethProvider || deps.miniAppEthProvider;
 
     try
     {
       if (ctx.isMini && ethProvider)
       {
-        return await sendWalletCalls(ethProvider, ctx.userAddress, to, data, gasLimit);
+        return await sendWalletCallsInternal(ethProvider, ctx.userAddress, to, data, gasLimit);
       }
 
       const tx = await ctx.signer.sendTransaction({
@@ -221,7 +233,7 @@ export function makeTxActions(deps: TxDeps)
       if (isMini && ethProvider)
       {
         const data = usdcInterface.encodeFunctionData("approve", [spender, required]);
-        await sendWalletCalls(ethProvider, addr, USDC_ADDRESS, data);
+        await sendWalletCallsInternal(ethProvider, addr, USDC_ADDRESS, data);
 
         setMintStatus("Waiting for USDC approve confirmation…");
         for (let i = 0; i < 20; i++)

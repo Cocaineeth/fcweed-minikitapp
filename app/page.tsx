@@ -332,10 +332,6 @@ export default function Home()
     const [loadingOldStaking, setLoadingOldStaking] = useState(false);
     const [loadingNewStaking, setLoadingNewStaking] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
-    
-    // Ref to pause ALL background activity when wallet popup is open
-    const walletPopupActiveRef = useRef(false);
-    
     const [oldLandStakingEnabled, setOldLandStakingEnabled] = useState(false);
     const [newLandStakingEnabled, setNewLandStakingEnabled] = useState(false);
     const [newSuperLandStakingEnabled, setNewSuperLandStakingEnabled] = useState(false);
@@ -414,22 +410,27 @@ export default function Home()
     const processedCrateTxHashes = useRef<Set<string>>(new Set());
     const crateSpinInterval = useRef<NodeJS.Timeout | null>(null);
     const txRef = useRef<ReturnType<typeof makeTxActions> | null>(null);
+    
+    // Track if wallet popup is active - ALL intervals check this before running
+    const walletBusyRef = useRef(false);
 
     function txAction()
     {
         if (!txRef.current) throw new Error("tx actions not ready yet");
-        return txRef.current;
-    }
-
-    // Wrapped sendContractTx that pauses background activity during wallet popup
-    async function sendTxWithPause(to: string, data: string, gasLimit?: string) {
-        walletPopupActiveRef.current = true;
-        try {
-            const result = await txAction().sendContractTx(to, data, gasLimit);
-            return result;
-        } finally {
-            walletPopupActiveRef.current = false;
-        }
+        
+        // Wrap sendContractTx to set walletBusy flag
+        const original = txRef.current;
+        return {
+            ...original,
+            sendContractTx: async (to: string, data: string, gasLimit?: string) => {
+                walletBusyRef.current = true;
+                try {
+                    return await original.sendContractTx(to, data, gasLimit);
+                } finally {
+                    walletBusyRef.current = false;
+                }
+            }
+        };
     }
 
     useEffect(() =>
@@ -603,6 +604,7 @@ export default function Home()
         data: string, 
         value: string = "0x0"
     ): Promise<string | null> {
+        walletBusyRef.current = true;
         try {
             const anyProvider = (window as any).ethereum;
             if (!anyProvider?.request || !userAddress) {
@@ -639,6 +641,8 @@ export default function Home()
             console.error("[Paymaster] Sponsored tx failed:", err);
             // Return null to fall back to regular transaction
             return null;
+        } finally {
+            walletBusyRef.current = false;
         }
     }
 
@@ -1067,7 +1071,7 @@ export default function Home()
                 setMintStatus("Sponsorship unavailable, using regular transaction…");
             }
             
-            const tx = await sendTxWithPause(LAND_ADDRESS, data);
+            const tx = await txAction().sendContractTx(LAND_ADDRESS, data);
             if (!tx) return;
             setMintStatus("Land mint transaction sent. Waiting for confirmation…");
             await waitForTx(tx);
@@ -1109,7 +1113,7 @@ export default function Home()
                 setMintStatus("Sponsorship unavailable, using regular transaction…");
             }
             
-            const tx = await sendTxWithPause(PLANT_ADDRESS, data);
+            const tx = await txAction().sendContractTx(PLANT_ADDRESS, data);
             if (!tx) return;
             setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
             await waitForTx(tx);
@@ -1139,12 +1143,12 @@ export default function Home()
             if (fcweedBal.lt(SUPER_LAND_FCWEED_COST)) { setMintStatus("Need 2M FCWEED."); setActionLoading(false); return; }
             setMintStatus("Approving Land…");
             const landApproved = await landRead.isApprovedForAll(ctx.userAddress, SUPER_LAND_ADDRESS);
-            if (!landApproved) await waitForTx(await sendTxWithPause(LAND_ADDRESS, erc721Interface.encodeFunctionData("setApprovalForAll", [SUPER_LAND_ADDRESS, true])));
+            if (!landApproved) await waitForTx(await txAction().sendContractTx(LAND_ADDRESS, erc721Interface.encodeFunctionData("setApprovalForAll", [SUPER_LAND_ADDRESS, true])));
             setMintStatus("Approving FCWEED…");
             const fcweedAllowance = await fcweedRead.allowance(ctx.userAddress, SUPER_LAND_ADDRESS);
-            if (fcweedAllowance.lt(SUPER_LAND_FCWEED_COST)) await waitForTx(await sendTxWithPause(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [SUPER_LAND_ADDRESS, ethers.constants.MaxUint256])));
+            if (fcweedAllowance.lt(SUPER_LAND_FCWEED_COST)) await waitForTx(await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [SUPER_LAND_ADDRESS, ethers.constants.MaxUint256])));
             setMintStatus("Upgrading…");
-            await waitForTx(await sendTxWithPause(SUPER_LAND_ADDRESS, superLandInterface.encodeFunctionData("upgrade", [selectedLandForUpgrade])));
+            await waitForTx(await txAction().sendContractTx(SUPER_LAND_ADDRESS, superLandInterface.encodeFunctionData("upgrade", [selectedLandForUpgrade])));
             setMintStatus("Super Land minted ✅");
             setUpgradeModalOpen(false); setSelectedLandForUpgrade(null);
             ownedCacheRef.current = { addr: null, state: null };
@@ -1242,7 +1246,7 @@ export default function Home()
     async function ensureCollectionApproval(collectionAddress: string, stakingAddress: string, ctx: { signer: ethers.Signer; userAddress: string }) {
         const nftRead = new ethers.Contract(collectionAddress, ERC721_VIEW_ABI, readProvider);
         if (!(await nftRead.isApprovedForAll(ctx.userAddress, stakingAddress))) {
-            const tx = await sendTxWithPause(collectionAddress, erc721Interface.encodeFunctionData("setApprovalForAll", [stakingAddress, true]));
+            const tx = await txAction().sendContractTx(collectionAddress, erc721Interface.encodeFunctionData("setApprovalForAll", [stakingAddress, true]));
             if (!tx) throw new Error("Approval rejected");
             await waitForTx(tx);
         }
@@ -1474,7 +1478,7 @@ export default function Home()
 
     const refreshV4StakingRef = useRef(false);
     async function refreshV4Staking() {
-        if (walletPopupActiveRef.current) return; // Don't refresh while wallet popup is open
+        if (walletBusyRef.current) return; // Don't refresh during wallet interaction
         if (refreshV4StakingRef.current || !userAddress || !V4_STAKING_ADDRESS) return;
         refreshV4StakingRef.current = true;
         setLoadingV4Staking(true);
@@ -1648,7 +1652,7 @@ export default function Home()
         const tokensPerSecond = ethers.utils.parseUnits("300000", 18).div(86400);
         const effectivePerSecond = tokensPerSecond.mul(plants);
         const interval = setInterval(() => {
-            if (walletPopupActiveRef.current) return; // Skip while wallet popup is open
+            if (walletBusyRef.current) return; // Skip during wallet interaction
             currentPending = currentPending.add(effectivePerSecond.mul(v4StakingStats.avgHealth || 100).div(100));
             const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
             setV4RealTimePending(formatted >= 1e6 ? (formatted / 1e6).toFixed(4) + "M" : formatted >= 1e3 ? (formatted / 1e3).toFixed(2) + "K" : formatted.toFixed(2));
@@ -1659,7 +1663,7 @@ export default function Home()
     useEffect(() => {
         if (!v4StakingOpen || v4StakedPlants.length === 0 || !V4_STAKING_ADDRESS) return;
         const healthInterval = setInterval(async () => {
-            if (walletPopupActiveRef.current) return; // Skip while wallet popup is open
+            if (walletBusyRef.current) return; // Skip during wallet interaction
             try {
                 const healthCalls = v4StakedPlants.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
                 const waterCalls = v4StakedPlants.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
@@ -1710,7 +1714,7 @@ export default function Home()
             const ctx = await ensureWallet(); if (!ctx) return;
             await ensureCollectionApproval(PLANT_ADDRESS, V4_STAKING_ADDRESS, ctx);
             setV4ActionStatus("Staking plants...");
-            const tx = await sendTxWithPause(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakePlants", [selectedV4AvailPlants]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakePlants", [selectedV4AvailPlants]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Staked!");
@@ -1728,7 +1732,7 @@ export default function Home()
             const ctx = await ensureWallet(); if (!ctx) return;
             await ensureCollectionApproval(LAND_ADDRESS, V4_STAKING_ADDRESS, ctx);
             setV4ActionStatus("Staking lands...");
-            const tx = await sendTxWithPause(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakeLands", [selectedV4AvailLands]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakeLands", [selectedV4AvailLands]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Staked!");
@@ -1746,7 +1750,7 @@ export default function Home()
             const ctx = await ensureWallet(); if (!ctx) return;
             await ensureCollectionApproval(SUPER_LAND_ADDRESS, V4_STAKING_ADDRESS, ctx);
             setV4ActionStatus("Staking super lands...");
-            const tx = await sendTxWithPause(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV4AvailSuperLands]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV4AvailSuperLands]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Staked!");
@@ -1767,7 +1771,7 @@ export default function Home()
         }
         try {
             setActionLoading(true); setV4ActionStatus("Unstaking plants...");
-            const tx = await sendTxWithPause(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakePlants", [selectedV4StakedPlants]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakePlants", [selectedV4StakedPlants]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Unstaked!");
@@ -1788,7 +1792,7 @@ export default function Home()
         if (selectedV4StakedLands.length === 0) return;
         try {
             setActionLoading(true); setV4ActionStatus("Unstaking lands...");
-            const tx = await sendTxWithPause(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeLands", [selectedV4StakedLands]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeLands", [selectedV4StakedLands]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Unstaked!");
@@ -1803,7 +1807,7 @@ export default function Home()
         if (selectedV4StakedSuperLands.length === 0) return;
         try {
             setActionLoading(true); setV4ActionStatus("Unstaking super lands...");
-            const tx = await sendTxWithPause(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeSuperLands", [selectedV4StakedSuperLands]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeSuperLands", [selectedV4StakedSuperLands]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Unstaked!");
@@ -1818,7 +1822,7 @@ export default function Home()
         if (!v4StakingStats || v4StakingStats.pendingFormatted <= 0) { setV4ActionStatus("No rewards."); return; }
         try {
             setActionLoading(true); setV4ActionStatus("Claiming...");
-            const tx = await sendTxWithPause(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("claim", []));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("claim", []));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Claimed!");
@@ -1832,7 +1836,7 @@ export default function Home()
         if (selectedV4PlantsToWater.length === 0) return;
         try {
             setActionLoading(true); setV4ActionStatus("Watering plants...");
-            const tx = await sendTxWithPause(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater]));
+            const tx = await txAction().sendContractTx(V4_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV4ActionStatus("Plants watered!");
@@ -1847,7 +1851,7 @@ export default function Home()
     const refreshV5StakingRef = useRef(false);
 
     async function refreshV5Staking() {
-        if (walletPopupActiveRef.current) return; // Don't refresh while wallet popup is open
+        if (walletBusyRef.current) return; // Don't refresh during wallet interaction
         if (refreshV5StakingRef.current || !userAddress || !V5_STAKING_ADDRESS) return;
         refreshV5StakingRef.current = true;
         setLoadingV5Staking(true);
@@ -2010,7 +2014,7 @@ export default function Home()
         const tokensPerSecond = ethers.utils.parseUnits("300000", 18).div(86400);
         const effectivePerSecond = tokensPerSecond.mul(plants);
         const interval = setInterval(() => {
-            if (walletPopupActiveRef.current) return; // Skip while wallet popup is open
+            if (walletBusyRef.current) return; // Skip during wallet interaction
             currentPending = currentPending.add(effectivePerSecond.mul(v5StakingStats.avgHealth || 100).div(100));
             const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
             setV5RealTimePending(formatted >= 1e6 ? (formatted / 1e6).toFixed(4) + "M" : formatted >= 1e3 ? (formatted / 1e3).toFixed(2) + "K" : formatted.toFixed(2));
@@ -2021,7 +2025,7 @@ export default function Home()
     useEffect(() => {
         if (!v5StakingOpen || v5ClaimCooldown <= 0) return;
         const interval = setInterval(() => {
-            if (walletPopupActiveRef.current) return; // Skip while wallet popup is open
+            if (walletBusyRef.current) return; // Skip during wallet interaction
             setV5ClaimCooldown((prev) => (prev > 0 ? prev - 1 : 0));
         }, 1000);
         return () => clearInterval(interval);
@@ -2030,7 +2034,7 @@ export default function Home()
     useEffect(() => {
         if (!v5StakingOpen || v5StakedPlants.length === 0 || !V5_STAKING_ADDRESS) return;
         const healthInterval = setInterval(async () => {
-            if (walletPopupActiveRef.current) return; // Skip while wallet popup is open
+            if (walletBusyRef.current) return; // Skip during wallet interaction
             try {
                 const healthCalls = v5StakedPlants.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
                 const waterCalls = v5StakedPlants.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
@@ -2103,7 +2107,7 @@ export default function Home()
             }
             
             setV5ActionStatus("Staking plants...");
-            const tx = await sendTxWithPause(V5_STAKING_ADDRESS, data);
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, data);
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Staked!");
@@ -2139,7 +2143,7 @@ export default function Home()
             }
             
             setV5ActionStatus("Staking lands...");
-            const tx = await sendTxWithPause(V5_STAKING_ADDRESS, data);
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, data);
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Staked!");
@@ -2175,7 +2179,7 @@ export default function Home()
             }
             
             setV5ActionStatus("Staking super lands...");
-            const tx = await sendTxWithPause(V5_STAKING_ADDRESS, data);
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, data);
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Staked!");
@@ -2195,7 +2199,7 @@ export default function Home()
         }
         try {
             setActionLoading(true); setV5ActionStatus("Unstaking plants...");
-            const tx = await sendTxWithPause(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakePlants", [selectedV5StakedPlants]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakePlants", [selectedV5StakedPlants]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Unstaked!");
@@ -2214,7 +2218,7 @@ export default function Home()
         if (selectedV5StakedLands.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Unstaking lands...");
-            const tx = await sendTxWithPause(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeLands", [selectedV5StakedLands]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeLands", [selectedV5StakedLands]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Unstaked!");
@@ -2229,7 +2233,7 @@ export default function Home()
         if (selectedV5StakedSuperLands.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Unstaking super lands...");
-            const tx = await sendTxWithPause(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeSuperLands", [selectedV5StakedSuperLands]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeSuperLands", [selectedV5StakedSuperLands]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Unstaked!");
@@ -2244,7 +2248,7 @@ export default function Home()
         if (!v5StakingStats || v5StakingStats.pendingFormatted <= 0) { setV5ActionStatus("No rewards."); return; }
         try {
             setActionLoading(true); setV5ActionStatus("Claiming...");
-            const tx = await sendTxWithPause(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("claim", []));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("claim", []));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Claimed!");
@@ -2258,7 +2262,7 @@ export default function Home()
         if (selectedV5PlantsToWater.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Watering plants...");
-            const tx = await sendTxWithPause(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("waterPlants", [selectedV5PlantsToWater]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("waterPlants", [selectedV5PlantsToWater]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Plants watered!");
@@ -2318,12 +2322,12 @@ export default function Home()
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             const allowance = await tokenContract.allowance(userAddress, V5_STAKING_ADDRESS);
             if (allowance.lt(cost)) {
-                const approveTx = await sendTxWithPause(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_STAKING_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_STAKING_ADDRESS, ethers.constants.MaxUint256]));
                 if (!approveTx) throw new Error("Approval rejected");
                 await waitForTx(approveTx);
             }
             setWaterStatus("Buying water...");
-            const tx = await sendTxWithPause(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("buyWater", [waterBuyAmount]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("buyWater", [waterBuyAmount]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setWaterStatus("Water purchased!");
@@ -2631,7 +2635,7 @@ export default function Home()
 
             if (allowance.lt(searchFee)) {
                 setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await sendTxWithPause(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
                 if (!approveTx) throw new Error("Approval rejected");
                 setWarsStatus("Waiting for approval...");
                 await waitForTx(approveTx, readProvider);
@@ -2640,7 +2644,7 @@ export default function Home()
 
             setWarsStatus("Paying 50K FCWEED (confirm in wallet)...");
 
-            const searchTx = await sendTxWithPause(
+            const searchTx = await txAction().sendContractTx(
                 V5_BATTLES_ADDRESS,
                 v4BattlesInterface.encodeFunctionData("searchForTarget", [target, nonce, deadline, signature]),
                 "0x1E8480"
@@ -2759,7 +2763,7 @@ export default function Home()
             }
 
 
-            const tx = await sendTxWithPause(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("attack", []), "0x1E8480");
+            const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("attack", []), "0x1E8480");
             if (!tx) {
                 setWarsStatus("Transaction rejected");
                 setWarsAttacking(false);
@@ -2893,7 +2897,7 @@ export default function Home()
             const activeSearch = await battlesContract.getActiveSearch(ctx.userAddress);
             if (activeSearch.isValid) {
                 setWarsStatus("Cancelling locked target...");
-                const cancelTx = await sendTxWithPause(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cancelSearch", []), "0x1E8480");
+                const cancelTx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cancelSearch", []), "0x1E8480");
                 if (cancelTx) await waitForTx(cancelTx, readProvider);
             }
         }
@@ -2919,6 +2923,7 @@ export default function Home()
     useEffect(() => {
         if (!warsSearchExpiry || warsSearchExpiry <= 0) return;
         const interval = setInterval(() => {
+            if (walletBusyRef.current) return; // Skip during wallet interaction
             const now = Math.floor(Date.now() / 1000);
             if (warsSearchExpiry <= now) {
                 setWarsTarget(null);
