@@ -1,5 +1,6 @@
 // lib/tx.ts
 import { ethers } from "ethers";
+import { sdk } from "@farcaster/miniapp-sdk";
 
 export type EnsureWalletCtx = {
   signer: ethers.Signer;
@@ -55,48 +56,88 @@ export function makeTxActions(deps: TxDeps)
   {
     if (!ethProvider) throw new Error("Mini app provider not available");
 
-    const req =
-      ethProvider.request?.bind(ethProvider) ??
-      ethProvider.send?.bind(ethProvider);
-
-    if (!req) throw new Error("Mini app provider missing request/send method");
-
     const chainIdHex = ethers.utils.hexValue(CHAIN_ID);
-
-    let result: any;
     let txHash: string | null = null;
 
-    // Detect if we're on desktop (no touch support typically)
-    const isDesktop = typeof window !== 'undefined' && !('ontouchstart' in window);
-    
-    // On desktop Farcaster, prefer wallet_sendCalls first as it's more reliable
-    // This avoids the popup racing issue where eth_sendTransaction fails and 
-    // wallet_sendCalls opens a second popup that auto-closes
-    const methodOrder = isDesktop 
-      ? ["wallet_sendCalls", "eth_sendTransaction"] 
-      : ["eth_sendTransaction", "wallet_sendCalls"];
-
-    for (const method of methodOrder) {
-      try {
-        if (method === "eth_sendTransaction") {
-          console.log("[TX] Trying eth_sendTransaction...");
-          result = await req({
-            method: "eth_sendTransaction",
-            params: [
-              { from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit },
-            ],
-          });
-
-          if (typeof result === "string" && result.startsWith("0x")) {
-            txHash = result;
-            break;
-          } else if (result?.hash || result?.txHash) {
-            txHash = result?.hash || result?.txHash;
-            break;
+    // Method 1: Try Farcaster SDK's sendTransaction directly (most reliable for Farcaster)
+    try {
+      console.log("[TX] Trying sdk.wallet.sendTransaction...");
+      if (sdk && sdk.wallet && typeof sdk.wallet.sendTransaction === 'function') {
+        const result = await sdk.wallet.sendTransaction({
+          chainId: `eip155:${CHAIN_ID}`,
+          transaction: {
+            to,
+            data,
+            value: "0x0",
           }
-        } else if (method === "wallet_sendCalls") {
-          console.log("[TX] Trying wallet_sendCalls...");
-          result = await req({
+        });
+        
+        console.log("[TX] sdk.wallet.sendTransaction result:", result);
+        
+        if (result && typeof result === 'object') {
+          txHash = result.transactionHash || result.hash || result.txHash || null;
+        } else if (typeof result === 'string' && result.startsWith('0x')) {
+          txHash = result;
+        }
+        
+        if (txHash) {
+          console.log("[TX] sdk.wallet.sendTransaction succeeded:", txHash);
+        }
+      }
+    } catch (sdkError: any) {
+      console.warn("[TX] sdk.wallet.sendTransaction failed:", sdkError?.message || sdkError);
+      // If user rejected via SDK, throw immediately
+      if (sdkError?.message?.toLowerCase().includes("rejected") || 
+          sdkError?.message?.toLowerCase().includes("denied") ||
+          sdkError?.message?.toLowerCase().includes("cancelled")) {
+        throw sdkError;
+      }
+    }
+
+    // Method 2: Try eth_sendTransaction via provider
+    if (!txHash) {
+      const req =
+        ethProvider.request?.bind(ethProvider) ??
+        ethProvider.send?.bind(ethProvider);
+
+      if (!req) throw new Error("Mini app provider missing request/send method");
+
+      try
+      {
+        console.log("[TX] Trying eth_sendTransaction...");
+        const result = await req({
+          method: "eth_sendTransaction",
+          params: [
+            { from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit },
+          ],
+        });
+
+        if (typeof result === "string" && result.startsWith("0x")) txHash = result;
+        else txHash = result?.hash || result?.txHash || null;
+        
+        if (txHash) {
+          console.log("[TX] eth_sendTransaction succeeded:", txHash);
+        }
+      }
+      catch (sendTxError: any)
+      {
+        console.warn("[TX] eth_sendTransaction failed:", sendTxError?.message || sendTxError);
+        
+        // If user explicitly rejected, don't try fallback
+        if (sendTxError?.code === 4001 || 
+            sendTxError?.message?.toLowerCase().includes("user rejected") ||
+            sendTxError?.message?.toLowerCase().includes("user denied")) {
+          throw sendTxError;
+        }
+        
+        // Method 3: Try wallet_sendCalls as last resort
+        // Add a small delay to let any popup close properly
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        try
+        {
+          console.log("[TX] Trying wallet_sendCalls as fallback...");
+          const result = await req({
             method: "wallet_sendCalls",
             params: [
               {
@@ -116,16 +157,15 @@ export function makeTxActions(deps: TxDeps)
             result?.id ||
             (typeof result === "string" && result.startsWith("0x") ? result : null);
           
-          if (txHash) break;
+          if (txHash) {
+            console.log("[TX] wallet_sendCalls succeeded:", txHash);
+          }
         }
-      } catch (err: any) {
-        console.warn(`[TX] ${method} failed:`, err?.message || err);
-        // If user rejected, don't try the next method
-        if (err?.code === 4001 || err?.message?.includes("rejected") || err?.message?.includes("denied")) {
-          throw err;
+        catch (sendCallsError: any)
+        {
+          console.error("[TX] wallet_sendCalls also failed:", sendCallsError?.message || sendCallsError);
+          throw sendCallsError;
         }
-        // Continue to next method
-        continue;
       }
     }
 
@@ -138,7 +178,7 @@ export function makeTxActions(deps: TxDeps)
       } as any;
     }
 
-    console.log("[TX] Got txHash:", txHash);
+    console.log("[TX] Final txHash:", txHash);
 
     const fakeTx: any = {
       hash: txHash,
