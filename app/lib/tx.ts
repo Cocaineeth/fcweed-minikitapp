@@ -68,79 +68,52 @@ export function makeTxActions(deps: TxDeps)
     const req = ethProvider.request?.bind(ethProvider) ?? ethProvider.send?.bind(ethProvider);
     if (!req) throw new Error("Mini app provider missing request/send method");
 
-    // On desktop Farcaster, there's often a provider conflict with MetaMask/other extensions
-    // We MUST use ONLY the Farcaster SDK provider, not window.ethereum
+    // On desktop Farcaster, the provider auto-rejects eth_sendTransaction
+    // Try communicating directly with the parent frame
     if (!isMobile) {
-      console.log("[TX] Desktop - using Farcaster SDK...");
+      console.log("[TX] Desktop Farcaster - trying frame communication...");
       
       try {
         const { sdk } = await import("@farcaster/miniapp-sdk");
-        await sdk.actions.ready();
         
-        // Log ALL available SDK methods to find transaction capabilities
-        console.log("[TX] SDK available:", {
-          actions: sdk.actions ? Object.keys(sdk.actions) : "none",
-          wallet: sdk.wallet ? Object.keys(sdk.wallet) : "none",
-        });
+        // Check if we're in an iframe (Farcaster miniapp context)
+        const inIframe = window !== window.parent;
+        console.log("[TX] In iframe:", inIframe);
         
-        // Check if there's a direct transaction method on sdk.wallet
-        if (sdk.wallet) {
-          console.log("[TX] Checking sdk.wallet methods...");
-          for (const key of Object.keys(sdk.wallet)) {
-            console.log(`[TX] sdk.wallet.${key}:`, typeof (sdk.wallet as any)[key]);
-          }
-        }
-        
-        // Get the Farcaster-specific provider
+        // Get provider and account first
         const farcasterProvider = await sdk.wallet.getEthereumProvider();
-        if (!farcasterProvider?.request) {
-          throw new Error("Could not get Farcaster provider");
-        }
-        
-        // Log provider methods
-        console.log("[TX] Provider methods:", Object.keys(farcasterProvider));
-        
-        // Get accounts
         let accounts = await farcasterProvider.request({ method: "eth_accounts" });
         if (!accounts?.[0]) {
           accounts = await farcasterProvider.request({ method: "eth_requestAccounts" });
         }
-        
-        if (!accounts?.[0]) {
-          throw new Error("No accounts from Farcaster provider");
-        }
-        
-        const account = accounts[0];
+        const account = accounts?.[0];
         console.log("[TX] Account:", account);
         
-        // Check what methods the provider supports
-        try {
-          const methods = await farcasterProvider.request({ 
-            method: "wallet_supportedMethods" 
-          });
-          console.log("[TX] Supported methods:", methods);
-        } catch (e) {
-          console.log("[TX] wallet_supportedMethods not available");
+        if (!account) {
+          throw new Error("No account available");
         }
         
-        // Try eth_sendTransaction with minimal params
-        console.log("[TX] Attempting eth_sendTransaction...");
+        // Try to use sdk.actions if there's any transaction-related action
+        console.log("[TX] SDK actions:", Object.keys(sdk.actions || {}));
         
-        result = await farcasterProvider.request({
-          method: "eth_sendTransaction",
-          params: [{
-            from: account,
+        // Check for sendToken action (might work for contract calls too)
+        if ((sdk.actions as any).sendTransaction) {
+          console.log("[TX] Found sdk.actions.sendTransaction, trying...");
+          const actionResult = await (sdk.actions as any).sendTransaction({
+            chainId: `eip155:${CHAIN_ID}`,
             to: to,
             data: data,
-          }],
-        });
+            value: "0",
+          });
+          console.log("[TX] sendTransaction action result:", actionResult);
+          if (actionResult?.transactionHash || actionResult?.hash) {
+            txHash = actionResult.transactionHash || actionResult.hash;
+          }
+        }
         
-        console.log("[TX] Result:", result);
-        
-        if (typeof result === "string" && result.startsWith("0x") && result.length >= 66) {
-          txHash = result;
-          console.log("[TX] SUCCESS! txHash:", txHash);
-          
+        // If we have a hash from action, return it
+        if (txHash && txHash.length >= 64) {
+          console.log("[TX] Got hash from action:", txHash);
           const fakeTx: any = {
             hash: txHash,
             wait: async () => {
@@ -155,15 +128,57 @@ export function makeTxActions(deps: TxDeps)
             },
           };
           return fakeTx as ethers.providers.TransactionResponse;
-        } else {
-          throw new Error("Invalid result: " + JSON.stringify(result));
         }
+        
+        // Last resort: try eth_sendTransaction anyway
+        // Some versions of Farcaster might show a popup
+        console.log("[TX] Trying eth_sendTransaction (last resort)...");
+        result = await farcasterProvider.request({
+          method: "eth_sendTransaction",
+          params: [{
+            from: account,
+            to: to,
+            data: data,
+          }],
+        });
+        
+        console.log("[TX] eth_sendTransaction result:", result);
+        
+        if (typeof result === "string" && result.startsWith("0x") && result.length >= 66) {
+          txHash = result;
+          const fakeTx: any = {
+            hash: txHash,
+            wait: async () => {
+              for (let j = 0; j < 45; j++) {
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+                try {
+                  const receipt = await readProvider.getTransactionReceipt(txHash!);
+                  if (receipt && receipt.confirmations > 0) return receipt;
+                } catch { }
+              }
+              return null;
+            },
+          };
+          return fakeTx as ethers.providers.TransactionResponse;
+        }
+        
+        throw new Error("Transaction failed - no hash returned");
         
       } catch (err: any) {
         console.error("[TX] Desktop transaction failed:", {
           message: err?.message,
           code: err?.code,
         });
+        
+        // If it's the auto-reject, provide a helpful message
+        if (err?.code === 4001) {
+          const customError = new Error(
+            "Desktop Farcaster doesn't support transaction signing yet. Please use the Farcaster mobile app or Warpcast mobile to complete transactions."
+          );
+          (customError as any).code = 4001;
+          throw customError;
+        }
+        
         throw err;
       }
     }
