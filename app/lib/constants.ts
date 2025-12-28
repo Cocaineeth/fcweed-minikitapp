@@ -1,8 +1,7 @@
 import { ethers } from "ethers";
 
 export const CHAIN_ID = 8453;
-// export const PUBLIC_BASE_RPC = "https://mainnet.base.org";
-export const PUBLIC_BASE_RPC = "https://base.public.blockpi.network/v1/rpc/public";
+export const PUBLIC_BASE_RPC = "https://base.publicnode.com";
 
 export const FCWEED_ADDRESS = "0x42ef01219BDb2190F275Cda7956D08822549d224";
 export const PLANT_ADDRESS = "0xD84890240C2CBB66a825915cD20aEe89C6b66dD5";
@@ -12,19 +11,25 @@ export const SUPER_LAND_ADDRESS = "0xAcd70377fF1aaF4E1aE76398C678CBE6ECc35e7d";
 export const METADATA_MODE: "local-only" | "hybrid" | "remote-all" = "hybrid";
 export const TOKEN_SYMBOL = "FCWEED";
 
-export const CRATE_VAULT_ADDRESS = "0x63e0F8Bf2670f54b7DB51254cED9B65b2B748B0C";
+export const CRATE_VAULT_ADDRESS = "0xC46cEF723767AcCeb3C7ad2513B9c997eACEcff4";
 export const CRATE_COST = ethers.utils.parseUnits("200000", 18);
 
-// Add to constants.ts if you still need these
 export const OLD_STAKING_ADDRESS = "0x9dA6B01BFcbf5ab256B7B1d46F316e946da85507";
 export const NEW_STAKING_ADDRESS = "0xe876f175AcD484b0F502cEA38FC9215913FCDCdb";
 export const V4_ITEMSHOP_ADDRESS = "0x2aBa0B4F7DCe039c170ec9347DDC634d95E79ee8";
 export const V4_STAKING_ADDRESS = "0x0A79278b0017Aa90DF59696F0aA4e0648c45bb92";
 export const V4_BATTLES_ADDRESS = "0xaea874795C4368B446c8da1A3EA90dB134349Ce3";
-export const V5_STAKING_ADDRESS = "0xAF335bd7c4DaA6DC137815bA0d6141534CEB75D4";
-export const V5_BATTLES_ADDRESS = "0xc023bcE1e9387B3F3BeE91B4E87Cc7A22c225e14";
-export const V5_ITEMSHOP_ADDRESS = "0xDB342d98e62B4178a2591AD3A10F1f3aedD97332";
 
+export const V5_STAKING_ADDRESS = "0xAF335bd7c4DaA6DC137815bA0d6141534CEB75D4";
+export const V5_ITEMSHOP_ADDRESS = "0xB51131427155b59Cffaaf181E4407d202C334A53";
+export const V5_BATTLES_ADDRESS = "0xa944070DE111045B9e0F31266Fc39604cDe5FBD4";
+export const ITEM_SHOP_ADDRESS = "0xB51131427155b59Cffaaf181E4407d202C334A53";
+
+export const BATTLE_SYSTEM_ADDRESS = "0xa944070DE111045B9e0F31266Fc39604cDe5FBD4";
+export const DEA_RAIDS_ADDRESS = "0xa944070DE111045B9e0F31266Fc39604cDe5FBD4";
+export const PURGE_ADDRESS = "0xa944070DE111045B9e0F31266Fc39604cDe5FBD4";
+
+export const WARS_BACKEND_URL = process.env.NEXT_PUBLIC_WARS_BACKEND_URL || "https://wars.x420ponzi.com";
 
 export const RewardCategory = {
     FCWEED: 0,
@@ -74,7 +79,6 @@ export const ERC721_TRANSFER_TOPIC = ethers.utils.id(
   "Transfer(address,address,uint256)"
 );
 
-// Base (and many chains) Multicall3 address
 export const MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
 
 
@@ -94,12 +98,6 @@ export const PLAYLIST = [
   { title: "HUGEL x Topic x Arash feat. Daecolm - I Adore You", src: "/audio/track3.mp3" },
 ];
 
-// Todo()
-export const SUPER_PLANT_IDS = new Set<number>([
-    // example: 777, 1337
-]);
+export const SUPER_PLANT_IDS = new Set<number>([]);
 
-export const SUPER_LAND_IDS = new Set<number>([
-    // example: 69
-]);
-
+export const SUPER_LAND_IDS = new Set<number>([]);
