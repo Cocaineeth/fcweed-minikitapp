@@ -5,7 +5,6 @@ import Image from "next/image";
 import { useMiniKit, useComposeCast } from "@coinbase/onchainkit/minikit";
 import { ethers } from "ethers";
 import { sdk } from "@farcaster/miniapp-sdk";
-import { useSendTransaction, useAccount, useConnect } from 'wagmi';
 import styles from "./page.module.css";
 import { CrimeLadder } from "./components/CrimeLadder";
 import { loadOwnedTokens } from "./lib/tokens";
@@ -219,103 +218,10 @@ async function captureAndShare(
     }
 }
 
-// Loading component for SSR
-function LoadingScreen() {
-    return (
-        <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: '100vh',
-            backgroundColor: '#050812',
-            color: 'white'
-        }}>
-            <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>🌿 FCWEED</div>
-            <div>Loading...</div>
-        </div>
-    );
-}
-
-// Main export - handles SSR by only rendering content after mount
-export default function Home() {
-    const [mounted, setMounted] = useState(false);
-    
-    useEffect(() => {
-        setMounted(true);
-    }, []);
-    
-    if (!mounted) {
-        return <LoadingScreen />;
-    }
-    
-    return <HomeContent />;
-}
-
-function HomeContent()
+export default function Home()
 {
     const { setMiniAppReady, isMiniAppReady } = useMiniKit();
     const { composeCast } = useComposeCast();
-
-    // ===== WAGMI HOOKS FOR FARCASTER TRANSACTIONS =====
-    const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount();
-    const { connect: wagmiConnect, connectors: wagmiConnectors } = useConnect();
-    const { sendTransactionAsync } = useSendTransaction();
-    
-    // Detect if we're actually in Farcaster miniapp (not just a browser)
-    const [isInFarcasterFrame, setIsInFarcasterFrame] = useState(false);
-    
-    useEffect(() => {
-        // Check if we're in a Farcaster frame/miniapp context
-        const inIframe = window !== window.parent;
-        const hasFarcasterContext = !!(window as any).FarcasterContext || 
-                                    !!(window as any).fc || 
-                                    document.referrer.includes('farcaster') ||
-                                    document.referrer.includes('warpcast');
-        setIsInFarcasterFrame(inIframe || hasFarcasterContext);
-        console.log("[Wagmi] Farcaster frame detected:", inIframe || hasFarcasterContext);
-    }, []);
-    
-    // Auto-connect to Farcaster wallet ONLY if in Farcaster context
-    useEffect(() => {
-        if (!isInFarcasterFrame) {
-            console.log("[Wagmi] Not in Farcaster frame, skipping auto-connect");
-            return;
-        }
-        if (!wagmiConnected && wagmiConnectors.length > 0) {
-            const farcasterConnector = wagmiConnectors.find(c => 
-                c.id === 'farcasterFrame' || c.name?.toLowerCase().includes('farcaster')
-            );
-            if (farcasterConnector) {
-                console.log("[Wagmi] Auto-connecting to Farcaster wallet...");
-                wagmiConnect({ connector: farcasterConnector });
-            }
-        }
-    }, [wagmiConnected, wagmiConnectors, wagmiConnect, isInFarcasterFrame]);
-    
-    // Wagmi sendTransaction wrapper function - only use if in Farcaster frame
-    const wagmiSendCalls = useCallback(async (calls: Array<{
-        to: `0x${string}`;
-        data: `0x${string}`;
-        value?: bigint;
-    }>): Promise<string> => {
-        if (!isInFarcasterFrame) {
-            throw new Error("Wagmi only available in Farcaster frame");
-        }
-        // useSendTransaction sends one tx at a time, take the first call
-        const call = calls[0];
-        console.log("[Wagmi] Sending transaction via useSendTransaction...", call.to);
-        const txHash = await sendTransactionAsync({
-            to: call.to,
-            data: call.data,
-            value: call.value ?? BigInt(0),
-        });
-        console.log("[Wagmi] sendTransaction result:", txHash);
-        return txHash;
-    }, [sendTransactionAsync, isInFarcasterFrame]);
-
-    // Track if wallet popup is active - ALL intervals check this before running
-    const walletBusyRef = useRef(false);
 
     // Theme state (light/dark)
     const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -425,14 +331,7 @@ function HomeContent()
 
     const [loadingOldStaking, setLoadingOldStaking] = useState(false);
     const [loadingNewStaking, setLoadingNewStaking] = useState(false);
-    const [actionLoading, setActionLoadingRaw] = useState(false);
-    
-    // Wrap setActionLoading to also control walletBusy - prevents intervals during wallet interactions
-    const setActionLoading = useCallback((loading: boolean) => {
-        setActionLoadingRaw(loading);
-        walletBusyRef.current = loading;
-    }, []);
-    
+    const [actionLoading, setActionLoading] = useState(false);
     const [oldLandStakingEnabled, setOldLandStakingEnabled] = useState(false);
     const [newLandStakingEnabled, setNewLandStakingEnabled] = useState(false);
     const [newSuperLandStakingEnabled, setNewSuperLandStakingEnabled] = useState(false);
@@ -515,20 +414,7 @@ function HomeContent()
     function txAction()
     {
         if (!txRef.current) throw new Error("tx actions not ready yet");
-        
-        // Wrap sendContractTx to set walletBusy flag
-        const original = txRef.current;
-        return {
-            ...original,
-            sendContractTx: async (to: string, data: string, gasLimit?: string) => {
-                walletBusyRef.current = true;
-                try {
-                    return await original.sendContractTx(to, data, gasLimit);
-                } finally {
-                    walletBusyRef.current = false;
-                }
-            }
-        };
+        return txRef.current;
     }
 
     useEffect(() =>
@@ -545,10 +431,8 @@ function HomeContent()
                 usdcInterface,
                 waitForTx,
                 setMintStatus,
-                // Only use Wagmi if connected AND in Farcaster frame
-                wagmiSendCalls: (wagmiConnected && isInFarcasterFrame) ? wagmiSendCalls : null,
             });
-        }, [readProvider, miniAppEthProvider, usingMiniApp, wagmiConnected, wagmiSendCalls, isInFarcasterFrame]);
+        }, [readProvider, miniAppEthProvider, usingMiniApp]);
 
     const currentTrackMeta = useMemo(() => PLAYLIST[currentTrack], [currentTrack]);
     useEffect(() => {
@@ -704,21 +588,14 @@ function HomeContent()
         data: string, 
         value: string = "0x0"
     ): Promise<string | null> {
-        walletBusyRef.current = true;
         try {
-            // On desktop Farcaster, window.ethereum conflicts with MetaMask
-            // Use miniAppEthProvider (Farcaster's provider) instead
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            const providerToUse = (!isMobile && usingMiniApp && miniAppEthProvider) 
-                ? miniAppEthProvider 
-                : (window as any).ethereum;
-            
-            if (!providerToUse?.request || !userAddress) {
+            const anyProvider = (window as any).ethereum;
+            if (!anyProvider?.request || !userAddress) {
                 console.log("[Paymaster] No provider for sponsored tx");
                 return null;
             }
             
-            console.log("[Paymaster] Sending sponsored transaction to:", to, "using:", isMobile ? "window.ethereum" : "miniAppEthProvider");
+            console.log("[Paymaster] Sending sponsored transaction to:", to);
             
             const calls = [{
                 to,
@@ -726,7 +603,7 @@ function HomeContent()
                 value
             }];
             
-            const result = await providerToUse.request({
+            const result = await anyProvider.request({
                 method: 'wallet_sendCalls',
                 params: [{
                     version: '1.0',
@@ -744,18 +621,9 @@ function HomeContent()
             console.log("[Paymaster] Sponsored tx result:", result);
             return result;
         } catch (err: any) {
-            const errMsg = err?.message || err?.reason || String(err);
             console.error("[Paymaster] Sponsored tx failed:", err);
-            
-            // If user rejected, throw the error - don't fall back to another popup
-            if (err?.code === 4001 || errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("user rejected")) {
-                throw err;
-            }
-            
-            // Return null only for other errors (unsupported method, etc) to fall back to regular tx
+            // Return null to fall back to regular transaction
             return null;
-        } finally {
-            walletBusyRef.current = false;
         }
     }
 
@@ -959,7 +827,7 @@ function HomeContent()
 
     async function ensureWallet() {
         if (signer && provider && userAddress) {
-            return { signer, provider, userAddress, isMini: usingMiniApp, ethProvider: miniAppEthProvider };
+            return { signer, provider, userAddress, isMini: usingMiniApp };
         }
 
         try {
@@ -1149,7 +1017,7 @@ function HomeContent()
             setUserAddress(addr);
             setConnecting(false);
 
-            return { signer: s, provider: p, userAddress: addr, isMini, ethProvider: ethProv };
+            return { signer: s, provider: p, userAddress: addr, isMini };
         } catch (err: any) {
             console.error("[Wallet] Connection failed:", err);
             const errorMessage = err?.message || "Wallet connection failed";
@@ -1764,7 +1632,6 @@ function HomeContent()
         const tokensPerSecond = ethers.utils.parseUnits("300000", 18).div(86400);
         const effectivePerSecond = tokensPerSecond.mul(plants);
         const interval = setInterval(() => {
-            if (walletBusyRef.current) return; // Skip during wallet interaction
             currentPending = currentPending.add(effectivePerSecond.mul(v4StakingStats.avgHealth || 100).div(100));
             const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
             setV4RealTimePending(formatted >= 1e6 ? (formatted / 1e6).toFixed(4) + "M" : formatted >= 1e3 ? (formatted / 1e3).toFixed(2) + "K" : formatted.toFixed(2));
@@ -1775,7 +1642,6 @@ function HomeContent()
     useEffect(() => {
         if (!v4StakingOpen || v4StakedPlants.length === 0 || !V4_STAKING_ADDRESS) return;
         const healthInterval = setInterval(async () => {
-            if (walletBusyRef.current) return; // Skip during wallet interaction
             try {
                 const healthCalls = v4StakedPlants.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
                 const waterCalls = v4StakedPlants.map((id: number) => ({ target: V4_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
@@ -2125,7 +1991,6 @@ function HomeContent()
         const tokensPerSecond = ethers.utils.parseUnits("300000", 18).div(86400);
         const effectivePerSecond = tokensPerSecond.mul(plants);
         const interval = setInterval(() => {
-            if (walletBusyRef.current) return; // Skip during wallet interaction
             currentPending = currentPending.add(effectivePerSecond.mul(v5StakingStats.avgHealth || 100).div(100));
             const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
             setV5RealTimePending(formatted >= 1e6 ? (formatted / 1e6).toFixed(4) + "M" : formatted >= 1e3 ? (formatted / 1e3).toFixed(2) + "K" : formatted.toFixed(2));
@@ -2136,7 +2001,6 @@ function HomeContent()
     useEffect(() => {
         if (!v5StakingOpen || v5ClaimCooldown <= 0) return;
         const interval = setInterval(() => {
-            if (walletBusyRef.current) return; // Skip during wallet interaction
             setV5ClaimCooldown((prev) => (prev > 0 ? prev - 1 : 0));
         }, 1000);
         return () => clearInterval(interval);
@@ -2145,7 +2009,6 @@ function HomeContent()
     useEffect(() => {
         if (!v5StakingOpen || v5StakedPlants.length === 0 || !V5_STAKING_ADDRESS) return;
         const healthInterval = setInterval(async () => {
-            if (walletBusyRef.current) return; // Skip during wallet interaction
             try {
                 const healthCalls = v5StakedPlants.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getPlantHealth", [id]) }));
                 const waterCalls = v5StakedPlants.map((id: number) => ({ target: V5_STAKING_ADDRESS, callData: v4StakingInterface.encodeFunctionData("getWaterNeeded", [id]) }));
@@ -3034,7 +2897,6 @@ function HomeContent()
     useEffect(() => {
         if (!warsSearchExpiry || warsSearchExpiry <= 0) return;
         const interval = setInterval(() => {
-            if (walletBusyRef.current) return; // Skip during wallet interaction
             const now = Math.floor(Date.now() / 1000);
             if (warsSearchExpiry <= now) {
                 setWarsTarget(null);
