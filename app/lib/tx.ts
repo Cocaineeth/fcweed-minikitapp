@@ -1,6 +1,5 @@
 // lib/tx.ts
 import { ethers } from "ethers";
-import { sdk } from "@farcaster/miniapp-sdk";
 
 export type EnsureWalletCtx = {
   signer: ethers.Signer;
@@ -46,6 +45,31 @@ export function makeTxActions(deps: TxDeps)
     setMintStatus,
   } = deps;
 
+  // Helper to wait for a transaction receipt with early exit
+  async function waitForReceipt(txHash: string, maxAttempts: number = 30): Promise<any> {
+    console.log("[TX] Waiting for receipt:", txHash);
+    
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const receipt = await readProvider.getTransactionReceipt(txHash);
+        if (receipt) {
+          console.log("[TX] Got receipt at attempt", i + 1, "confirmations:", receipt.confirmations);
+          if (receipt.confirmations > 0) {
+            return receipt;
+          }
+        }
+      } catch (e) {
+        console.warn("[TX] Receipt check error:", e);
+      }
+      
+      // Wait 2 seconds between checks
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    
+    console.warn("[TX] Receipt wait timeout after", maxAttempts, "attempts");
+    return null;
+  }
+
   async function sendWalletCalls(
     from: string,
     to: string,
@@ -66,93 +90,104 @@ export function makeTxActions(deps: TxDeps)
     let result: any;
     let txHash: string | null = null;
 
-    // Detect if we're on desktop (not mobile)
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || "");
-    
-    console.log("[TX] Attempting transaction on desktop:", !isMobile);
-    console.log("[TX] Account:", from);
+    console.log("[TX] Sending transaction...");
+    console.log("[TX] From:", from);
+    console.log("[TX] To:", to);
 
-    // Try wallet_sendCalls FIRST on desktop as it's more likely to work with Farcaster's newer wallet
-    // On mobile, try eth_sendTransaction first as it's the standard
-    const methodOrder = isMobile 
-      ? ["eth_sendTransaction", "wallet_sendCalls"]
-      : ["wallet_sendCalls", "eth_sendTransaction"];
+    // Try eth_sendTransaction first with minimal params
+    try {
+      console.log("[TX] Attempting eth_sendTransaction...");
+      result = await req({
+        method: "eth_sendTransaction",
+        params: [{
+          from,
+          to,
+          data,
+          value: "0x0",
+        }],
+      });
 
-    for (const method of methodOrder) {
+      console.log("[TX] eth_sendTransaction result:", result);
+
+      // Extract txHash from various possible response formats
+      if (typeof result === "string" && result.startsWith("0x") && result.length >= 66) {
+        txHash = result;
+      } else if (result?.hash && result.hash.startsWith("0x")) {
+        txHash = result.hash;
+      } else if (result?.txHash && result.txHash.startsWith("0x")) {
+        txHash = result.txHash;
+      }
+
+      if (txHash) {
+        console.log("[TX] Got txHash from eth_sendTransaction:", txHash);
+      }
+    } catch (err1: any) {
+      console.warn("[TX] eth_sendTransaction failed:", err1?.message || err1?.code || err1);
+      
+      // If user rejected, throw immediately
+      if (err1?.code === 4001 || err1?.message?.includes("rejected") || err1?.message?.includes("denied")) {
+        throw new Error("Transaction rejected by user");
+      }
+
+      // Try wallet_sendCalls as fallback
       try {
-        console.log(`[TX] Attempting ${method}...`);
-        
-        if (method === "eth_sendTransaction") {
-          result = await req({
-            method: "eth_sendTransaction",
-            params: [
-              { from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit },
-            ],
-          });
-        } else {
-          result = await req({
-            method: "wallet_sendCalls",
-            params: [
-              {
-                from,
-                chainId: chainIdHex,
-                atomicRequired: false,
-                capabilities: { paymasterService: {} },
-                calls: [{ to, data, value: "0x0" }],
-              },
-            ],
-          });
-        }
+        console.log("[TX] Attempting wallet_sendCalls...");
+        result = await req({
+          method: "wallet_sendCalls",
+          params: [{
+            from,
+            chainId: chainIdHex,
+            calls: [{
+              to,
+              data,
+              value: "0x0",
+            }],
+          }],
+        });
 
-        console.log(`[TX] ${method} result:`, result);
+        console.log("[TX] wallet_sendCalls result:", result);
 
-        if (typeof result === "string" && result.startsWith("0x")) {
+        // wallet_sendCalls might return txHash in different formats
+        if (typeof result === "string" && result.startsWith("0x") && result.length >= 66) {
           txHash = result;
-        } else {
-          txHash = result?.txHashes?.[0] || result?.txHash || result?.hash || result?.id || null;
+        } else if (result?.txHashes?.[0]) {
+          txHash = result.txHashes[0];
+        } else if (result?.txHash) {
+          txHash = result.txHash;
+        } else if (result?.hash) {
+          txHash = result.hash;
+        } else if (result?.id && typeof result.id === "string" && result.id.startsWith("0x")) {
+          // Some implementations return an ID that is the txHash
+          txHash = result.id;
         }
 
-        if (txHash && txHash.startsWith("0x") && txHash.length >= 66) {
-          console.log(`[TX] Got txHash from ${method}:`, txHash);
-          break;
+        if (txHash) {
+          console.log("[TX] Got txHash from wallet_sendCalls:", txHash);
         }
-      } catch (err: any) {
-        console.warn(`[TX] ${method} failed:`, err?.message || err?.code || err);
+      } catch (err2: any) {
+        console.error("[TX] wallet_sendCalls also failed:", err2?.message || err2?.code || err2);
         
-        // If user explicitly rejected, don't try other methods
-        if (err?.code === 4001 || err?.message?.includes("rejected") || err?.message?.includes("denied")) {
-          throw new Error("Transaction signing is not fully supported on Farcaster desktop yet. Please open this app in the Warpcast mobile app to complete transactions.");
+        if (err2?.code === 4001 || err2?.message?.includes("rejected") || err2?.message?.includes("denied")) {
+          throw new Error("Transaction rejected by user");
         }
         
-        // Continue to next method
-        continue;
+        throw new Error("Transaction failed: " + (err2?.message || "Unknown error"));
       }
     }
 
-    if (!txHash || typeof txHash !== "string" || !txHash.startsWith("0x") || txHash.length < 66)
-    {
-      console.warn("[TX] No valid txHash obtained, returning placeholder");
-      return {
-        hash: "0x" + "0".repeat(64),
-        wait: async () => null,
-      } as any;
+    // If we still don't have a txHash, throw an error
+    if (!txHash || !txHash.startsWith("0x") || txHash.length < 66) {
+      console.error("[TX] No valid txHash obtained. Result was:", result);
+      throw new Error("Transaction submitted but no transaction hash received. Please check your wallet.");
     }
 
+    console.log("[TX] Transaction submitted successfully:", txHash);
+
+    // Return a transaction-like object with a working wait() function
     const fakeTx: any = {
       hash: txHash,
-      wait: async () =>
-      {
-        for (let i = 0; i < 45; i++)
-        {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          try
-          {
-            const receipt = await readProvider.getTransactionReceipt(txHash);
-            if (receipt && receipt.confirmations > 0) return receipt;
-          }
-          catch { }
-        }
-        return null;
+      wait: async () => {
+        return await waitForReceipt(txHash!, 30);
       },
     };
 
@@ -187,12 +222,12 @@ export function makeTxActions(deps: TxDeps)
     catch (err: any)
     {
       const errMsg = err?.message || err?.reason || String(err);
+      console.error("[TX] sendContractTx error:", errMsg);
+      
       if (errMsg.includes("rejected") || errMsg.includes("denied") || err?.code === 4001)
         setMintStatus("Transaction rejected. Please approve in your wallet.");
       else if (errMsg.includes("insufficient"))
         setMintStatus("Insufficient funds for transaction.");
-      else if (errMsg.includes("not fully supported"))
-        setMintStatus(errMsg);
       else
         setMintStatus("Transaction failed: " + errMsg.slice(0, 100));
 
@@ -207,11 +242,11 @@ export function makeTxActions(deps: TxDeps)
 
     const { signer: s, userAddress: addr, isMini } = ctx;
 
-    setMintStatus("Checking USDC contract on Base…");
+    setMintStatus("Checking USDC allowance...");
     const code = await readProvider.getCode(USDC_ADDRESS);
     if (code === "0x")
     {
-      setMintStatus("USDC token not found on this network. Please make sure you are on Base mainnet.");
+      setMintStatus("USDC token not found on this network.");
       return false;
     }
 
@@ -223,7 +258,7 @@ export function makeTxActions(deps: TxDeps)
       const bal = await usdcRead.balanceOf(addr);
       if (bal.lt(required))
       {
-        setMintStatus(`You need at least ${ethers.utils.formatUnits(required, USDC_DECIMALS)} USDC on Base to mint.`);
+        setMintStatus(`Insufficient USDC balance. Need ${ethers.utils.formatUnits(required, USDC_DECIMALS)} USDC.`);
         return false;
       }
     }
@@ -233,60 +268,56 @@ export function makeTxActions(deps: TxDeps)
     try { current = await usdcRead.allowance(addr, spender); }
     catch { current = ethers.constants.Zero; }
 
-    if (current.gte(required)) return true;
+    if (current.gte(required)) {
+      console.log("[TX] USDC allowance sufficient");
+      return true;
+    }
 
-    setMintStatus("Requesting USDC approve transaction in your wallet…");
+    setMintStatus("Requesting USDC approval...");
 
     try
     {
       if (isMini && miniAppEthProvider)
       {
-        const data = usdcInterface.encodeFunctionData("approve", [spender, required]);
-        await sendWalletCalls(addr, USDC_ADDRESS, data);
+        const approveData = usdcInterface.encodeFunctionData("approve", [spender, required]);
+        const approveTx = await sendWalletCalls(addr, USDC_ADDRESS, approveData);
 
-        setMintStatus("Waiting for USDC approve confirmation…");
-        for (let i = 0; i < 20; i++)
-        {
-          await new Promise((res) => setTimeout(res, 1500));
-          try
-          {
-            const updated = await usdcRead.allowance(addr, spender);
-            if (updated.gte(required)) break;
-            if (i === 19)
-            {
-              setMintStatus("Approve transaction may not have confirmed yet. Please check your wallet/explorer.");
-              return false;
-            }
-          }
-          catch
-          {
-            if (i === 19)
-            {
-              setMintStatus("Could not confirm USDC approval, please try again.");
-              return false;
-            }
-          }
+        setMintStatus("Waiting for approval confirmation...");
+        
+        // Wait for the approval transaction
+        if (approveTx.hash && approveTx.hash !== "0x" + "0".repeat(64)) {
+          await waitForReceipt(approveTx.hash, 20);
         }
 
-        setMintStatus("USDC approve confirmed. Sending mint transaction…");
+        // Verify allowance was set
+        setMintStatus("Verifying approval...");
+        for (let i = 0; i < 10; i++) {
+          await new Promise(res => setTimeout(res, 1500));
+          try {
+            const updated = await usdcRead.allowance(addr, spender);
+            if (updated.gte(required)) {
+              console.log("[TX] USDC approval confirmed");
+              setMintStatus("Approval confirmed!");
+              return true;
+            }
+          } catch { }
+        }
+        
+        setMintStatus("Approval may not have confirmed. Please try again.");
+        return false;
       }
       else
       {
         const tx = await usdcWrite.approve(spender, required);
-        await waitForTx(tx);
-        setMintStatus("USDC approve confirmed. Sending mint transaction…");
+        setMintStatus("Waiting for approval confirmation...");
+        await tx.wait();
+        setMintStatus("Approval confirmed!");
+        return true;
       }
-
-      return true;
     }
     catch (err: any)
     {
-      const msg =
-        err?.reason ||
-        err?.error?.message ||
-        err?.data?.message ||
-        err?.message ||
-        "USDC approve failed";
+      const msg = err?.reason || err?.message || "USDC approve failed";
       setMintStatus(msg);
       return false;
     }

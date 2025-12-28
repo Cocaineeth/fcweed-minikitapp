@@ -3040,6 +3040,14 @@ export default function Home()
 
                     if (aPlants > 0 || aLands > 0 || aSuperLands > 0) {
                         attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
+                        
+                        // Apply item boost multipliers (same as contract)
+                        const now = Math.floor(Date.now() / 1000);
+                        if (nukeExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 1000000) / 10000);
+                        else if (rpgExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 50000) / 10000);
+                        else if (ak47Expiry > now) attackerPower = Math.floor(attackerPower * (10000 + 10000) / 10000);
+                        else if (boostExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 2000) / 10000);
+                        
                         console.log("[Wars] Calculated attacker power from V5:", attackerPower);
                     }
 
@@ -3055,6 +3063,14 @@ export default function Home()
                     const aSuperLands = v5StakingStats.superLands || 0;
                     const aAvgHealth = v5StakingStats.avgHealth || 100;
                     attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
+                    
+                    // Apply item boost multipliers (same as contract)
+                    const now = Math.floor(Date.now() / 1000);
+                    if (nukeExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 1000000) / 10000);
+                    else if (rpgExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 50000) / 10000);
+                    else if (ak47Expiry > now) attackerPower = Math.floor(attackerPower * (10000 + 10000) / 10000);
+                    else if (boostExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 2000) / 10000);
+                    
                     console.log("[Wars] Calculated attacker power from cache:", attackerPower);
                 }
 
@@ -3166,9 +3182,9 @@ export default function Home()
                 setWarsStatus("Approving FCWEED (confirm in wallet)...");
                 const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
                 if (!approveTx) throw new Error("Approval rejected");
-                setWarsStatus("Waiting for approval...");
+                setWarsStatus("Confirming approval...");
                 await waitForTx(approveTx, readProvider);
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                await new Promise(resolve => setTimeout(resolve, 1500));
             }
 
             setWarsStatus("Paying 50K FCWEED (confirm in wallet)...");
@@ -3185,9 +3201,9 @@ export default function Home()
                 return;
             }
 
-            setWarsStatus("Waiting for confirmation...");
+            setWarsStatus("Confirming transaction...");
             await waitForTx(searchTx, readProvider);
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, 1500));
 
             // NOW show stats - they paid!
             setWarsTargetLocked(true);
@@ -3245,6 +3261,14 @@ export default function Home()
 
                 if (aPlants > 0 || aLands > 0 || aSuperLands > 0) {
                     attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
+                    
+                    // Apply item boost multipliers (same as contract)
+                    const now = Math.floor(Date.now() / 1000);
+                    if (nukeExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 1000000) / 10000);
+                    else if (rpgExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 50000) / 10000);
+                    else if (ak47Expiry > now) attackerPower = Math.floor(attackerPower * (10000 + 10000) / 10000);
+                    else if (boostExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 2000) / 10000);
+                    
                     console.log("[Wars] Lock - Calculated attacker power from V5:", attackerPower);
                 }
             } catch (e: any) {
@@ -3259,6 +3283,14 @@ export default function Home()
                 const aSuperLands = v5StakingStats.superLands || 0;
                 const aAvgHealth = v5StakingStats.avgHealth || 100;
                 attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
+                
+                // Apply item boost multipliers (same as contract)
+                const now = Math.floor(Date.now() / 1000);
+                if (nukeExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 1000000) / 10000);
+                else if (rpgExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 50000) / 10000);
+                else if (ak47Expiry > now) attackerPower = Math.floor(attackerPower * (10000 + 10000) / 10000);
+                else if (boostExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 2000) / 10000);
+                
                 console.log("[Wars] Lock - Calculated attacker power from cache:", attackerPower);
             }
 
@@ -3287,6 +3319,7 @@ export default function Home()
                 setWarsStatus("Lock failed: " + (err.reason || err.message || err).toString().slice(0, 60));
             }
         } finally {
+            setWarsSearching(false);
             warsTransactionInProgress.current = false;
         }
     }
@@ -5393,16 +5426,23 @@ export default function Home()
                                     <div style={{ fontSize: 9, color: "#a78bfa", marginBottom: 2 }}>TOTAL COMBAT POWER</div>
                                     <div style={{ fontSize: 22, color: "#a78bfa", fontWeight: 800 }}>
                                         {(() => {
-                                            const basePower = v5StakedPlants.length * 100;
-                                            const healthMult = (v5StakingStats.avgHealth || 100) / 100;
-                                            const landBoostMult = 1 + ((v5StakingStats.boostPct || 0) / 100);
-                                            let itemBoost = 1;
-                                            if (nukeExpiry > Math.floor(Date.now() / 1000)) itemBoost = 101;
-                                            else if (rpgExpiry > Math.floor(Date.now() / 1000)) itemBoost = 6;
-                                            else if (ak47Expiry > Math.floor(Date.now() / 1000)) itemBoost = 2;
-                                            else if (boostExpiry > Math.floor(Date.now() / 1000)) itemBoost = 1.2;
-                                            const total = Math.floor(basePower * healthMult * landBoostMult * itemBoost);
-                                            return total >= 1000 ? (total / 1000).toFixed(1) + "K" : total;
+                                            // Contract formula: (plants * 100 + lands * 50 + superLands * 150) * avgHealth / 100
+                                            const plants = v5StakedPlants?.length || 0;
+                                            const lands = v5StakedLands?.length || 0;
+                                            const superLands = v5StakedSuperLands?.length || 0;
+                                            const avgHealth = v5StakingStats?.avgHealth || 100;
+                                            
+                                            let basePower = Math.round((plants * 100 + lands * 50 + superLands * 150) * avgHealth / 100);
+                                            
+                                            // Apply item boost multipliers (same as contract: power * (BPS + boostBps) / BPS)
+                                            // BPS = 10000, so +100% boost = boostBps of 10000
+                                            const now = Math.floor(Date.now() / 1000);
+                                            if (nukeExpiry > now) basePower = Math.floor(basePower * (10000 + 1000000) / 10000); // +10000% = 101x
+                                            else if (rpgExpiry > now) basePower = Math.floor(basePower * (10000 + 50000) / 10000); // +500% = 6x
+                                            else if (ak47Expiry > now) basePower = Math.floor(basePower * (10000 + 10000) / 10000); // +100% = 2x
+                                            else if (boostExpiry > now) basePower = Math.floor(basePower * (10000 + 2000) / 10000); // +20% = 1.2x
+                                            
+                                            return basePower >= 1000 ? (basePower / 1000).toFixed(1) + "K" : basePower;
                                         })()}
                                     </div>
                                 </div>
@@ -5576,9 +5616,28 @@ export default function Home()
                                     <div style={{ fontSize: 48, marginBottom: 12 }}>{warsResult.won ? "🎉" : "💀"}</div>
                                     <div style={{ fontSize: 18, fontWeight: 700, color: warsResult.won ? "#10b981" : "#ef4444", marginBottom: 8 }}>{warsResult.won ? "VICTORY!" : "DEFEAT!"}</div>
                                     <div style={{ fontSize: 12, color: theme === "light" ? "#475569" : "#c0c9f4" }}>
-                                        {warsResult.won
-                                            ? `You raided ${(parseFloat(ethers.utils.formatUnits(warsResult.rewardsTransferred || "0", 18)) / 1000).toFixed(1)}K FCWEED!`
-                                            : `You lost ${(parseFloat(ethers.utils.formatUnits(warsResult.rewardsTransferred || "0", 18)) / 1000).toFixed(1)}K FCWEED!`}
+                                        {(() => {
+                                            // Safely convert rewardsTransferred to a displayable value
+                                            const rewards = warsResult.rewardsTransferred;
+                                            let amount = 0;
+                                            try {
+                                                if (rewards) {
+                                                    if (ethers.BigNumber.isBigNumber(rewards)) {
+                                                        amount = parseFloat(ethers.utils.formatUnits(rewards, 18));
+                                                    } else if (typeof rewards === 'string' || typeof rewards === 'number') {
+                                                        amount = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(rewards), 18));
+                                                    } else if (rewards._hex) {
+                                                        amount = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(rewards._hex), 18));
+                                                    }
+                                                }
+                                            } catch (e) {
+                                                console.error("[Wars] Failed to parse rewardsTransferred:", e, rewards);
+                                            }
+                                            const formatted = amount >= 1000 ? (amount / 1000).toFixed(1) + "K" : amount.toFixed(0);
+                                            return warsResult.won 
+                                                ? `You raided ${formatted} FCWEED!`
+                                                : `You lost ${formatted} FCWEED!`;
+                                        })()}
                                     </div>
                                     <button type="button" onClick={() => setWarsResult(null)} className={styles.btnPrimary} style={{ marginTop: 16, padding: "10px 24px", fontSize: 12, background: "linear-gradient(135deg, #dc2626, #ef4444)" }}>
                                         Continue
