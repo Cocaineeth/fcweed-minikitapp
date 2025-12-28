@@ -426,7 +426,7 @@ export default function Home()
     async function sendTxWithPause(to: string, data: string, gasLimit?: string) {
         walletPopupActiveRef.current = true;
         try {
-            const result = await sendTxWithPause(to, data, gasLimit);
+            const result = await txAction().sendContractTx(to, data, gasLimit);
             return result;
         } finally {
             walletPopupActiveRef.current = false;
