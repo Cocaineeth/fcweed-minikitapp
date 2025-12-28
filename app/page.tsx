@@ -223,6 +223,9 @@ export default function Home()
     const { setMiniAppReady, isMiniAppReady } = useMiniKit();
     const { composeCast } = useComposeCast();
 
+    // Track if wallet popup is active - ALL intervals check this before running
+    const walletBusyRef = useRef(false);
+
     // Theme state (light/dark)
     const [theme, setTheme] = useState<"dark" | "light">("dark");
     
@@ -331,7 +334,14 @@ export default function Home()
 
     const [loadingOldStaking, setLoadingOldStaking] = useState(false);
     const [loadingNewStaking, setLoadingNewStaking] = useState(false);
-    const [actionLoading, setActionLoading] = useState(false);
+    const [actionLoading, setActionLoadingRaw] = useState(false);
+    
+    // Wrap setActionLoading to also control walletBusy - prevents intervals during wallet interactions
+    const setActionLoading = useCallback((loading: boolean) => {
+        setActionLoadingRaw(loading);
+        walletBusyRef.current = loading;
+    }, []);
+    
     const [oldLandStakingEnabled, setOldLandStakingEnabled] = useState(false);
     const [newLandStakingEnabled, setNewLandStakingEnabled] = useState(false);
     const [newSuperLandStakingEnabled, setNewSuperLandStakingEnabled] = useState(false);
@@ -410,9 +420,6 @@ export default function Home()
     const processedCrateTxHashes = useRef<Set<string>>(new Set());
     const crateSpinInterval = useRef<NodeJS.Timeout | null>(null);
     const txRef = useRef<ReturnType<typeof makeTxActions> | null>(null);
-    
-    // Track if wallet popup is active - ALL intervals check this before running
-    const walletBusyRef = useRef(false);
 
     function txAction()
     {
@@ -1478,7 +1485,6 @@ export default function Home()
 
     const refreshV4StakingRef = useRef(false);
     async function refreshV4Staking() {
-        if (walletBusyRef.current) return; // Don't refresh during wallet interaction
         if (refreshV4StakingRef.current || !userAddress || !V4_STAKING_ADDRESS) return;
         refreshV4StakingRef.current = true;
         setLoadingV4Staking(true);
@@ -1851,7 +1857,6 @@ export default function Home()
     const refreshV5StakingRef = useRef(false);
 
     async function refreshV5Staking() {
-        if (walletBusyRef.current) return; // Don't refresh during wallet interaction
         if (refreshV5StakingRef.current || !userAddress || !V5_STAKING_ADDRESS) return;
         refreshV5StakingRef.current = true;
         setLoadingV5Staking(true);

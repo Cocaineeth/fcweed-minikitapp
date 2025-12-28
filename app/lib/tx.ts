@@ -66,47 +66,63 @@ export function makeTxActions(deps: TxDeps)
     let result: any;
     let txHash: string | null = null;
 
-    try
-    {
-      result = await req({
-        method: "eth_sendTransaction",
-        params: [
-          { from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit },
-        ],
-      });
+    // Detect if we're on desktop (no mobile UA)
+    const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    // On desktop Farcaster, try wallet_sendCalls first (more reliable popup handling)
+    // On mobile, try eth_sendTransaction first (faster)
+    const methodOrder = isMobile 
+      ? ["eth_sendTransaction", "wallet_sendCalls"]
+      : ["wallet_sendCalls", "eth_sendTransaction"];
 
-      if (typeof result === "string" && result.startsWith("0x")) txHash = result;
-      else txHash = result?.hash || result?.txHash || null;
-    }
-    catch (sendTxError: any)
-    {
-      try
-      {
-        result = await req({
-          method: "wallet_sendCalls",
-          params: [
-            {
-              from,
-              chainId: chainIdHex,
-              atomicRequired: false,
-              capabilities: { paymasterService: {} },
-              calls: [{ to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit }],
-            },
-          ],
-        });
+    for (const method of methodOrder) {
+      try {
+        if (method === "eth_sendTransaction") {
+          result = await req({
+            method: "eth_sendTransaction",
+            params: [
+              { from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit },
+            ],
+          });
+          
+          if (typeof result === "string" && result.startsWith("0x")) txHash = result;
+          else txHash = result?.hash || result?.txHash || null;
+        } else {
+          result = await req({
+            method: "wallet_sendCalls",
+            params: [
+              {
+                from,
+                chainId: chainIdHex,
+                atomicRequired: false,
+                capabilities: { paymasterService: {} },
+                calls: [{ to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit }],
+              },
+            ],
+          });
 
-        txHash =
-          result?.txHashes?.[0] ||
-          result?.txHash ||
-          result?.hash ||
-          result?.id ||
-          (typeof result === "string" && result.startsWith("0x") ? result : null);
-      }
-      catch (sendCallsError)
-      {
-        throw sendCallsError;
+          txHash =
+            result?.txHashes?.[0] ||
+            result?.txHash ||
+            result?.hash ||
+            result?.id ||
+            (typeof result === "string" && result.startsWith("0x") ? result : null);
+        }
+        
+        // If we got a valid result, break out of the loop
+        if (txHash && typeof txHash === "string" && txHash.startsWith("0x")) {
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`[TX] ${method} failed:`, err?.message || err);
+        // Continue to next method
+        if (method === methodOrder[methodOrder.length - 1]) {
+          // Last method failed, throw
+          throw err;
+        }
       }
     }
+
 
     if (!txHash || typeof txHash !== "string" || !txHash.startsWith("0x") || txHash.length < 66)
     {
