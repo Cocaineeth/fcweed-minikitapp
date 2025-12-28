@@ -609,7 +609,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 <div style={{ textAlign: "center", marginBottom: 12 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 8 }}>
                         <span style={{ fontSize: 20 }}>🚔</span>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: "#dc2626" }}>DEA WATCHLIST</span>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: "#dc2626" }}>DEA WATCHLIST (Testing - Not Activated)</span>
                         {!deaEnabled && <span style={{ fontSize: 9, background: "#374151", color: "#fbbf24", padding: "2px 6px", borderRadius: 4 }}>PAUSED</span>}
                     </div>
                     <div style={{ fontSize: 11, color: "#fbbf24", marginBottom: 6 }}>Suspects: <b>{jeets.length}</b></div>
@@ -717,7 +717,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             {showAttackModal && selectedJeet && (
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20 }}>
                     <div style={{ background: modalBg, borderRadius: 16, padding: 24, maxWidth: 420, width: "100%", border: "2px solid rgba(220,38,38,0.5)", boxShadow: "0 0 40px rgba(220,38,38,0.3)", maxHeight: "90vh", overflowY: "auto" }}>
-                        <div style={{ textAlign: "center", marginBottom: 16 }}><div style={{ fontSize: 36, marginBottom: 8 }}>🚔</div><div style={{ fontSize: 18, fontWeight: 800, color: "#dc2626" }}>DEA RAID</div></div>
+                        <div style={{ textAlign: "center", marginBottom: 16 }}><div style={{ fontSize: 36, marginBottom: 8 }}>🚔</div><div style={{ fontSize: 18, fontWeight: 800, color: "#dc2626" }}>DEA RAID (Testing - Not Activated)</div></div>
                         
                         <div style={{ background: "rgba(220,38,38,0.1)", borderRadius: 10, padding: 12, marginBottom: 16 }}>
                             <div style={{ fontSize: 10, color: textMuted, marginBottom: 4 }}>SUSPECT {selectedJeet.isCluster && <span style={{ color: "#fbbf24" }}>({selectedJeet.farms?.length || 1} linked farms)</span>}</div>

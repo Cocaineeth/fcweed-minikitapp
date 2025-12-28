@@ -294,7 +294,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
         <div style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.15), rgba(168,85,247,0.1))", borderRadius: 12, padding: 16, border: "1px solid rgba(139,92,246,0.4)", marginTop: 16 }}>
             <div style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 32, marginBottom: 8 }}>☠️</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#a855f7", marginBottom: 4 }}>THE PURGE</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#a855f7", marginBottom: 4 }}>THE PURGE (Testing - Not Activated)</div>
                 <div style={{ fontSize: 11, color: textMuted, marginBottom: 12 }}>24-hour no-shield battle event</div>
                 
                 {isPurgeScheduled ? (
@@ -334,7 +334,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.2), rgba(220,38,38,0.15))", borderRadius: 12, padding: 16, border: "2px solid rgba(239,68,68,0.5)", marginTop: 16 }}>
                 <div style={{ textAlign: "center", marginBottom: 12 }}>
                     <div style={{ fontSize: 28, marginBottom: 4 }}>☠️🔥☠️</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: "#ef4444", textTransform: "uppercase", letterSpacing: 2 }}>THE PURGE IS ACTIVE</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#ef4444", textTransform: "uppercase", letterSpacing: 2 }}>THE PURGE IS ACTIVE (Testing)</div>
                     <div style={{ fontSize: 10, color: "#fca5a5", marginTop: 4 }}>ALL SHIELDS DISABLED • Attack Anyone!</div>
                     <div style={{ background: "rgba(239,68,68,0.3)", borderRadius: 8, padding: 10, marginTop: 8, display: "inline-block" }}>
                         <div style={{ fontSize: 9, color: "#fca5a5" }}>ENDS IN</div>
