@@ -72,13 +72,18 @@ export function makeTxActions(deps: TxDeps)
     if (!isMobile) {
       console.log("[TX] Desktop - trying wallet_sendCalls (EIP-5792) first...");
       try {
-        // Format matching the working app - simplified params
+        // EIP-5792 format - try different chainId formats
+        // Farcaster might expect "eip155:8453" format
+        const chainIdEip155 = `eip155:${CHAIN_ID}`;
+        
+        console.log("[TX] Trying with chainId:", chainIdEip155);
+        
         result = await req({
           method: "wallet_sendCalls",
           params: [{
             version: "1.0",
+            chainId: chainIdEip155,
             from: from,
-            chainId: chainIdHex,
             calls: [{
               to: to,
               data: data,
