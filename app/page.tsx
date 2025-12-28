@@ -414,7 +414,6 @@ export default function Home()
     const processedCrateTxHashes = useRef<Set<string>>(new Set());
     const crateSpinInterval = useRef<NodeJS.Timeout | null>(null);
     const txRef = useRef<ReturnType<typeof makeTxActions> | null>(null);
-    const backgroundLoadedRef = useRef(false);
 
     function txAction()
     {
@@ -756,7 +755,6 @@ export default function Home()
         setUsingMiniApp(false);
         setMiniAppEthProvider(null);
         setShowDisconnectModal(false);
-        backgroundLoadedRef.current = false;
     };
     
     // Get display name or shortened address
@@ -1650,6 +1648,7 @@ export default function Home()
         const tokensPerSecond = ethers.utils.parseUnits("300000", 18).div(86400);
         const effectivePerSecond = tokensPerSecond.mul(plants);
         const interval = setInterval(() => {
+            if (walletPopupActiveRef.current) return; // Skip while wallet popup is open
             currentPending = currentPending.add(effectivePerSecond.mul(v4StakingStats.avgHealth || 100).div(100));
             const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
             setV4RealTimePending(formatted >= 1e6 ? (formatted / 1e6).toFixed(4) + "M" : formatted >= 1e3 ? (formatted / 1e3).toFixed(2) + "K" : formatted.toFixed(2));
@@ -2011,6 +2010,7 @@ export default function Home()
         const tokensPerSecond = ethers.utils.parseUnits("300000", 18).div(86400);
         const effectivePerSecond = tokensPerSecond.mul(plants);
         const interval = setInterval(() => {
+            if (walletPopupActiveRef.current) return; // Skip while wallet popup is open
             currentPending = currentPending.add(effectivePerSecond.mul(v5StakingStats.avgHealth || 100).div(100));
             const formatted = parseFloat(ethers.utils.formatUnits(currentPending, 18));
             setV5RealTimePending(formatted >= 1e6 ? (formatted / 1e6).toFixed(4) + "M" : formatted >= 1e3 ? (formatted / 1e3).toFixed(2) + "K" : formatted.toFixed(2));
@@ -2021,6 +2021,7 @@ export default function Home()
     useEffect(() => {
         if (!v5StakingOpen || v5ClaimCooldown <= 0) return;
         const interval = setInterval(() => {
+            if (walletPopupActiveRef.current) return; // Skip while wallet popup is open
             setV5ClaimCooldown((prev) => (prev > 0 ? prev - 1 : 0));
         }, 1000);
         return () => clearInterval(interval);
@@ -2914,32 +2915,6 @@ export default function Home()
             loadWarsPlayerStats();
         }
     }, [activeTab, userAddress]);
-
-    // Background preload staking data when wallet connects
-    useEffect(() => {
-        if (!userAddress || backgroundLoadedRef.current) return;
-        backgroundLoadedRef.current = true;
-        
-        // Load staking data in background (will be skipped if wallet popup is active)
-        const v5Timer = setTimeout(() => {
-            if (!walletPopupActiveRef.current && V5_STAKING_ADDRESS) {
-                refreshV5StakingRef.current = false;
-                refreshV5Staking();
-            }
-        }, 500);
-        
-        const v4Timer = setTimeout(() => {
-            if (!walletPopupActiveRef.current && V4_STAKING_ADDRESS) {
-                refreshV4StakingRef.current = false;
-                refreshV4Staking();
-            }
-        }, 1000);
-        
-        return () => {
-            clearTimeout(v5Timer);
-            clearTimeout(v4Timer);
-        };
-    }, [userAddress]);
 
     useEffect(() => {
         if (!warsSearchExpiry || warsSearchExpiry <= 0) return;
