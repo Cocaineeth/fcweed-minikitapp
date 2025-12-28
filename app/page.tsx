@@ -229,8 +229,26 @@ export default function Home()
     const { connect: wagmiConnect, connectors: wagmiConnectors } = useConnect();
     const { sendTransactionAsync } = useSendTransaction();
     
-    // Auto-connect to Farcaster wallet
+    // Detect if we're actually in Farcaster miniapp (not just a browser)
+    const [isInFarcasterFrame, setIsInFarcasterFrame] = useState(false);
+    
     useEffect(() => {
+        // Check if we're in a Farcaster frame/miniapp context
+        const inIframe = window !== window.parent;
+        const hasFarcasterContext = !!(window as any).FarcasterContext || 
+                                    !!(window as any).fc || 
+                                    document.referrer.includes('farcaster') ||
+                                    document.referrer.includes('warpcast');
+        setIsInFarcasterFrame(inIframe || hasFarcasterContext);
+        console.log("[Wagmi] Farcaster frame detected:", inIframe || hasFarcasterContext);
+    }, []);
+    
+    // Auto-connect to Farcaster wallet ONLY if in Farcaster context
+    useEffect(() => {
+        if (!isInFarcasterFrame) {
+            console.log("[Wagmi] Not in Farcaster frame, skipping auto-connect");
+            return;
+        }
         if (!wagmiConnected && wagmiConnectors.length > 0) {
             const farcasterConnector = wagmiConnectors.find(c => 
                 c.id === 'farcasterFrame' || c.name?.toLowerCase().includes('farcaster')
@@ -240,14 +258,17 @@ export default function Home()
                 wagmiConnect({ connector: farcasterConnector });
             }
         }
-    }, [wagmiConnected, wagmiConnectors, wagmiConnect]);
+    }, [wagmiConnected, wagmiConnectors, wagmiConnect, isInFarcasterFrame]);
     
-    // Wagmi sendTransaction wrapper function
+    // Wagmi sendTransaction wrapper function - only use if in Farcaster frame
     const wagmiSendCalls = useCallback(async (calls: Array<{
         to: `0x${string}`;
         data: `0x${string}`;
         value?: bigint;
     }>): Promise<string> => {
+        if (!isInFarcasterFrame) {
+            throw new Error("Wagmi only available in Farcaster frame");
+        }
         // useSendTransaction sends one tx at a time, take the first call
         const call = calls[0];
         console.log("[Wagmi] Sending transaction via useSendTransaction...", call.to);
@@ -258,7 +279,7 @@ export default function Home()
         });
         console.log("[Wagmi] sendTransaction result:", txHash);
         return txHash;
-    }, [sendTransactionAsync]);
+    }, [sendTransactionAsync, isInFarcasterFrame]);
 
     // Track if wallet popup is active - ALL intervals check this before running
     const walletBusyRef = useRef(false);
@@ -491,9 +512,10 @@ export default function Home()
                 usdcInterface,
                 waitForTx,
                 setMintStatus,
-                wagmiSendCalls: wagmiConnected ? wagmiSendCalls : null,
+                // Only use Wagmi if connected AND in Farcaster frame
+                wagmiSendCalls: (wagmiConnected && isInFarcasterFrame) ? wagmiSendCalls : null,
             });
-        }, [readProvider, miniAppEthProvider, usingMiniApp, wagmiConnected, wagmiSendCalls]);
+        }, [readProvider, miniAppEthProvider, usingMiniApp, wagmiConnected, wagmiSendCalls, isInFarcasterFrame]);
 
     const currentTrackMeta = useMemo(() => PLAYLIST[currentTrack], [currentTrack]);
     useEffect(() => {
