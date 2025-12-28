@@ -68,80 +68,61 @@ export function makeTxActions(deps: TxDeps)
     const req = ethProvider.request?.bind(ethProvider) ?? ethProvider.send?.bind(ethProvider);
     if (!req) throw new Error("Mini app provider missing request/send method");
 
-    // On desktop Farcaster, the provider behavior is different
+    // On desktop Farcaster, there's often a provider conflict with MetaMask/other extensions
+    // We MUST use ONLY the Farcaster SDK provider, not window.ethereum
     if (!isMobile) {
-      console.log("[TX] Desktop detected, inspecting provider capabilities...");
+      console.log("[TX] Desktop - using Farcaster SDK provider ONLY (bypassing window.ethereum)...");
       
       try {
         const { sdk } = await import("@farcaster/miniapp-sdk");
         await sdk.actions.ready();
         
-        const freshProvider = await sdk.wallet.getEthereumProvider();
-        if (!freshProvider) {
-          throw new Error("Could not get fresh provider");
+        // Get the Farcaster-specific provider (NOT window.ethereum)
+        const farcasterProvider = await sdk.wallet.getEthereumProvider();
+        if (!farcasterProvider?.request) {
+          throw new Error("Could not get Farcaster provider");
         }
         
-        // Log everything about the provider to understand what it supports
-        console.log("[TX] Fresh provider type:", typeof freshProvider);
-        console.log("[TX] Fresh provider keys:", Object.keys(freshProvider));
-        console.log("[TX] Has request:", typeof freshProvider.request);
-        console.log("[TX] Has send:", typeof freshProvider.send);
-        console.log("[TX] Has sendAsync:", typeof freshProvider.sendAsync);
+        console.log("[TX] Got Farcaster provider (separate from window.ethereum)");
         
-        // Check if provider has any special methods
-        if (freshProvider.isWarpcast) console.log("[TX] Provider isWarpcast:", freshProvider.isWarpcast);
-        if (freshProvider.isFarcaster) console.log("[TX] Provider isFarcaster:", freshProvider.isFarcaster);
-        if (freshProvider.isFrame) console.log("[TX] Provider isFrame:", freshProvider.isFrame);
-        
-        // Re-request accounts
-        console.log("[TX] Requesting accounts...");
-        const accounts = await freshProvider.request({ method: "eth_requestAccounts" });
-        console.log("[TX] Accounts:", accounts);
+        // Get accounts from Farcaster provider
+        const accounts = await farcasterProvider.request({ method: "eth_accounts" });
+        console.log("[TX] Farcaster accounts:", accounts);
         
         if (!accounts?.[0]) {
-          throw new Error("No accounts");
+          // Try requesting accounts
+          const requestedAccounts = await farcasterProvider.request({ method: "eth_requestAccounts" });
+          if (!requestedAccounts?.[0]) {
+            throw new Error("No accounts from Farcaster provider");
+          }
         }
         
-        const account = accounts[0];
+        const account = accounts?.[0] || (await farcasterProvider.request({ method: "eth_accounts" }))?.[0];
+        console.log("[TX] Using Farcaster account:", account);
         
-        // Try to get supported methods
-        try {
-          const capabilities = await freshProvider.request({
-            method: "wallet_getCapabilities",
-            params: [account],
-          });
-          console.log("[TX] Wallet capabilities:", capabilities);
-        } catch (e: any) {
-          console.log("[TX] wallet_getCapabilities not supported:", e?.message);
-        }
+        // Send transaction using Farcaster provider ONLY
+        // Use simple eth_sendTransaction - the Farcaster provider should handle the popup
+        console.log("[TX] Sending eth_sendTransaction via Farcaster provider...");
         
-        // APPROACH 1: Try personal_sign first to "warm up" the connection
-        // Some wallets need an initial signature request before transactions work
-        // Skip this for now - go straight to transaction
-        
-        // APPROACH 2: Use eth_sendTransaction but with the EXACT fresh provider
-        // The key might be that we need to use the provider SYNCHRONOUSLY after getting it
-        console.log("[TX] Attempting eth_sendTransaction with fresh provider...");
-        
-        const txParams = {
-          from: account,
-          to: to,
-          data: data,
-          value: "0x0",
-          gas: gasLimit,
-        };
-        console.log("[TX] Transaction params:", JSON.stringify(txParams));
-        
-        result = await freshProvider.request({
+        const txRequest = {
           method: "eth_sendTransaction",
-          params: [txParams],
-        });
+          params: [{
+            from: account,
+            to: to,
+            data: data,
+            value: "0x0",
+          }],
+        };
         
-        console.log("[TX] eth_sendTransaction result:", result);
+        console.log("[TX] Request:", JSON.stringify(txRequest));
+        
+        result = await farcasterProvider.request(txRequest);
+        
+        console.log("[TX] Transaction result:", result);
         
         if (typeof result === "string" && result.startsWith("0x") && result.length >= 66) {
           txHash = result;
-          console.log("[TX] SUCCESS! Got txHash:", txHash);
+          console.log("[TX] SUCCESS! txHash:", txHash);
           
           const fakeTx: any = {
             hash: txHash,
@@ -157,17 +138,15 @@ export function makeTxActions(deps: TxDeps)
             },
           };
           return fakeTx as ethers.providers.TransactionResponse;
+        } else {
+          throw new Error("Invalid transaction result: " + JSON.stringify(result));
         }
         
       } catch (err: any) {
-        console.error("[TX] Desktop transaction failed:", {
+        console.error("[TX] Farcaster provider transaction failed:", {
           message: err?.message,
           code: err?.code,
-          name: err?.name,
-          stack: err?.stack?.split('\n').slice(0, 3).join('\n')
         });
-        
-        // Re-throw so caller sees the error
         throw err;
       }
     }

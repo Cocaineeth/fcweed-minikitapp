@@ -613,13 +613,19 @@ export default function Home()
     ): Promise<string | null> {
         walletBusyRef.current = true;
         try {
-            const anyProvider = (window as any).ethereum;
-            if (!anyProvider?.request || !userAddress) {
+            // On desktop Farcaster, window.ethereum conflicts with MetaMask
+            // Use miniAppEthProvider (Farcaster's provider) instead
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            const providerToUse = (!isMobile && usingMiniApp && miniAppEthProvider) 
+                ? miniAppEthProvider 
+                : (window as any).ethereum;
+            
+            if (!providerToUse?.request || !userAddress) {
                 console.log("[Paymaster] No provider for sponsored tx");
                 return null;
             }
             
-            console.log("[Paymaster] Sending sponsored transaction to:", to);
+            console.log("[Paymaster] Sending sponsored transaction to:", to, "using:", isMobile ? "window.ethereum" : "miniAppEthProvider");
             
             const calls = [{
                 to,
@@ -627,7 +633,7 @@ export default function Home()
                 value
             }];
             
-            const result = await anyProvider.request({
+            const result = await providerToUse.request({
                 method: 'wallet_sendCalls',
                 params: [{
                     version: '1.0',
