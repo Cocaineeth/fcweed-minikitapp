@@ -66,28 +66,33 @@ export function makeTxActions(deps: TxDeps)
     let result: any;
     let txHash: string | null = null;
 
-    // Detect if we're on desktop (no mobile UA)
-    const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
-    // On desktop Farcaster, try wallet_sendCalls first (more reliable popup handling)
-    // On mobile, try eth_sendTransaction first (faster)
-    const methodOrder = isMobile 
-      ? ["eth_sendTransaction", "wallet_sendCalls"]
-      : ["wallet_sendCalls", "eth_sendTransaction"];
-
-    for (const method of methodOrder) {
-      try {
-        if (method === "eth_sendTransaction") {
-          result = await req({
-            method: "eth_sendTransaction",
-            params: [
-              { from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit },
-            ],
-          });
-          
-          if (typeof result === "string" && result.startsWith("0x")) txHash = result;
-          else txHash = result?.hash || result?.txHash || null;
-        } else {
+    // Use eth_sendTransaction - it's the standard method that works on both mobile and desktop
+    // Only fall back to wallet_sendCalls if eth_sendTransaction is not supported (not on user rejection)
+    try {
+      console.log("[TX] Sending via eth_sendTransaction...");
+      result = await req({
+        method: "eth_sendTransaction",
+        params: [
+          { from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit },
+        ],
+      });
+      
+      if (typeof result === "string" && result.startsWith("0x")) txHash = result;
+      else txHash = result?.hash || result?.txHash || null;
+      console.log("[TX] eth_sendTransaction result:", txHash);
+    } catch (err: any) {
+      const errMsg = err?.message || err?.reason || String(err);
+      
+      // If user rejected, don't try fallback - just throw
+      if (err?.code === 4001 || errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("user rejected")) {
+        console.log("[TX] User rejected transaction");
+        throw err;
+      }
+      
+      // Only try wallet_sendCalls if eth_sendTransaction is not supported
+      if (errMsg.includes("unsupported") || errMsg.includes("not supported") || errMsg.includes("unknown method")) {
+        console.log("[TX] eth_sendTransaction not supported, trying wallet_sendCalls...");
+        try {
           result = await req({
             method: "wallet_sendCalls",
             params: [
@@ -107,19 +112,14 @@ export function makeTxActions(deps: TxDeps)
             result?.hash ||
             result?.id ||
             (typeof result === "string" && result.startsWith("0x") ? result : null);
+          console.log("[TX] wallet_sendCalls result:", txHash);
+        } catch (fallbackErr) {
+          console.error("[TX] wallet_sendCalls also failed:", fallbackErr);
+          throw fallbackErr;
         }
-        
-        // If we got a valid result, break out of the loop
-        if (txHash && typeof txHash === "string" && txHash.startsWith("0x")) {
-          break;
-        }
-      } catch (err: any) {
-        console.warn(`[TX] ${method} failed:`, err?.message || err);
-        // Continue to next method
-        if (method === methodOrder[methodOrder.length - 1]) {
-          // Last method failed, throw
-          throw err;
-        }
+      } else {
+        // Some other error, just throw it
+        throw err;
       }
     }
 

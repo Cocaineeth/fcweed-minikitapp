@@ -645,8 +645,15 @@ export default function Home()
             console.log("[Paymaster] Sponsored tx result:", result);
             return result;
         } catch (err: any) {
+            const errMsg = err?.message || err?.reason || String(err);
             console.error("[Paymaster] Sponsored tx failed:", err);
-            // Return null to fall back to regular transaction
+            
+            // If user rejected, throw the error - don't fall back to another popup
+            if (err?.code === 4001 || errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("user rejected")) {
+                throw err;
+            }
+            
+            // Return null only for other errors (unsupported method, etc) to fall back to regular tx
             return null;
         } finally {
             walletBusyRef.current = false;
