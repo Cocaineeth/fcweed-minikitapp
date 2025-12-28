@@ -1,5 +1,8 @@
 "use client";
 
+// Prevent static generation - this page requires client-side rendering
+export const dynamic = 'force-dynamic';
+
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import Image from "next/image";
 import { useMiniKit, useComposeCast } from "@coinbase/onchainkit/minikit";
