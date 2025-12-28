@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 import { Inter, Source_Code_Pro } from "next/font/google";
-import { SafeArea } from "@coinbase/onchainkit/minikit";
-import { minikitConfig } from "@/minikit.config";
 import { RootProvider } from "./rootProvider";
 import "./globals.css";
 
@@ -81,16 +79,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <RootProvider>
-      <html lang="en">
-        <head>
-          {/* Base App verification */}
-          <meta name="base:app_id" content="694d066ac63ad876c90812b8" />
-        </head>
-        <body className={`${inter.variable} ${sourceCodePro.variable}`}>
-          <SafeArea>{children}</SafeArea>
-        </body>
-      </html>
-    </RootProvider>
+    <html lang="en">
+      <head>
+        {/* Base App verification */}
+        <meta name="base:app_id" content="694d066ac63ad876c90812b8" />
+      </head>
+      <body className={`${inter.variable} ${sourceCodePro.variable}`}>
+        <RootProvider>{children}</RootProvider>
+      </body>
+    </html>
   );
 }

@@ -2,6 +2,7 @@
 "use client";
 
 import { MiniKitProvider } from "@coinbase/onchainkit/minikit";
+import { SafeArea } from "@coinbase/onchainkit/minikit";
 import { base } from "wagmi/chains";
 import { http, createConfig, WagmiProvider } from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -18,27 +19,6 @@ const wagmiConfig = createConfig({
     farcasterMiniApp(),
   ],
 });
-
-// Wrapper that only renders MiniKitProvider on client
-function SafeMiniKitProvider({ children }: { children: ReactNode }) {
-  const [canUseMiniKit, setCanUseMiniKit] = useState(false);
-
-  useEffect(() => {
-    // Only enable MiniKit on client side
-    setCanUseMiniKit(true);
-  }, []);
-
-  if (!canUseMiniKit) {
-    return <>{children}</>;
-  }
-
-  try {
-    return <MiniKitProvider>{children}</MiniKitProvider>;
-  } catch (e) {
-    console.warn("MiniKitProvider error:", e);
-    return <>{children}</>;
-  }
-}
 
 export function RootProvider({ children }: { children: ReactNode }) {
   // Track if we're on client side
@@ -65,7 +45,9 @@ export function RootProvider({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        <SafeMiniKitProvider>{children}</SafeMiniKitProvider>
+        <MiniKitProvider>
+          <SafeArea>{children}</SafeArea>
+        </MiniKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );
