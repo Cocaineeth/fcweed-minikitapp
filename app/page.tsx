@@ -1,8 +1,5 @@
 "use client";
 
-// Prevent static generation - this page requires client-side rendering
-export const dynamic = 'force-dynamic';
-
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import Image from "next/image";
 import { useMiniKit, useComposeCast } from "@coinbase/onchainkit/minikit";
@@ -222,7 +219,40 @@ async function captureAndShare(
     }
 }
 
-export default function Home()
+// Loading component for SSR
+function LoadingScreen() {
+    return (
+        <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '100vh',
+            backgroundColor: '#050812',
+            color: 'white'
+        }}>
+            <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>🌿 FCWEED</div>
+            <div>Loading...</div>
+        </div>
+    );
+}
+
+// Main export - handles SSR by only rendering content after mount
+export default function Home() {
+    const [mounted, setMounted] = useState(false);
+    
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+    
+    if (!mounted) {
+        return <LoadingScreen />;
+    }
+    
+    return <HomeContent />;
+}
+
+function HomeContent()
 {
     const { setMiniAppReady, isMiniAppReady } = useMiniKit();
     const { composeCast } = useComposeCast();
