@@ -63,6 +63,64 @@ export function makeTxActions(deps: TxDeps)
     
     if (!ethProvider) throw new Error("Mini app provider not available");
 
+    const chainIdHex = ethers.utils.hexValue(CHAIN_ID);
+    let result: any;
+    let txHash: string | null = null;
+
+    // Detect if we're on mobile
+    const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    // On desktop Farcaster, the raw provider auto-rejects. 
+    // Try to import and use the SDK's sendTransaction which handles the popup properly
+    if (!isMobile) {
+      console.log("[TX] Desktop detected, trying Farcaster SDK sendTransaction...");
+      try {
+        // Dynamically import the SDK to use its sendTransaction
+        const { sdk } = await import("@farcaster/miniapp-sdk");
+        
+        if (sdk?.wallet?.sendTransaction) {
+          console.log("[TX] Using sdk.wallet.sendTransaction...");
+          const sdkResult = await sdk.wallet.sendTransaction({
+            chainId: `eip155:${CHAIN_ID}`,
+            to: to,
+            data: data,
+            value: "0x0",
+          });
+          
+          console.log("[TX] SDK sendTransaction result:", sdkResult);
+          
+          if (sdkResult?.transactionHash) {
+            txHash = sdkResult.transactionHash;
+          } else if (typeof sdkResult === 'string' && sdkResult.startsWith('0x')) {
+            txHash = sdkResult;
+          }
+          
+          if (txHash) {
+            console.log("[TX] Got txHash from SDK:", txHash);
+            // Return fake tx object
+            const fakeTx: any = {
+              hash: txHash,
+              wait: async () => {
+                for (let i = 0; i < 45; i++) {
+                  await new Promise((resolve) => setTimeout(resolve, 2000));
+                  try {
+                    const receipt = await readProvider.getTransactionReceipt(txHash!);
+                    if (receipt && receipt.confirmations > 0) return receipt;
+                  } catch { }
+                }
+                return null;
+              },
+            };
+            return fakeTx as ethers.providers.TransactionResponse;
+          }
+        }
+      } catch (sdkErr: any) {
+        console.warn("[TX] SDK sendTransaction failed:", sdkErr?.message || sdkErr);
+        // Fall through to try regular provider
+      }
+    }
+
+    // Mobile path or desktop fallback: use the provider directly
     const req =
       ethProvider.request?.bind(ethProvider) ??
       ethProvider.send?.bind(ethProvider);
@@ -74,11 +132,6 @@ export function makeTxActions(deps: TxDeps)
     });
 
     if (!req) throw new Error("Mini app provider missing request/send method");
-
-    const chainIdHex = ethers.utils.hexValue(CHAIN_ID);
-
-    let result: any;
-    let txHash: string | null = null;
 
     // Try eth_sendTransaction first
     console.log("[TX] Attempting eth_sendTransaction...");
