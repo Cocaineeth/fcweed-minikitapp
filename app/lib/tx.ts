@@ -64,38 +64,43 @@ export function makeTxActions(deps: TxDeps)
     // Detect if we're on mobile
     const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     
-    // On desktop Farcaster, try sdk.actions.sendTransaction (Frame action)
+    // On desktop, try to ensure SDK is ready and get fresh provider
     if (!isMobile) {
-      console.log("[TX] Desktop - trying sdk.actions.sendTransaction...");
+      console.log("[TX] Desktop - ensuring SDK ready and getting fresh provider...");
       try {
         const { sdk } = await import("@farcaster/miniapp-sdk");
         
-        // Log available SDK methods
-        console.log("[TX] SDK actions available:", sdk?.actions ? Object.keys(sdk.actions) : "none");
+        // Call ready() to ensure the SDK connection is active
+        console.log("[TX] Calling sdk.actions.ready()...");
+        await sdk.actions.ready();
+        console.log("[TX] SDK ready confirmed");
         
-        // Try the Frame transaction action
-        if (sdk?.actions?.sendTransaction) {
-          console.log("[TX] Calling sdk.actions.sendTransaction...");
-          const actionResult = await sdk.actions.sendTransaction({
-            chainId: `eip155:${CHAIN_ID}`,
-            to: to,
-            data: data,
-            value: "0",
+        // Small delay to let the connection stabilize
+        await new Promise(r => setTimeout(r, 100));
+        
+        // Get a completely fresh provider
+        console.log("[TX] Getting fresh ethereum provider...");
+        const freshProvider = await sdk.wallet.getEthereumProvider();
+        
+        if (freshProvider?.request) {
+          console.log("[TX] Got fresh provider, sending transaction...");
+          
+          // Send transaction with fresh provider
+          const freshResult = await freshProvider.request({
+            method: "eth_sendTransaction",
+            params: [{ from, to, data, value: "0x0", gas: gasLimit }],
           });
           
-          console.log("[TX] sdk.actions.sendTransaction result:", actionResult);
+          console.log("[TX] Fresh provider transaction result:", freshResult);
           
-          // Extract transaction hash from result
-          if (actionResult?.transactionHash) {
-            txHash = actionResult.transactionHash;
-          } else if (actionResult?.hash) {
-            txHash = actionResult.hash;
-          } else if (typeof actionResult === 'string' && actionResult.startsWith('0x')) {
-            txHash = actionResult;
+          if (typeof freshResult === "string" && freshResult.startsWith("0x")) {
+            txHash = freshResult;
+          } else {
+            txHash = freshResult?.hash || freshResult?.txHash || null;
           }
           
           if (txHash && txHash.length >= 66) {
-            console.log("[TX] Success! txHash:", txHash);
+            console.log("[TX] Success with fresh provider! txHash:", txHash);
             const fakeTx: any = {
               hash: txHash,
               wait: async () => {
@@ -111,19 +116,14 @@ export function makeTxActions(deps: TxDeps)
             };
             return fakeTx as ethers.providers.TransactionResponse;
           }
-        } else {
-          console.log("[TX] sdk.actions.sendTransaction not available");
         }
       } catch (sdkErr: any) {
-        console.warn("[TX] sdk.actions.sendTransaction failed:", {
-          message: sdkErr?.message,
-          code: sdkErr?.code
-        });
-        // If user rejected via SDK action, throw it
-        if (sdkErr?.message?.includes('rejected') || sdkErr?.message?.includes('denied')) {
+        console.warn("[TX] Desktop SDK approach failed:", sdkErr?.message, "code:", sdkErr?.code);
+        // If it's a real user rejection (they clicked reject), throw it
+        if (sdkErr?.code === 4001) {
           throw sdkErr;
         }
-        // Otherwise fall through to try provider
+        // Otherwise fall through to try the passed-in provider
       }
     }
 
@@ -131,7 +131,7 @@ export function makeTxActions(deps: TxDeps)
     const req = ethProvider.request?.bind(ethProvider) ?? ethProvider.send?.bind(ethProvider);
     if (!req) throw new Error("Mini app provider missing request/send method");
 
-    console.log("[TX] Using provider eth_sendTransaction...");
+    console.log("[TX] Using passed-in provider for eth_sendTransaction...");
     try {
       result = await req({
         method: "eth_sendTransaction",
