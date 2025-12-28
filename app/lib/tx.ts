@@ -6,7 +6,7 @@ export type EnsureWalletCtx = {
   provider: ethers.providers.Provider;
   userAddress: string;
   isMini: boolean;
-  ethProvider?: any; // Add the raw eth provider to context
+  ethProvider?: any; // Fresh eth provider from ensureWallet
 };
 
 export type EnsureWalletFn = () => Promise<EnsureWalletCtx | null>;
@@ -44,8 +44,7 @@ export function makeTxActions(deps: TxDeps)
     setMintStatus,
   } = deps;
 
-  // Helper function to send wallet calls using provided ethProvider
-  async function sendWalletCallsWithProvider(
+  async function sendWalletCalls(
     ethProvider: any,
     from: string,
     to: string,
@@ -61,35 +60,60 @@ export function makeTxActions(deps: TxDeps)
 
     if (!req) throw new Error("Mini app provider missing request/send method");
 
+    const chainIdHex = ethers.utils.hexValue(CHAIN_ID);
+
+    let result: any;
     let txHash: string | null = null;
 
-    // Just use eth_sendTransaction - it's the most reliable
-    console.log("[TX] Sending transaction via eth_sendTransaction...");
-    const result = await req({
-      method: "eth_sendTransaction",
-      params: [
-        { from, to, data, value: "0x0", gas: gasLimit },
-      ],
-    });
+    try
+    {
+      result = await req({
+        method: "eth_sendTransaction",
+        params: [
+          { from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit },
+        ],
+      });
 
-    if (typeof result === "string" && result.startsWith("0x")) {
-      txHash = result;
-    } else if (result?.hash) {
-      txHash = result.hash;
-    } else if (result?.txHash) {
-      txHash = result.txHash;
+      if (typeof result === "string" && result.startsWith("0x")) txHash = result;
+      else txHash = result?.hash || result?.txHash || null;
+    }
+    catch (sendTxError: any)
+    {
+      try
+      {
+        result = await req({
+          method: "wallet_sendCalls",
+          params: [
+            {
+              from,
+              chainId: chainIdHex,
+              atomicRequired: false,
+              capabilities: { paymasterService: {} },
+              calls: [{ to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit }],
+            },
+          ],
+        });
+
+        txHash =
+          result?.txHashes?.[0] ||
+          result?.txHash ||
+          result?.hash ||
+          result?.id ||
+          (typeof result === "string" && result.startsWith("0x") ? result : null);
+      }
+      catch (sendCallsError)
+      {
+        throw sendCallsError;
+      }
     }
 
     if (!txHash || typeof txHash !== "string" || !txHash.startsWith("0x") || txHash.length < 66)
     {
-      console.warn("[TX] No valid txHash received:", result);
       return {
         hash: "0x" + "0".repeat(64),
         wait: async () => null,
       } as any;
     }
-
-    console.log("[TX] Got txHash:", txHash);
 
     const fakeTx: any = {
       hash: txHash,
@@ -112,17 +136,6 @@ export function makeTxActions(deps: TxDeps)
     return fakeTx as ethers.providers.TransactionResponse;
   }
 
-  // Legacy sendWalletCalls that uses deps.miniAppEthProvider (kept for backward compatibility)
-  async function sendWalletCalls(
-    from: string,
-    to: string,
-    data: string,
-    gasLimit: string = "0x1E8480"
-  ): Promise<ethers.providers.TransactionResponse>
-  {
-    return sendWalletCallsWithProvider(deps.miniAppEthProvider, from, to, data, gasLimit);
-  }
-
   async function sendContractTx(
     to: string,
     data: string,
@@ -132,24 +145,16 @@ export function makeTxActions(deps: TxDeps)
     const ctx = await ensureWallet();
     if (!ctx) return null;
 
+    // Use fresh ethProvider from context, fallback to deps for backward compat
+    const ethProvider = ctx.ethProvider || deps.miniAppEthProvider;
+
     try
     {
-      // Detect if we're on mobile
-      const isMobile = typeof window !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      
-      // Use ethProvider from context if available (fresh from ensureWallet)
-      const ethProvider = ctx.ethProvider || deps.miniAppEthProvider;
-      
-      // On mobile mini app, use raw provider for better compatibility
-      // On desktop (even in Farcaster iframe), use signer for more stable popup handling
-      if (ctx.isMini && ethProvider && isMobile)
+      if (ctx.isMini && ethProvider)
       {
-        console.log("[TX] Using raw provider (mobile mini app)");
-        return await sendWalletCallsWithProvider(ethProvider, ctx.userAddress, to, data, gasLimit);
+        return await sendWalletCalls(ethProvider, ctx.userAddress, to, data, gasLimit);
       }
 
-      // Use signer for desktop (including desktop Farcaster) - more stable
-      console.log("[TX] Using signer.sendTransaction");
       const tx = await ctx.signer.sendTransaction({
         to,
         data,
@@ -180,9 +185,6 @@ export function makeTxActions(deps: TxDeps)
 
     const { signer: s, userAddress: addr, isMini } = ctx;
     const ethProvider = ctx.ethProvider || deps.miniAppEthProvider;
-    
-    // Detect if we're on mobile
-    const isMobile = typeof window !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
     setMintStatus("Checking USDC contract on Base…");
     const code = await readProvider.getCode(USDC_ADDRESS);
@@ -216,11 +218,10 @@ export function makeTxActions(deps: TxDeps)
 
     try
     {
-      // Only use raw provider on mobile mini app
-      if (isMini && ethProvider && isMobile)
+      if (isMini && ethProvider)
       {
         const data = usdcInterface.encodeFunctionData("approve", [spender, required]);
-        await sendWalletCallsWithProvider(ethProvider, addr, USDC_ADDRESS, data);
+        await sendWalletCalls(ethProvider, addr, USDC_ADDRESS, data);
 
         setMintStatus("Waiting for USDC approve confirmation…");
         for (let i = 0; i < 20; i++)
@@ -250,7 +251,6 @@ export function makeTxActions(deps: TxDeps)
       }
       else
       {
-        // Use signer for desktop (including desktop Farcaster)
         const tx = await usdcWrite.approve(spender, required);
         await waitForTx(tx);
         setMintStatus("USDC approve confirmed. Sending mint transaction…");

@@ -410,7 +410,7 @@ export default function Home()
     const processedCrateTxHashes = useRef<Set<string>>(new Set());
     const crateSpinInterval = useRef<NodeJS.Timeout | null>(null);
     const txRef = useRef<ReturnType<typeof makeTxActions> | null>(null);
-    const preloadedRef = useRef(false);
+    const backgroundLoadedRef = useRef(false);
 
     function txAction()
     {
@@ -741,7 +741,7 @@ export default function Home()
         setUsingMiniApp(false);
         setMiniAppEthProvider(null);
         setShowDisconnectModal(false);
-        preloadedRef.current = false; // Reset so data preloads again on reconnect
+        backgroundLoadedRef.current = false; // Reset so data loads again on reconnect
     };
     
     // Get display name or shortened address
@@ -2896,76 +2896,33 @@ export default function Home()
         }
     }, [activeTab, userAddress]);
 
-    // Background preload all data when wallet connects
+    // Background preload staking data when wallet connects (non-blocking, read-only)
     useEffect(() => {
-        if (!userAddress || preloadedRef.current) return;
-        preloadedRef.current = true;
+        if (!userAddress || backgroundLoadedRef.current) return;
+        backgroundLoadedRef.current = true;
         
-        // Preload all data in background with slight delays to avoid overwhelming RPC
-        console.log("[Preload] Starting background data load...");
+        console.log("[Preload] Starting background data load for:", userAddress);
         
-        // V5 Staking (most important)
-        setTimeout(() => {
-            if (V5_STAKING_ADDRESS) {
+        // Load V5 staking data in background after a delay
+        const v5Timer = setTimeout(() => {
+            if (V5_STAKING_ADDRESS && userAddress) {
                 refreshV5StakingRef.current = false;
                 refreshV5Staking();
             }
-        }, 100);
+        }, 1000);
         
-        // V4 Staking
-        setTimeout(() => {
-            if (V4_STAKING_ADDRESS) {
+        // Load V4 staking data in background
+        const v4Timer = setTimeout(() => {
+            if (V4_STAKING_ADDRESS && userAddress) {
                 refreshV4StakingRef.current = false;
                 refreshV4Staking();
             }
-        }, 500);
-        
-        // Wars data
-        setTimeout(() => {
-            loadWarsPlayerStats();
-        }, 1000);
-        
-        // Water shop
-        setTimeout(() => {
-            loadWaterShopInfo();
-        }, 1500);
-        
-        // Crate/Vault data
-        setTimeout(() => {
-            (async () => {
-                try {
-                    const vaultContract = new ethers.Contract(CRATE_VAULT_ADDRESS, CRATE_VAULT_ABI, readProvider);
-                    const [plants, lands, superLands] = await vaultContract.getVaultInventory();
-                    setVaultNfts({ plants: plants.toNumber(), lands: lands.toNumber(), superLands: superLands.toNumber() });
-                    
-                    const globalStats = await vaultContract.getGlobalStats();
-                    setCrateGlobalStats({
-                        totalOpened: globalStats.totalCratesOpened.toNumber(),
-                        totalBurned: ethers.utils.formatUnits(globalStats.totalFcweedBurned, 18),
-                        uniqueUsers: globalStats.uniqueUsers.toNumber(),
-                    });
-                    
-                    if (userAddress) {
-                        const userStats = await vaultContract.getUserStats(userAddress);
-                        setCrateUserStats({
-                            opened: userStats.cratesOpened.toNumber(),
-                            dust: userStats.dustBalance.toNumber(),
-                            fcweed: parseFloat(ethers.utils.formatUnits(userStats.fcweedWon, 18)),
-                            usdc: parseFloat(ethers.utils.formatUnits(userStats.usdcWon, 6)),
-                            nfts: userStats.nftsWon.toNumber(),
-                            totalSpent: parseFloat(ethers.utils.formatUnits(userStats.totalSpent, 18)),
-                        });
-                    }
-                    
-                    const dustEnabled = await vaultContract.dustConversionEnabled().catch(() => false);
-                    setDustConversionEnabled(dustEnabled);
-                } catch (err) {
-                    console.error("[Preload] Crate data error:", err);
-                }
-            })();
         }, 2000);
         
-        console.log("[Preload] Background data load scheduled");
+        return () => {
+            clearTimeout(v5Timer);
+            clearTimeout(v4Timer);
+        };
     }, [userAddress]);
 
     useEffect(() => {
