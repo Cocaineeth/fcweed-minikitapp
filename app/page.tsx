@@ -306,6 +306,7 @@ export default function Home()
     const [v5CustomWaterAmounts, setV5CustomWaterAmounts] = useState<Record<number, number>>({});
     const [v4CustomWaterAmounts, setV4CustomWaterAmounts] = useState<Record<number, number>>({});
     const [v5ActionStatus, setV5ActionStatus] = useState("");
+    const [v5AverageHealth, setV5AverageHealth] = useState<number>(100);
 
     const [waterShopInfo, setWaterShopInfo] = useState<any>(null);
     const [waterBuyAmount, setWaterBuyAmount] = useState(1);
@@ -3022,7 +3023,7 @@ export default function Home()
                 let attackerPower = 0;
                 const attackerAddress = ctx.userAddress;
                 console.log("[Wars] Calculating attacker power for:", attackerAddress);
-                console.log("[Wars] Target address was:", activeSearch.target);
+                console.log("[Wars] Target address was:", warsTarget);
                 console.log("[Wars] V5_STAKING_ADDRESS:", V5_STAKING_ADDRESS);
 
                 // Method 1: Try V5 contract call
