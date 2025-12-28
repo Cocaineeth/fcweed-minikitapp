@@ -5,6 +5,8 @@ import Image from "next/image";
 import { useMiniKit, useComposeCast } from "@coinbase/onchainkit/minikit";
 import { ethers } from "ethers";
 import { sdk } from "@farcaster/miniapp-sdk";
+import { useSendCalls, useAccount, useConnect } from 'wagmi';
+import { farcasterFrame } from '@farcaster/frame-wagmi-connector';
 import styles from "./page.module.css";
 import { CrimeLadder } from "./components/CrimeLadder";
 import { loadOwnedTokens } from "./lib/tokens";
@@ -222,6 +224,36 @@ export default function Home()
 {
     const { setMiniAppReady, isMiniAppReady } = useMiniKit();
     const { composeCast } = useComposeCast();
+
+    // ===== WAGMI HOOKS FOR FARCASTER TRANSACTIONS =====
+    const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount();
+    const { connect: wagmiConnect, connectors: wagmiConnectors } = useConnect();
+    const { sendCallsAsync } = useSendCalls();
+    
+    // Auto-connect to Farcaster wallet
+    useEffect(() => {
+        if (!wagmiConnected && wagmiConnectors.length > 0) {
+            const farcasterConnector = wagmiConnectors.find(c => 
+                c.id === 'farcasterFrame' || c.name?.toLowerCase().includes('farcaster')
+            );
+            if (farcasterConnector) {
+                console.log("[Wagmi] Auto-connecting to Farcaster wallet...");
+                wagmiConnect({ connector: farcasterConnector });
+            }
+        }
+    }, [wagmiConnected, wagmiConnectors, wagmiConnect]);
+    
+    // Wagmi sendCalls wrapper function
+    const wagmiSendCalls = useCallback(async (calls: Array<{
+        to: `0x${string}`;
+        data: `0x${string}`;
+        value?: bigint;
+    }>): Promise<string> => {
+        console.log("[Wagmi] Sending calls via useSendCalls...", calls.length, "call(s)");
+        const result = await sendCallsAsync({ calls });
+        console.log("[Wagmi] sendCalls result:", result);
+        return result;
+    }, [sendCallsAsync]);
 
     // Track if wallet popup is active - ALL intervals check this before running
     const walletBusyRef = useRef(false);
@@ -454,8 +486,9 @@ export default function Home()
                 usdcInterface,
                 waitForTx,
                 setMintStatus,
+                wagmiSendCalls: wagmiConnected ? wagmiSendCalls : null,
             });
-        }, [readProvider, miniAppEthProvider, usingMiniApp]);
+        }, [readProvider, miniAppEthProvider, usingMiniApp, wagmiConnected, wagmiSendCalls]);
 
     const currentTrackMeta = useMemo(() => PLAYLIST[currentTrack], [currentTrack]);
     useEffect(() => {

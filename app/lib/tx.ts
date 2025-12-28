@@ -11,6 +11,13 @@ export type EnsureWalletCtx = {
 
 export type EnsureWalletFn = () => Promise<EnsureWalletCtx | null>;
 
+// Wagmi sendCalls function type
+export type WagmiSendCallsFn = (calls: Array<{
+  to: `0x${string}`;
+  data: `0x${string}`;
+  value?: bigint;
+}>) => Promise<string>;
+
 export type TxDeps = {
   ensureWallet: EnsureWalletFn;
   readProvider: ethers.providers.Provider;
@@ -28,6 +35,9 @@ export type TxDeps = {
   waitForTx: (tx: ethers.providers.TransactionResponse) => Promise<any>;
 
   setMintStatus: (msg: string) => void;
+  
+  // Optional Wagmi integration for Farcaster
+  wagmiSendCalls?: WagmiSendCallsFn | null;
 };
 
 export function makeTxActions(deps: TxDeps)
@@ -42,6 +52,7 @@ export function makeTxActions(deps: TxDeps)
     usdcInterface,
     waitForTx,
     setMintStatus,
+    wagmiSendCalls,
   } = deps;
 
   // Internal function that takes ethProvider as parameter (avoids stale closure)
@@ -68,9 +79,51 @@ export function makeTxActions(deps: TxDeps)
     const req = ethProvider.request?.bind(ethProvider) ?? ethProvider.send?.bind(ethProvider);
     if (!req) throw new Error("Mini app provider missing request/send method");
 
-    // On desktop Farcaster, transactions don't work without Wagmi integration
-    // The Farcaster desktop app requires @farcaster/miniapp-wagmi-connector
-    // For now, show a helpful message directing users to mobile
+    // ===== WAGMI PATH (works on both desktop and mobile Farcaster) =====
+    if (wagmiSendCalls) {
+      console.log("[TX] Using Wagmi sendCalls for transaction...");
+      try {
+        const callsResult = await wagmiSendCalls([{
+          to: to as `0x${string}`,
+          data: data as `0x${string}`,
+          value: BigInt(0),
+        }]);
+        
+        console.log("[TX] Wagmi sendCalls result:", callsResult);
+        
+        // callsResult is the bundle ID, we need to wait for the actual tx hash
+        if (callsResult && typeof callsResult === 'string') {
+          txHash = callsResult;
+          console.log("[TX] SUCCESS via Wagmi! bundleId/hash:", txHash);
+          
+          const fakeTx: any = {
+            hash: txHash,
+            wait: async () => {
+              // Poll for transaction receipt
+              for (let j = 0; j < 60; j++) {
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+                try {
+                  const receipt = await readProvider.getTransactionReceipt(txHash!);
+                  if (receipt && receipt.confirmations > 0) return receipt;
+                } catch { }
+              }
+              return null;
+            },
+          };
+          return fakeTx as ethers.providers.TransactionResponse;
+        }
+      } catch (err: any) {
+        console.error("[TX] Wagmi sendCalls failed:", err?.message);
+        // If user rejected, throw
+        if (err?.message?.includes("rejected") || err?.message?.includes("denied")) {
+          throw err;
+        }
+        // Otherwise fall through to try other methods
+        console.log("[TX] Falling back to non-Wagmi methods...");
+      }
+    }
+
+    // ===== DESKTOP FARCASTER PATH (without Wagmi - will likely fail) =====
     if (!isMobile) {
       console.log("[TX] Desktop Farcaster detected - checking transaction support...");
       
