@@ -64,74 +64,68 @@ export function makeTxActions(deps: TxDeps)
     // Detect if we're on mobile
     const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     
-    // On desktop, try to ensure SDK is ready and get fresh provider
-    if (!isMobile) {
-      console.log("[TX] Desktop - ensuring SDK ready and getting fresh provider...");
-      try {
-        const { sdk } = await import("@farcaster/miniapp-sdk");
-        
-        // Call ready() to ensure the SDK connection is active
-        console.log("[TX] Calling sdk.actions.ready()...");
-        await sdk.actions.ready();
-        console.log("[TX] SDK ready confirmed");
-        
-        // Small delay to let the connection stabilize
-        await new Promise(r => setTimeout(r, 100));
-        
-        // Get a completely fresh provider
-        console.log("[TX] Getting fresh ethereum provider...");
-        const freshProvider = await sdk.wallet.getEthereumProvider();
-        
-        if (freshProvider?.request) {
-          console.log("[TX] Got fresh provider, sending transaction...");
-          
-          // Send transaction with fresh provider
-          const freshResult = await freshProvider.request({
-            method: "eth_sendTransaction",
-            params: [{ from, to, data, value: "0x0", gas: gasLimit }],
-          });
-          
-          console.log("[TX] Fresh provider transaction result:", freshResult);
-          
-          if (typeof freshResult === "string" && freshResult.startsWith("0x")) {
-            txHash = freshResult;
-          } else {
-            txHash = freshResult?.hash || freshResult?.txHash || null;
-          }
-          
-          if (txHash && txHash.length >= 66) {
-            console.log("[TX] Success with fresh provider! txHash:", txHash);
-            const fakeTx: any = {
-              hash: txHash,
-              wait: async () => {
-                for (let i = 0; i < 45; i++) {
-                  await new Promise((resolve) => setTimeout(resolve, 2000));
-                  try {
-                    const receipt = await readProvider.getTransactionReceipt(txHash!);
-                    if (receipt && receipt.confirmations > 0) return receipt;
-                  } catch { }
-                }
-                return null;
-              },
-            };
-            return fakeTx as ethers.providers.TransactionResponse;
-          }
-        }
-      } catch (sdkErr: any) {
-        console.warn("[TX] Desktop SDK approach failed:", sdkErr?.message, "code:", sdkErr?.code);
-        // If it's a real user rejection (they clicked reject), throw it
-        if (sdkErr?.code === 4001) {
-          throw sdkErr;
-        }
-        // Otherwise fall through to try the passed-in provider
-      }
-    }
-
-    // Mobile path or fallback: use the provider directly
+    // Get request function
     const req = ethProvider.request?.bind(ethProvider) ?? ethProvider.send?.bind(ethProvider);
     if (!req) throw new Error("Mini app provider missing request/send method");
 
-    console.log("[TX] Using passed-in provider for eth_sendTransaction...");
+    // On desktop Farcaster, use wallet_sendCalls (EIP-5792) FIRST - this is what working apps use
+    if (!isMobile) {
+      console.log("[TX] Desktop - trying wallet_sendCalls (EIP-5792) first...");
+      try {
+        // Format matching the working app - simplified params
+        result = await req({
+          method: "wallet_sendCalls",
+          params: [{
+            version: "1.0",
+            from: from,
+            chainId: chainIdHex,
+            calls: [{
+              to: to,
+              data: data,
+              value: "0x0",
+            }],
+          }],
+        });
+
+        console.log("[TX] wallet_sendCalls result:", result);
+
+        // Extract tx hash from various response formats
+        if (typeof result === "string" && result.startsWith("0x")) {
+          txHash = result;
+        } else {
+          txHash = result?.txHashes?.[0] || result?.txHash || result?.hash || result?.id || null;
+        }
+        
+        console.log("[TX] Extracted txHash:", txHash);
+
+        if (txHash && txHash.length >= 66) {
+          const fakeTx: any = {
+            hash: txHash,
+            wait: async () => {
+              for (let i = 0; i < 45; i++) {
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+                try {
+                  const receipt = await readProvider.getTransactionReceipt(txHash!);
+                  if (receipt && receipt.confirmations > 0) return receipt;
+                } catch { }
+              }
+              return null;
+            },
+          };
+          return fakeTx as ethers.providers.TransactionResponse;
+        }
+      } catch (err: any) {
+        console.error("[TX] wallet_sendCalls failed:", err?.message, "code:", err?.code);
+        // If user rejected, throw immediately
+        if (err?.code === 4001 || err?.message?.includes('rejected')) {
+          throw err;
+        }
+        // Otherwise try eth_sendTransaction as fallback
+      }
+    }
+
+    // Mobile path or desktop fallback: use eth_sendTransaction
+    console.log("[TX] Trying eth_sendTransaction...");
     try {
       result = await req({
         method: "eth_sendTransaction",
@@ -144,26 +138,29 @@ export function makeTxActions(deps: TxDeps)
     } catch (err: any) {
       console.error("[TX] eth_sendTransaction error:", err?.message);
       
-      // Try wallet_sendCalls fallback
-      console.log("[TX] Trying wallet_sendCalls...");
-      try {
-        result = await req({
-          method: "wallet_sendCalls",
-          params: [{
-            from,
-            chainId: chainIdHex,
-            atomicRequired: false,
-            capabilities: { paymasterService: {} },
-            calls: [{ to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit }],
-          }],
-        });
+      // On mobile, also try wallet_sendCalls as final fallback
+      if (isMobile) {
+        console.log("[TX] Mobile fallback - trying wallet_sendCalls...");
+        try {
+          result = await req({
+            method: "wallet_sendCalls",
+            params: [{
+              version: "1.0",
+              from: from,
+              chainId: chainIdHex,
+              calls: [{ to, data, value: "0x0" }],
+            }],
+          });
 
-        txHash = result?.txHashes?.[0] || result?.txHash || result?.hash || result?.id ||
-          (typeof result === "string" && result.startsWith("0x") ? result : null);
-        console.log("[TX] wallet_sendCalls result:", txHash);
-      } catch (fallbackErr: any) {
-        console.error("[TX] wallet_sendCalls failed:", fallbackErr?.message);
-        throw fallbackErr;
+          txHash = result?.txHashes?.[0] || result?.txHash || result?.hash || result?.id ||
+            (typeof result === "string" && result.startsWith("0x") ? result : null);
+          console.log("[TX] wallet_sendCalls result:", txHash);
+        } catch (fallbackErr: any) {
+          console.error("[TX] wallet_sendCalls failed:", fallbackErr?.message);
+          throw fallbackErr;
+        }
+      } else {
+        throw err;
       }
     }
 
