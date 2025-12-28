@@ -5,8 +5,7 @@ import Image from "next/image";
 import { useMiniKit, useComposeCast } from "@coinbase/onchainkit/minikit";
 import { ethers } from "ethers";
 import { sdk } from "@farcaster/miniapp-sdk";
-import { useSendCalls, useAccount, useConnect } from 'wagmi';
-import { farcasterFrame } from '@farcaster/frame-wagmi-connector';
+import { useSendTransaction, useAccount, useConnect } from 'wagmi';
 import styles from "./page.module.css";
 import { CrimeLadder } from "./components/CrimeLadder";
 import { loadOwnedTokens } from "./lib/tokens";
@@ -228,7 +227,7 @@ export default function Home()
     // ===== WAGMI HOOKS FOR FARCASTER TRANSACTIONS =====
     const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount();
     const { connect: wagmiConnect, connectors: wagmiConnectors } = useConnect();
-    const { sendCallsAsync } = useSendCalls();
+    const { sendTransactionAsync } = useSendTransaction();
     
     // Auto-connect to Farcaster wallet
     useEffect(() => {
@@ -243,17 +242,23 @@ export default function Home()
         }
     }, [wagmiConnected, wagmiConnectors, wagmiConnect]);
     
-    // Wagmi sendCalls wrapper function
+    // Wagmi sendTransaction wrapper function
     const wagmiSendCalls = useCallback(async (calls: Array<{
         to: `0x${string}`;
         data: `0x${string}`;
         value?: bigint;
     }>): Promise<string> => {
-        console.log("[Wagmi] Sending calls via useSendCalls...", calls.length, "call(s)");
-        const result = await sendCallsAsync({ calls });
-        console.log("[Wagmi] sendCalls result:", result);
-        return result;
-    }, [sendCallsAsync]);
+        // useSendTransaction sends one tx at a time, take the first call
+        const call = calls[0];
+        console.log("[Wagmi] Sending transaction via useSendTransaction...", call.to);
+        const txHash = await sendTransactionAsync({
+            to: call.to,
+            data: call.data,
+            value: call.value ?? BigInt(0),
+        });
+        console.log("[Wagmi] sendTransaction result:", txHash);
+        return txHash;
+    }, [sendTransactionAsync]);
 
     // Track if wallet popup is active - ALL intervals check this before running
     const walletBusyRef = useRef(false);
