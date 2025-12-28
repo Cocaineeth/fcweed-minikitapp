@@ -68,87 +68,81 @@ export function makeTxActions(deps: TxDeps)
     const req = ethProvider.request?.bind(ethProvider) ?? ethProvider.send?.bind(ethProvider);
     if (!req) throw new Error("Mini app provider missing request/send method");
 
-    // On desktop Farcaster, use wallet_sendCalls (EIP-5792) FIRST - this is what working apps use
+    // On desktop Farcaster, the provider behavior is different
     if (!isMobile) {
-      console.log("[TX] Desktop - getting fresh provider and reconnecting...");
+      console.log("[TX] Desktop detected, inspecting provider capabilities...");
       
       try {
-        // Import SDK and get a completely fresh provider
         const { sdk } = await import("@farcaster/miniapp-sdk");
-        
-        // Ensure SDK is ready
         await sdk.actions.ready();
         
-        // Get fresh provider
         const freshProvider = await sdk.wallet.getEthereumProvider();
-        if (!freshProvider?.request) {
+        if (!freshProvider) {
           throw new Error("Could not get fresh provider");
         }
         
-        // Re-request accounts to "wake up" the connection
-        console.log("[TX] Re-requesting accounts to refresh connection...");
+        // Log everything about the provider to understand what it supports
+        console.log("[TX] Fresh provider type:", typeof freshProvider);
+        console.log("[TX] Fresh provider keys:", Object.keys(freshProvider));
+        console.log("[TX] Has request:", typeof freshProvider.request);
+        console.log("[TX] Has send:", typeof freshProvider.send);
+        console.log("[TX] Has sendAsync:", typeof freshProvider.sendAsync);
+        
+        // Check if provider has any special methods
+        if (freshProvider.isWarpcast) console.log("[TX] Provider isWarpcast:", freshProvider.isWarpcast);
+        if (freshProvider.isFarcaster) console.log("[TX] Provider isFarcaster:", freshProvider.isFarcaster);
+        if (freshProvider.isFrame) console.log("[TX] Provider isFrame:", freshProvider.isFrame);
+        
+        // Re-request accounts
+        console.log("[TX] Requesting accounts...");
         const accounts = await freshProvider.request({ method: "eth_requestAccounts" });
-        console.log("[TX] Got accounts:", accounts);
+        console.log("[TX] Accounts:", accounts);
         
-        if (!accounts || accounts.length === 0) {
-          throw new Error("No accounts after refresh");
+        if (!accounts?.[0]) {
+          throw new Error("No accounts");
         }
         
-        const freshFrom = accounts[0];
-        console.log("[TX] Using fresh account:", freshFrom);
+        const account = accounts[0];
         
-        // Now try wallet_sendCalls with fresh provider
-        console.log("[TX] Sending wallet_sendCalls with fresh provider...");
-        result = await freshProvider.request({
-          method: "wallet_sendCalls",
-          params: [{
-            chainId: chainIdHex,
-            from: freshFrom,
-            calls: [{ to, data, value: "0x0" }],
-          }],
-        });
-        
-        console.log("[TX] wallet_sendCalls result:", result);
-
-        if (typeof result === "string" && result.startsWith("0x")) {
-          txHash = result;
-        } else {
-          txHash = result?.txHashes?.[0] || result?.txHash || result?.hash || result?.id || null;
+        // Try to get supported methods
+        try {
+          const capabilities = await freshProvider.request({
+            method: "wallet_getCapabilities",
+            params: [account],
+          });
+          console.log("[TX] Wallet capabilities:", capabilities);
+        } catch (e: any) {
+          console.log("[TX] wallet_getCapabilities not supported:", e?.message);
         }
         
-        if (txHash && txHash.length >= 66) {
-          console.log("[TX] Success! txHash:", txHash);
-          const fakeTx: any = {
-            hash: txHash,
-            wait: async () => {
-              for (let j = 0; j < 45; j++) {
-                await new Promise((resolve) => setTimeout(resolve, 2000));
-                try {
-                  const receipt = await readProvider.getTransactionReceipt(txHash!);
-                  if (receipt && receipt.confirmations > 0) return receipt;
-                } catch { }
-              }
-              return null;
-            },
-          };
-          return fakeTx as ethers.providers.TransactionResponse;
-        }
+        // APPROACH 1: Try personal_sign first to "warm up" the connection
+        // Some wallets need an initial signature request before transactions work
+        // Skip this for now - go straight to transaction
         
-        // If wallet_sendCalls didn't return valid hash, try eth_sendTransaction with fresh provider
-        console.log("[TX] Trying eth_sendTransaction with fresh provider...");
+        // APPROACH 2: Use eth_sendTransaction but with the EXACT fresh provider
+        // The key might be that we need to use the provider SYNCHRONOUSLY after getting it
+        console.log("[TX] Attempting eth_sendTransaction with fresh provider...");
+        
+        const txParams = {
+          from: account,
+          to: to,
+          data: data,
+          value: "0x0",
+          gas: gasLimit,
+        };
+        console.log("[TX] Transaction params:", JSON.stringify(txParams));
+        
         result = await freshProvider.request({
           method: "eth_sendTransaction",
-          params: [{ from: freshFrom, to, data, value: "0x0", gas: gasLimit }],
+          params: [txParams],
         });
         
-        if (typeof result === "string" && result.startsWith("0x")) {
-          txHash = result;
-        } else {
-          txHash = result?.hash || result?.txHash || null;
-        }
+        console.log("[TX] eth_sendTransaction result:", result);
         
-        if (txHash && txHash.length >= 66) {
-          console.log("[TX] eth_sendTransaction success! txHash:", txHash);
+        if (typeof result === "string" && result.startsWith("0x") && result.length >= 66) {
+          txHash = result;
+          console.log("[TX] SUCCESS! Got txHash:", txHash);
+          
           const fakeTx: any = {
             hash: txHash,
             wait: async () => {
@@ -166,12 +160,15 @@ export function makeTxActions(deps: TxDeps)
         }
         
       } catch (err: any) {
-        console.error("[TX] Desktop fresh provider approach failed:", err?.message, "code:", err?.code);
-        // If user rejected, throw
-        if (err?.code === 4001 || err?.message?.includes('rejected')) {
-          throw err;
-        }
-        // Fall through to try passed-in provider
+        console.error("[TX] Desktop transaction failed:", {
+          message: err?.message,
+          code: err?.code,
+          name: err?.name,
+          stack: err?.stack?.split('\n').slice(0, 3).join('\n')
+        });
+        
+        // Re-throw so caller sees the error
+        throw err;
       }
     }
 
