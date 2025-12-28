@@ -66,55 +66,79 @@ export function makeTxActions(deps: TxDeps)
     let result: any;
     let txHash: string | null = null;
 
-    try
-    {
-      result = await req({
-        method: "eth_sendTransaction",
-        params: [
-          { from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit },
-        ],
-      });
+    // Detect if we're on desktop (no touch support typically)
+    const isDesktop = typeof window !== 'undefined' && !('ontouchstart' in window);
+    
+    // On desktop Farcaster, prefer wallet_sendCalls first as it's more reliable
+    // This avoids the popup racing issue where eth_sendTransaction fails and 
+    // wallet_sendCalls opens a second popup that auto-closes
+    const methodOrder = isDesktop 
+      ? ["wallet_sendCalls", "eth_sendTransaction"] 
+      : ["eth_sendTransaction", "wallet_sendCalls"];
 
-      if (typeof result === "string" && result.startsWith("0x")) txHash = result;
-      else txHash = result?.hash || result?.txHash || null;
-    }
-    catch (sendTxError: any)
-    {
-      try
-      {
-        result = await req({
-          method: "wallet_sendCalls",
-          params: [
-            {
-              from,
-              chainId: chainIdHex,
-              atomicRequired: false,
-              capabilities: { paymasterService: {} },
-              calls: [{ to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit }],
-            },
-          ],
-        });
+    for (const method of methodOrder) {
+      try {
+        if (method === "eth_sendTransaction") {
+          console.log("[TX] Trying eth_sendTransaction...");
+          result = await req({
+            method: "eth_sendTransaction",
+            params: [
+              { from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit },
+            ],
+          });
 
-        txHash =
-          result?.txHashes?.[0] ||
-          result?.txHash ||
-          result?.hash ||
-          result?.id ||
-          (typeof result === "string" && result.startsWith("0x") ? result : null);
-      }
-      catch (sendCallsError)
-      {
-        throw sendCallsError;
+          if (typeof result === "string" && result.startsWith("0x")) {
+            txHash = result;
+            break;
+          } else if (result?.hash || result?.txHash) {
+            txHash = result?.hash || result?.txHash;
+            break;
+          }
+        } else if (method === "wallet_sendCalls") {
+          console.log("[TX] Trying wallet_sendCalls...");
+          result = await req({
+            method: "wallet_sendCalls",
+            params: [
+              {
+                from,
+                chainId: chainIdHex,
+                atomicRequired: false,
+                capabilities: { paymasterService: {} },
+                calls: [{ to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit }],
+              },
+            ],
+          });
+
+          txHash =
+            result?.txHashes?.[0] ||
+            result?.txHash ||
+            result?.hash ||
+            result?.id ||
+            (typeof result === "string" && result.startsWith("0x") ? result : null);
+          
+          if (txHash) break;
+        }
+      } catch (err: any) {
+        console.warn(`[TX] ${method} failed:`, err?.message || err);
+        // If user rejected, don't try the next method
+        if (err?.code === 4001 || err?.message?.includes("rejected") || err?.message?.includes("denied")) {
+          throw err;
+        }
+        // Continue to next method
+        continue;
       }
     }
 
     if (!txHash || typeof txHash !== "string" || !txHash.startsWith("0x") || txHash.length < 66)
     {
+      console.warn("[TX] No valid txHash received, returning placeholder");
       return {
         hash: "0x" + "0".repeat(64),
         wait: async () => null,
       } as any;
     }
+
+    console.log("[TX] Got txHash:", txHash);
 
     const fakeTx: any = {
       hash: txHash,
