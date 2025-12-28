@@ -1,22 +1,15 @@
 // lib/tx.ts
 import { ethers } from "ethers";
+import { sdk } from "@farcaster/miniapp-sdk";
 
 export type EnsureWalletCtx = {
   signer: ethers.Signer;
   provider: ethers.providers.Provider;
   userAddress: string;
   isMini: boolean;
-  ethProvider?: any; // Fresh provider from ensureWallet
 };
 
 export type EnsureWalletFn = () => Promise<EnsureWalletCtx | null>;
-
-// Wagmi sendCalls function type
-export type WagmiSendCallsFn = (calls: Array<{
-  to: `0x${string}`;
-  data: `0x${string}`;
-  value?: bigint;
-}>) => Promise<string>;
 
 export type TxDeps = {
   ensureWallet: EnsureWalletFn;
@@ -35,9 +28,6 @@ export type TxDeps = {
   waitForTx: (tx: ethers.providers.TransactionResponse) => Promise<any>;
 
   setMintStatus: (msg: string) => void;
-  
-  // Optional Wagmi integration for Farcaster
-  wagmiSendCalls?: WagmiSendCallsFn | null;
 };
 
 export function makeTxActions(deps: TxDeps)
@@ -45,6 +35,8 @@ export function makeTxActions(deps: TxDeps)
   const {
     ensureWallet,
     readProvider,
+    miniAppEthProvider,
+    usingMiniApp,
     CHAIN_ID,
     USDC_ADDRESS,
     USDC_DECIMALS,
@@ -52,193 +44,94 @@ export function makeTxActions(deps: TxDeps)
     usdcInterface,
     waitForTx,
     setMintStatus,
-    wagmiSendCalls,
   } = deps;
 
-  // Internal function that takes ethProvider as parameter (avoids stale closure)
-  async function sendWalletCallsInternal(
-    ethProvider: any,
+  async function sendWalletCalls(
     from: string,
     to: string,
     data: string,
     gasLimit: string = "0x1E8480"
   ): Promise<ethers.providers.TransactionResponse>
   {
-    console.log("[TX] sendWalletCallsInternal called");
-    
-    if (!ethProvider) throw new Error("Mini app provider not available");
+    if (!miniAppEthProvider) throw new Error("Mini app provider not available");
+
+    const req =
+      miniAppEthProvider.request?.bind(miniAppEthProvider) ??
+      miniAppEthProvider.send?.bind(miniAppEthProvider);
+
+    if (!req) throw new Error("Mini app provider missing request/send method");
 
     const chainIdHex = ethers.utils.hexValue(CHAIN_ID);
+
     let result: any;
     let txHash: string | null = null;
 
-    // Detect if we're on mobile
-    const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    // Detect if we're on desktop (not mobile)
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || "");
     
-    // Get request function
-    const req = ethProvider.request?.bind(ethProvider) ?? ethProvider.send?.bind(ethProvider);
-    if (!req) throw new Error("Mini app provider missing request/send method");
+    console.log("[TX] Attempting transaction on desktop:", !isMobile);
+    console.log("[TX] Account:", from);
 
-    // ===== WAGMI PATH (works on both desktop and mobile Farcaster) =====
-    if (wagmiSendCalls) {
-      console.log("[TX] Using Wagmi sendCalls for transaction...");
+    // Try wallet_sendCalls FIRST on desktop as it's more likely to work with Farcaster's newer wallet
+    // On mobile, try eth_sendTransaction first as it's the standard
+    const methodOrder = isMobile 
+      ? ["eth_sendTransaction", "wallet_sendCalls"]
+      : ["wallet_sendCalls", "eth_sendTransaction"];
+
+    for (const method of methodOrder) {
       try {
-        const callsResult = await wagmiSendCalls([{
-          to: to as `0x${string}`,
-          data: data as `0x${string}`,
-          value: BigInt(0),
-        }]);
+        console.log(`[TX] Attempting ${method}...`);
         
-        console.log("[TX] Wagmi sendCalls result:", callsResult);
-        
-        // callsResult is the bundle ID, we need to wait for the actual tx hash
-        if (callsResult && typeof callsResult === 'string') {
-          txHash = callsResult;
-          console.log("[TX] SUCCESS via Wagmi! bundleId/hash:", txHash);
-          
-          const fakeTx: any = {
-            hash: txHash,
-            wait: async () => {
-              // Poll for transaction receipt
-              for (let j = 0; j < 60; j++) {
-                await new Promise((resolve) => setTimeout(resolve, 2000));
-                try {
-                  const receipt = await readProvider.getTransactionReceipt(txHash!);
-                  if (receipt && receipt.confirmations > 0) return receipt;
-                } catch { }
-              }
-              return null;
-            },
-          };
-          return fakeTx as ethers.providers.TransactionResponse;
-        }
-      } catch (err: any) {
-        console.error("[TX] Wagmi sendCalls failed:", err?.message);
-        // If user rejected, throw
-        if (err?.message?.includes("rejected") || err?.message?.includes("denied")) {
-          throw err;
-        }
-        // Otherwise fall through to try other methods
-        console.log("[TX] Falling back to non-Wagmi methods...");
-      }
-    }
-
-    // ===== DESKTOP FARCASTER PATH (without Wagmi - will likely fail) =====
-    if (!isMobile) {
-      console.log("[TX] Desktop Farcaster detected - checking transaction support...");
-      
-      try {
-        const { sdk } = await import("@farcaster/miniapp-sdk");
-        
-        // Get provider and account
-        const farcasterProvider = await sdk.wallet.getEthereumProvider();
-        let accounts = await farcasterProvider.request({ method: "eth_accounts" });
-        if (!accounts?.[0]) {
-          accounts = await farcasterProvider.request({ method: "eth_requestAccounts" });
-        }
-        const account = accounts?.[0];
-        
-        if (!account) {
-          throw new Error("No account available");
-        }
-        
-        console.log("[TX] Account:", account);
-        console.log("[TX] Attempting transaction on desktop...");
-        
-        // Try the transaction - it might work in some Farcaster versions
-        result = await farcasterProvider.request({
-          method: "eth_sendTransaction",
-          params: [{
-            from: account,
-            to: to,
-            data: data,
-          }],
-        });
-        
-        console.log("[TX] Transaction result:", result);
-        
-        if (typeof result === "string" && result.startsWith("0x") && result.length >= 66) {
-          txHash = result;
-          console.log("[TX] SUCCESS! txHash:", txHash);
-          
-          const fakeTx: any = {
-            hash: txHash,
-            wait: async () => {
-              for (let j = 0; j < 45; j++) {
-                await new Promise((resolve) => setTimeout(resolve, 2000));
-                try {
-                  const receipt = await readProvider.getTransactionReceipt(txHash!);
-                  if (receipt && receipt.confirmations > 0) return receipt;
-                } catch { }
-              }
-              return null;
-            },
-          };
-          return fakeTx as ethers.providers.TransactionResponse;
-        }
-        
-        throw new Error("No valid transaction hash returned");
-        
-      } catch (err: any) {
-        console.error("[TX] Desktop transaction failed:", err?.message, "code:", err?.code);
-        
-        // If it's the auto-reject (4001), provide a helpful message
-        if (err?.code === 4001 || err?.message?.includes("rejected")) {
-          const helpfulError = new Error(
-            "Transaction signing is not fully supported on Farcaster desktop yet. Please open this app in the Warpcast mobile app to complete transactions."
-          );
-          (helpfulError as any).code = 4001;
-          (helpfulError as any).isDesktopLimitation = true;
-          throw helpfulError;
-        }
-        
-        throw err;
-      }
-    }
-
-    // Mobile path or desktop fallback: use eth_sendTransaction
-    console.log("[TX] Trying eth_sendTransaction...");
-    try {
-      result = await req({
-        method: "eth_sendTransaction",
-        params: [{ from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit }],
-      });
-      
-      if (typeof result === "string" && result.startsWith("0x")) txHash = result;
-      else txHash = result?.hash || result?.txHash || null;
-      console.log("[TX] eth_sendTransaction result:", txHash);
-    } catch (err: any) {
-      console.error("[TX] eth_sendTransaction error:", err?.message);
-      
-      // On mobile, also try wallet_sendCalls as final fallback
-      if (isMobile) {
-        console.log("[TX] Mobile fallback - trying wallet_sendCalls...");
-        try {
+        if (method === "eth_sendTransaction") {
+          result = await req({
+            method: "eth_sendTransaction",
+            params: [
+              { from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit },
+            ],
+          });
+        } else {
           result = await req({
             method: "wallet_sendCalls",
-            params: [{
-              version: "1.0",
-              from: from,
-              chainId: chainIdHex,
-              calls: [{ to, data, value: "0x0" }],
-            }],
+            params: [
+              {
+                from,
+                chainId: chainIdHex,
+                atomicRequired: false,
+                capabilities: { paymasterService: {} },
+                calls: [{ to, data, value: "0x0" }],
+              },
+            ],
           });
-
-          txHash = result?.txHashes?.[0] || result?.txHash || result?.hash || result?.id ||
-            (typeof result === "string" && result.startsWith("0x") ? result : null);
-          console.log("[TX] wallet_sendCalls result:", txHash);
-        } catch (fallbackErr: any) {
-          console.error("[TX] wallet_sendCalls failed:", fallbackErr?.message);
-          throw fallbackErr;
         }
-      } else {
-        throw err;
+
+        console.log(`[TX] ${method} result:`, result);
+
+        if (typeof result === "string" && result.startsWith("0x")) {
+          txHash = result;
+        } else {
+          txHash = result?.txHashes?.[0] || result?.txHash || result?.hash || result?.id || null;
+        }
+
+        if (txHash && txHash.startsWith("0x") && txHash.length >= 66) {
+          console.log(`[TX] Got txHash from ${method}:`, txHash);
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`[TX] ${method} failed:`, err?.message || err?.code || err);
+        
+        // If user explicitly rejected, don't try other methods
+        if (err?.code === 4001 || err?.message?.includes("rejected") || err?.message?.includes("denied")) {
+          throw new Error("Transaction signing is not fully supported on Farcaster desktop yet. Please open this app in the Warpcast mobile app to complete transactions.");
+        }
+        
+        // Continue to next method
+        continue;
       }
     }
-
 
     if (!txHash || typeof txHash !== "string" || !txHash.startsWith("0x") || txHash.length < 66)
     {
+      console.warn("[TX] No valid txHash obtained, returning placeholder");
       return {
         hash: "0x" + "0".repeat(64),
         wait: async () => null,
@@ -266,17 +159,6 @@ export function makeTxActions(deps: TxDeps)
     return fakeTx as ethers.providers.TransactionResponse;
   }
 
-  // Legacy function for backward compatibility (uses deps.miniAppEthProvider)
-  async function sendWalletCalls(
-    from: string,
-    to: string,
-    data: string,
-    gasLimit: string = "0x1E8480"
-  ): Promise<ethers.providers.TransactionResponse>
-  {
-    return sendWalletCallsInternal(deps.miniAppEthProvider, from, to, data, gasLimit);
-  }
-
   async function sendContractTx(
     to: string,
     data: string,
@@ -286,14 +168,11 @@ export function makeTxActions(deps: TxDeps)
     const ctx = await ensureWallet();
     if (!ctx) return null;
 
-    // Use fresh ethProvider from ctx, fallback to deps for backward compat
-    const ethProvider = ctx.ethProvider || deps.miniAppEthProvider;
-
     try
     {
-      if (ctx.isMini && ethProvider)
+      if (ctx.isMini && miniAppEthProvider)
       {
-        return await sendWalletCallsInternal(ethProvider, ctx.userAddress, to, data, gasLimit);
+        return await sendWalletCalls(ctx.userAddress, to, data, gasLimit);
       }
 
       const tx = await ctx.signer.sendTransaction({
@@ -312,6 +191,8 @@ export function makeTxActions(deps: TxDeps)
         setMintStatus("Transaction rejected. Please approve in your wallet.");
       else if (errMsg.includes("insufficient"))
         setMintStatus("Insufficient funds for transaction.");
+      else if (errMsg.includes("not fully supported"))
+        setMintStatus(errMsg);
       else
         setMintStatus("Transaction failed: " + errMsg.slice(0, 100));
 
@@ -325,7 +206,6 @@ export function makeTxActions(deps: TxDeps)
     if (!ctx) return false;
 
     const { signer: s, userAddress: addr, isMini } = ctx;
-    const ethProvider = ctx.ethProvider || deps.miniAppEthProvider;
 
     setMintStatus("Checking USDC contract on Base…");
     const code = await readProvider.getCode(USDC_ADDRESS);
@@ -359,10 +239,10 @@ export function makeTxActions(deps: TxDeps)
 
     try
     {
-      if (isMini && ethProvider)
+      if (isMini && miniAppEthProvider)
       {
         const data = usdcInterface.encodeFunctionData("approve", [spender, required]);
-        await sendWalletCallsInternal(ethProvider, addr, USDC_ADDRESS, data);
+        await sendWalletCalls(addr, USDC_ADDRESS, data);
 
         setMintStatus("Waiting for USDC approve confirmation…");
         for (let i = 0; i < 20; i++)

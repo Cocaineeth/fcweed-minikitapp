@@ -3392,12 +3392,16 @@ export default function Home()
 
             if (battleResult) {
                 setWarsResult(battleResult);
+                // Safely handle rewardsTransferred - it might be undefined or a BigNumber
+                const rewards = battleResult.rewardsTransferred || ethers.BigNumber.from(0);
+                const rewardsAmount = ethers.BigNumber.isBigNumber(rewards) ? rewards : ethers.BigNumber.from(rewards || 0);
+                
                 if (battleResult.won) {
-                    const stolenAmount = parseFloat(ethers.utils.formatUnits(battleResult.rewardsTransferred, 18));
+                    const stolenAmount = parseFloat(ethers.utils.formatUnits(rewardsAmount, 18));
                     const stolenFormatted = stolenAmount >= 1000 ? (stolenAmount / 1000).toFixed(1) + "K" : stolenAmount.toFixed(0);
                     setWarsStatus(`🎉 VICTORY! Stole ${stolenFormatted} FCWEED! Their plants took ${battleResult.damageDealt}% damage.`);
                 } else {
-                    const lostAmount = parseFloat(ethers.utils.formatUnits(battleResult.rewardsTransferred, 18));
+                    const lostAmount = parseFloat(ethers.utils.formatUnits(rewardsAmount, 18));
                     const lostFormatted = lostAmount >= 1000 ? (lostAmount / 1000).toFixed(1) + "K" : lostAmount.toFixed(0);
                     setWarsStatus(`💀 DEFEAT! Lost ${lostFormatted} FCWEED. Your plants took ${battleResult.damageDealt}% damage.`);
                 }
@@ -4844,13 +4848,13 @@ export default function Home()
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>250K FCWEED</b> to target ANY wallet directly</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>20 min cooldown</b> | <b style={{ color: "#ef4444" }}>All shields BYPASSED</b></li>
                                 <li style={{ color: "#10b981", marginTop: 8 }}><b>Item Shop</b> — Power-ups for your farm!</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> — Restores plant health (Shop open 12PM-6PM EST)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals to 80% Max from any Health Level, Max usage 1 Per Plant</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% Combat power for 6h</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% Combat power for 6h</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% Combat power for 1h</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% Combat power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 50% | STEAL: 50%</b></li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> — Restores plant health to 100% (Shop open 12PM-6PM EST)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals to 80%, 2.5K Dust or 2.5M FCWEED (20/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection, 2.5K Dust only (25/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% power for 6h, 400 Dust or 400K FCWEED</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% power for 6h, 2K Dust or 2M FCWEED (15/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% power for 1h, 5K Dust or 5M FCWEED (3/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 100% | STEAL: 100%</b></li>
                             </ul>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
                             <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
@@ -5573,8 +5577,8 @@ export default function Home()
                                     <div style={{ fontSize: 18, fontWeight: 700, color: warsResult.won ? "#10b981" : "#ef4444", marginBottom: 8 }}>{warsResult.won ? "VICTORY!" : "DEFEAT!"}</div>
                                     <div style={{ fontSize: 12, color: theme === "light" ? "#475569" : "#c0c9f4" }}>
                                         {warsResult.won
-                                            ? `You raided ${(parseFloat(ethers.utils.formatUnits(warsResult.amount, 18)) / 1000).toFixed(1)}K FCWEED!`
-                                            : `You lost ${(parseFloat(ethers.utils.formatUnits(warsResult.amount, 18)) / 1000).toFixed(1)}K FCWEED!`}
+                                            ? `You raided ${(parseFloat(ethers.utils.formatUnits(warsResult.rewardsTransferred || "0", 18)) / 1000).toFixed(1)}K FCWEED!`
+                                            : `You lost ${(parseFloat(ethers.utils.formatUnits(warsResult.rewardsTransferred || "0", 18)) / 1000).toFixed(1)}K FCWEED!`}
                                     </div>
                                     <button type="button" onClick={() => setWarsResult(null)} className={styles.btnPrimary} style={{ marginTop: 16, padding: "10px 24px", fontSize: 12, background: "linear-gradient(135deg, #dc2626, #ef4444)" }}>
                                         Continue
