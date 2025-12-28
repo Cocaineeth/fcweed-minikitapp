@@ -13,6 +13,10 @@ import { makeTxActions } from "./lib/tx";
 import { loadLeaderboard, LeaderboardItem } from "./lib/leaderboard";
 import { CrateReward, StakingStats, NewStakingStats, FarmerRow, OwnedState} from "./lib/types";
 import { detectMiniAppEnvironment, waitForTx } from "./lib/auxilary";
+import { ThePurge } from "./components/ThePurge";
+import { DEARaidsLeaderboard } from "./components/DEARaidsLeaderboard";
+import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS, WARS_BACKEND_URL } from "./lib/constants";
+
 import {
     CHAIN_ID,
     TOKEN_SYMBOL,
@@ -58,6 +62,7 @@ import {
     STAKING_ABI,
     V4_STAKING_ABI,
     V4_BATTLES_ABI,
+    V5_ITEMSHOP_ABI,
     CRATE_VAULT_ABI,
     usdcInterface,
     landInterface,
@@ -68,6 +73,7 @@ import {
     erc721Interface,
     v4StakingInterface, 
     v4BattlesInterface,
+    v5ItemShopInterface,
 } from "./lib/abis";
 
 // Screenshot and share to Twitter/Farcaster/Base
@@ -237,6 +243,7 @@ export default function Home()
         useState<ethers.providers.Web3Provider | null>(null);
     const [signer, setSigner] = useState<ethers.Signer | null>(null);
     const [userAddress, setUserAddress] = useState<string | null>(null);
+    const connected = !!userAddress; // Derived state - defined early for use throughout component
     const [usingMiniApp, setUsingMiniApp] = useState(false);
     const [connecting, setConnecting] = useState(false);
     const [miniAppEthProvider, setMiniAppEthProvider] = useState<any | null>(
@@ -304,6 +311,8 @@ export default function Home()
     const [waterBuyAmount, setWaterBuyAmount] = useState(1);
     const [waterLoading, setWaterLoading] = useState(false);
     const [waterStatus, setWaterStatus] = useState("");
+    const [shopLoading, setShopLoading] = useState(false);
+    const [shopStatus, setShopStatus] = useState("");
 
     const [warsPlayerStats, setWarsPlayerStats] = useState<any>(null);
     const [warsTarget, setWarsTarget] = useState<any>(null);
@@ -312,13 +321,50 @@ export default function Home()
     const [warsAttacking, setWarsAttacking] = useState(false);
     const [warsStatus, setWarsStatus] = useState("");
     const [warsResult, setWarsResult] = useState<any>(null);
+    const [inventoryHealthPacks, setInventoryHealthPacks] = useState<number>(0);
+    const [inventoryShields, setInventoryShields] = useState<number>(0);
+    const [inventoryBoosts, setInventoryBoosts] = useState<number>(0);
+    const [inventoryAK47, setInventoryAK47] = useState<number>(0);
+    const [inventoryRPG, setInventoryRPG] = useState<number>(0);
+    const [inventoryNuke, setInventoryNuke] = useState<number>(0);
+    const [shieldExpiry, setShieldExpiry] = useState<number>(0);
+    const [boostExpiry, setBoostExpiry] = useState<number>(0);
+    const [ak47Expiry, setAk47Expiry] = useState<number>(0);
+    const [rpgExpiry, setRpgExpiry] = useState<number>(0);
+    const [nukeExpiry, setNukeExpiry] = useState<number>(0);
+    const [nukeConfirmOpen, setNukeConfirmOpen] = useState<boolean>(false);
+    const [healthPackModalOpen, setHealthPackModalOpen] = useState<boolean>(false);
+    const [selectedPlantsForHealthPack, setSelectedPlantsForHealthPack] = useState<number[]>([]);
+    const [inventoryLoading, setInventoryLoading] = useState<boolean>(false);
+    const [inventoryStatus, setInventoryStatus] = useState<string>("");
+    const [waterModalOpen, setWaterModalOpen] = useState<boolean>(false);
+    const [itemsModalOpen, setItemsModalOpen] = useState<boolean>(false);
+    const [shopItems, setShopItems] = useState<any[]>([]);
+    const [shopTimeUntilReset, setShopTimeUntilReset] = useState<number>(0);
+    const [shopSupply, setShopSupply] = useState<Record<number, {remaining: number, total: number}>>({
+        1: { remaining: 20, total: 20 },
+        2: { remaining: 25, total: 25 },
+        3: { remaining: 999, total: 999 },
+        4: { remaining: 15, total: 15 },
+        5: { remaining: 3, total: 3 },
+        6: { remaining: 1, total: 1 }
+    });
+
     const [warsOdds, setWarsOdds] = useState<any>(null);
     const [warsCooldown, setWarsCooldown] = useState(0);
     const [warsSearchFee, setWarsSearchFee] = useState("50K");
     const [warsSearchExpiry, setWarsSearchExpiry] = useState(0);
-    const [warsPreviewData, setWarsPreviewData] = useState<any>(null); // Backend data before paying
-    const [warsTargetLocked, setWarsTargetLocked] = useState(false); // True after paying 50K
+    const [warsPreviewData, setWarsPreviewData] = useState<any>(null);
+    const [warsTargetLocked, setWarsTargetLocked] = useState(false);
     const warsTransactionInProgress = useRef(false);
+
+    useEffect(() => {
+        if (warsCooldown <= 0) return;
+        const interval = setInterval(() => {
+            setWarsCooldown(prev => prev > 0 ? prev - 1 : 0);
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [warsCooldown]);
 
     const [availablePlants, setAvailablePlants] = useState<number[]>([]);
     const [availableLands, setAvailableLands] = useState<number[]>([]);
@@ -415,6 +461,320 @@ export default function Home()
     {
         if (!txRef.current) throw new Error("tx actions not ready yet");
         return txRef.current;
+    }
+
+    async function ensureFcweedAllowance(spender: string, amount: ethers.BigNumber): Promise<boolean> {
+        if (!userAddress || !readProvider) return false;
+        try {
+            const fcweed = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+            const current = await fcweed.allowance(userAddress, spender);
+            if (current.gte(amount)) return true;
+            setMintStatus("Approving FCWEED...");
+            const approveData = erc20Interface.encodeFunctionData("approve", [spender, ethers.constants.MaxUint256]);
+            const tx = await txAction().sendContractTx(FCWEED_ADDRESS, approveData);
+            if (!tx) return false;
+            await waitForTx(tx, readProvider);
+            return true;
+        } catch (e) {
+            console.error("Allowance check failed:", e);
+            return false;
+        }
+    }
+
+    async function sendContractTx(to: string, data: string, gasLimit?: string): Promise<ethers.providers.TransactionResponse | null> {
+        return txAction().sendContractTx(to, data, gasLimit);
+    }
+
+    // Refresh trigger state - defined early so inventory handlers can use refreshAllData
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const refreshAllData = useCallback(() => {
+        setRefreshTrigger(prev => prev + 1);
+    }, []);
+
+    // Inventory functions
+    async function fetchInventory() {
+        if (!userAddress || !readProvider) return;
+        try {
+            const itemShopAbi = [
+                "function inventory(address user, uint256 itemId) view returns (uint256)",
+                "function getActiveItems() view returns (tuple(uint256 id, string name, uint256 fcweedPrice, uint256 dustPrice, uint256 itemType, uint256 effectValue, uint256 duration, uint256 maxPerWallet, uint256 dailySupply, uint256 soldToday, uint256 lastResetDay, bool active, bool burnFcweed, uint256 startTime, uint256 endTime, bool requiresTarget)[])",
+                "function getRemainingDailySupply(uint256 itemId) view returns (uint256)",
+                "function getTimeUntilReset() view returns (uint256)",
+                "function getItem(uint256 itemId) view returns (tuple(uint256 id, string name, uint256 fcweedPrice, uint256 dustPrice, uint256 itemType, uint256 effectValue, uint256 duration, uint256 maxPerWallet, uint256 dailySupply, uint256 soldToday, uint256 lastResetDay, bool active, bool burnFcweed, uint256 startTime, uint256 endTime, bool requiresTarget))",
+                "function userPurchases(address user, uint256 itemId) view returns (uint256)",
+                "function userActiveEffects(address user, uint256 itemId) view returns (uint256)",
+            ];
+            const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
+            const [healthPacks, shields, boosts, ak47s, rpgs, nukes, activeItems, timeUntilReset, shieldExp, boostExp, ak47Exp, rpgExp, nukeExp] = await Promise.all([
+                itemShop.userPurchases(userAddress, 1).catch(() => ethers.BigNumber.from(0)),
+                itemShop.userPurchases(userAddress, 2).catch(() => ethers.BigNumber.from(0)),
+                itemShop.userPurchases(userAddress, 3).catch(() => ethers.BigNumber.from(0)),
+                itemShop.userPurchases(userAddress, 4).catch(() => ethers.BigNumber.from(0)),
+                itemShop.userPurchases(userAddress, 5).catch(() => ethers.BigNumber.from(0)),
+                itemShop.userPurchases(userAddress, 6).catch(() => ethers.BigNumber.from(0)),
+                itemShop.getActiveItems().catch(() => []),
+                itemShop.getTimeUntilReset().catch(() => ethers.BigNumber.from(0)),
+                itemShop.userActiveEffects(userAddress, 2).catch(() => ethers.BigNumber.from(0)),
+                itemShop.userActiveEffects(userAddress, 3).catch(() => ethers.BigNumber.from(0)),
+                itemShop.userActiveEffects(userAddress, 4).catch(() => ethers.BigNumber.from(0)),
+                itemShop.userActiveEffects(userAddress, 5).catch(() => ethers.BigNumber.from(0)),
+                itemShop.userActiveEffects(userAddress, 6).catch(() => ethers.BigNumber.from(0)),
+            ]);
+            setInventoryHealthPacks(healthPacks.toNumber());
+            setInventoryShields(shields.toNumber());
+            setInventoryBoosts(boosts.toNumber());
+            setInventoryAK47(ak47s.toNumber());
+            setInventoryRPG(rpgs.toNumber());
+            setInventoryNuke(nukes.toNumber());
+            setShopItems(activeItems);
+            setShopTimeUntilReset(timeUntilReset.toNumber());
+            setShieldExpiry(shieldExp.toNumber());
+            setBoostExpiry(boostExp.toNumber());
+            setAk47Expiry(ak47Exp.toNumber());
+            setRpgExpiry(rpgExp.toNumber());
+            setNukeExpiry(nukeExp.toNumber());
+            const supplyData: Record<number, {remaining: number, total: number}> = {};
+            const itemIds = [1, 2, 3, 4, 5, 6];
+            for (const id of itemIds) {
+                try {
+                    const item = await itemShop.getItem(id);
+                    const dailySupply = item.dailySupply.toNumber();
+                    const soldToday = item.soldToday.toNumber();
+                    supplyData[id] = { remaining: dailySupply > 0 ? dailySupply - soldToday : 999, total: dailySupply > 0 ? dailySupply : 999 };
+                } catch { supplyData[id] = { remaining: 0, total: 0 }; }
+            }
+            setShopSupply(supplyData);
+        } catch (e) {
+            console.error("Failed to fetch inventory:", e);
+        }
+    }
+
+    async function refreshShopSupply() {
+        if (!readProvider) return;
+        try {
+            const itemShopAbi = [
+                "function getItem(uint256 itemId) view returns (tuple(uint256 id, string name, uint256 fcweedPrice, uint256 dustPrice, uint256 itemType, uint256 effectValue, uint256 duration, uint256 maxPerWallet, uint256 dailySupply, uint256 soldToday, uint256 lastResetDay, bool active, bool burnFcweed, uint256 startTime, uint256 endTime, bool requiresTarget))",
+                "function getTimeUntilReset() view returns (uint256)",
+            ];
+            const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
+            const supplyData: Record<number, {remaining: number, total: number}> = {};
+            const itemIds = [1, 2, 3, 4, 5, 6];
+            const timeUntilReset = await itemShop.getTimeUntilReset().catch(() => ethers.BigNumber.from(0));
+            setShopTimeUntilReset(timeUntilReset.toNumber());
+            for (const id of itemIds) {
+                try {
+                    const item = await itemShop.getItem(id);
+                    const dailySupply = item.dailySupply.toNumber();
+                    const soldToday = item.soldToday.toNumber();
+                    supplyData[id] = { remaining: dailySupply > 0 ? dailySupply - soldToday : 999, total: dailySupply > 0 ? dailySupply : 999 };
+                } catch { supplyData[id] = { remaining: 0, total: 0 }; }
+            }
+            setShopSupply(supplyData);
+        } catch (e) {
+            console.error("Failed to refresh shop supply:", e);
+        }
+    }
+
+    useEffect(() => {
+        if (itemsModalOpen || waterModalOpen) {
+            refreshShopSupply();
+            const interval = setInterval(refreshShopSupply, 10000);
+            return () => clearInterval(interval);
+        }
+    }, [itemsModalOpen, waterModalOpen, readProvider]);
+
+    async function handleActivateShield() {
+        if (!userAddress || inventoryShields === 0) return;
+        setInventoryLoading(true);
+        setInventoryStatus("Activating shield...");
+        try {
+            const iface = new ethers.utils.Interface(["function useItem(uint256 itemId, address target)"]);
+            const data = iface.encodeFunctionData("useItem", [2, ethers.constants.AddressZero]);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            if (tx) {
+                await tx.wait();
+                setInventoryStatus("Shield activated! 24h protection.");
+                fetchInventory();
+                refreshAllData();
+            } else {
+                setInventoryStatus("Transaction rejected");
+            }
+        } catch (e: any) {
+            setInventoryStatus(e?.reason || e?.message || "Failed to activate shield");
+        } finally {
+            setInventoryLoading(false);
+        }
+    }
+
+    async function handleActivateBoost() {
+        if (!userAddress || inventoryBoosts === 0) return;
+        setInventoryLoading(true);
+        setInventoryStatus("Activating boost...");
+        try {
+            const iface = new ethers.utils.Interface(["function useItem(uint256 itemId, address target)"]);
+            const data = iface.encodeFunctionData("useItem", [3, ethers.constants.AddressZero]);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            if (tx) {
+                await tx.wait();
+                setInventoryStatus("Attack boost activated!");
+                fetchInventory();
+                refreshAllData();
+            } else {
+                setInventoryStatus("Transaction rejected");
+            }
+        } catch (e: any) {
+            setInventoryStatus(e?.reason || e?.message || "Failed to activate boost");
+        } finally {
+            setInventoryLoading(false);
+        }
+    }
+
+    async function handleActivateAK47() {
+        if (!userAddress || inventoryAK47 === 0) return;
+        setInventoryLoading(true);
+        setInventoryStatus("Activating AK-47...");
+        try {
+            const iface = new ethers.utils.Interface(["function useItem(uint256 itemId, address target)"]);
+            const data = iface.encodeFunctionData("useItem", [4, ethers.constants.AddressZero]);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            if (tx) {
+                await tx.wait();
+                setInventoryStatus("AK-47 activated! +100% combat power for 6h");
+                fetchInventory();
+                refreshAllData();
+            } else {
+                setInventoryStatus("Transaction rejected");
+            }
+        } catch (e: any) {
+            setInventoryStatus(e?.reason || e?.message || "Failed to activate AK-47");
+        } finally {
+            setInventoryLoading(false);
+        }
+    }
+
+    async function handleActivateRPG() {
+        if (!userAddress || inventoryRPG === 0) return;
+        setInventoryLoading(true);
+        setInventoryStatus("Activating RPG...");
+        try {
+            const iface = new ethers.utils.Interface(["function useItem(uint256 itemId, address target)"]);
+            const data = iface.encodeFunctionData("useItem", [5, ethers.constants.AddressZero]);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            if (tx) {
+                await tx.wait();
+                setInventoryStatus("RPG activated! +500% combat power for 1h");
+                fetchInventory();
+                refreshAllData();
+            } else {
+                setInventoryStatus("Transaction rejected");
+            }
+        } catch (e: any) {
+            setInventoryStatus(e?.reason || e?.message || "Failed to activate RPG");
+        } finally {
+            setInventoryLoading(false);
+        }
+    }
+
+    async function handleActivateNuke() {
+        if (!userAddress || inventoryNuke === 0) return;
+        setNukeConfirmOpen(false);
+        setInventoryLoading(true);
+        setInventoryStatus("Launching Tactical Nuke...");
+        try {
+            const iface = new ethers.utils.Interface(["function useItem(uint256 itemId, address target)"]);
+            const data = iface.encodeFunctionData("useItem", [6, ethers.constants.AddressZero]);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            if (tx) {
+                await tx.wait();
+                setInventoryStatus("☢️ TACTICAL NUKE ACTIVATED! +10000% combat power for 10min");
+                setNukeExpiry(Math.floor(Date.now() / 1000) + 600);
+                fetchInventory();
+                refreshAllData();
+            } else {
+                setInventoryStatus("Transaction rejected");
+            }
+        } catch (e: any) {
+            setInventoryStatus(e?.reason || e?.message || "Failed to activate Nuke");
+        } finally {
+            setInventoryLoading(false);
+        }
+    }
+
+    async function handleUseHealthPack() {
+        if (!userAddress || selectedPlantsForHealthPack.length === 0) return;
+        setInventoryLoading(true);
+        setInventoryStatus("Using health pack...");
+        try {
+            const iface = new ethers.utils.Interface(["function useHealthPackBatch(uint256[] plantIds)"]);
+            const data = iface.encodeFunctionData("useHealthPackBatch", [selectedPlantsForHealthPack]);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            if (tx) {
+                await tx.wait();
+                setInventoryStatus("Health pack used! Plants healed to 80%");
+                setHealthPackModalOpen(false);
+                setSelectedPlantsForHealthPack([]);
+                fetchInventory();
+                refreshAllData();
+            } else {
+                setInventoryStatus("Transaction rejected");
+            }
+        } catch (e: any) {
+            setInventoryStatus(e?.reason || e?.message || "Failed to use health pack");
+        } finally {
+            setInventoryLoading(false);
+        }
+    }
+
+    async function handleBuyItem(itemId: number, currency: "dust" | "fcweed") {
+        if (!userAddress) return;
+        setShopLoading(true);
+        setShopStatus(`Buying item...`);
+        try {
+            const itemShopAbi = [
+                "function purchaseWithFcweed(uint256 itemId)",
+                "function purchaseWithDust(uint256 itemId)",
+                "function getItem(uint256 itemId) view returns (tuple(uint256 id, string name, uint256 fcweedPrice, uint256 dustPrice, uint256 itemType, uint256 effectValue, uint256 duration, uint256 maxPerWallet, uint256 dailySupply, uint256 soldToday, uint256 lastResetDay, bool active, bool burnFcweed, uint256 startTime, uint256 endTime, bool requiresTarget))",
+            ];
+            const itemShopInterface = new ethers.utils.Interface(itemShopAbi);
+            const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
+            const item = await itemShop.getItem(itemId);
+            if (!item || !item.active) {
+                setShopStatus("Item not available");
+                setShopLoading(false);
+                return;
+            }
+            let data: string;
+            if (currency === "fcweed") {
+                const fcweedPrice = item.fcweedPrice;
+                if (fcweedPrice.gt(0)) {
+                    setShopStatus("Checking allowance...");
+                    const approved = await ensureFcweedAllowance(V5_ITEMSHOP_ADDRESS, fcweedPrice);
+                    if (!approved) {
+                        setShopStatus("Approval failed");
+                        setShopLoading(false);
+                        return;
+                    }
+                }
+                data = itemShopInterface.encodeFunctionData("purchaseWithFcweed", [itemId]);
+            } else {
+                data = itemShopInterface.encodeFunctionData("purchaseWithDust", [itemId]);
+            }
+            setShopStatus("Confirming purchase...");
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            if (!tx) {
+                setShopStatus("Transaction rejected");
+                setShopLoading(false);
+                return;
+            }
+            await tx.wait();
+            setShopStatus("✅ Purchase successful!");
+            fetchInventory();
+            setTimeout(() => setShopStatus(""), 3000);
+        } catch (e: any) {
+            setShopStatus(e?.reason || e?.message || "Purchase failed");
+        } finally {
+            setShopLoading(false);
+        }
     }
 
     useEffect(() =>
@@ -1113,6 +1473,12 @@ export default function Home()
         }
     }
 
+    // Cache for owned NFTs - defined before functions that use it
+    const ownedCacheRef = useRef<{
+        addr: string | null;
+        state: any | null;
+    }>({ addr: null, state: null });
+
     async function handleUpgradeLand() {
         if (selectedLandForUpgrade == null) { setMintStatus("Select a Land NFT."); return; }
         const ctx = await ensureWallet(); if (!ctx) return;
@@ -1136,11 +1502,6 @@ export default function Home()
         } catch (err: any) { setMintStatus("Upgrade failed: " + (err?.message || err)); }
         finally { setActionLoading(false); }
     }
-
-    const ownedCacheRef = useRef<{
-        addr: string | null;
-        state: any | null;
-    }>({ addr: null, state: null });
 
     // Helper function to fetch SuperLands on-chain when API doesn't return them
     async function fetchSuperLandsOnChain(addr: string): Promise<{tokenId: string, staked: boolean, boost: number}[]> {
@@ -1177,10 +1538,10 @@ export default function Home()
         return ownedSuperLands;
     }
 
-    async function getOwnedState(addr: string) {
-        console.log("[NFT] getOwnedState called for:", addr);
+    async function getOwnedState(addr: string, forceRefresh: boolean = false) {
+        console.log("[NFT] getOwnedState called for:", addr, "forceRefresh:", forceRefresh);
 
-        if (ownedCacheRef.current.addr?.toLowerCase() === addr.toLowerCase() && ownedCacheRef.current.state)
+        if (!forceRefresh && ownedCacheRef.current.addr?.toLowerCase() === addr.toLowerCase() && ownedCacheRef.current.state)
         {
             console.log("[NFT] Returning cached state");
             return ownedCacheRef.current.state;
@@ -1190,36 +1551,165 @@ export default function Home()
             console.log("[NFT] Fetching owned tokens from API...");
             const state = await loadOwnedTokens(addr);
             
-            // If API didn't return SuperLands, fetch on-chain
-            if (!state.superLands || state.superLands.length === 0) {
-                console.log("[NFT] No SuperLands from API, fetching on-chain...");
-                const onChainSuperLands = await fetchSuperLandsOnChain(addr);
-                state.superLands = onChainSuperLands;
-                if (state.totals) {
-                    state.totals.superLands = onChainSuperLands.length;
+            // If API didn't return NFTs properly, fetch on-chain
+            let plantsToUse = state.plants || [];
+            let landsToUse = state.lands || [];
+            let superLandsToUse = state.superLands || [];
+            
+            // Fetch on-chain to verify/supplement API data
+            try {
+                console.log("[NFT] Verifying with on-chain data...");
+                const plantContract = new ethers.Contract(PLANT_ADDRESS, ERC721_VIEW_ABI, readProvider);
+                const landContract = new ethers.Contract(LAND_ADDRESS, ERC721_VIEW_ABI, readProvider);
+                
+                const [plantBal, landBal] = await Promise.all([
+                    plantContract.balanceOf(addr),
+                    landContract.balanceOf(addr),
+                ]);
+                
+                const plantCount = plantBal.toNumber();
+                const landCount = landBal.toNumber();
+                
+                console.log("[NFT] On-chain balances - Plants:", plantCount, "Lands:", landCount);
+                
+                // If on-chain shows more than API returned, fetch all on-chain
+                if (plantCount > 0 && plantsToUse.length < plantCount) {
+                    console.log("[NFT] Fetching plants on-chain...");
+                    const plantIds: any[] = [];
+                    // Check first 1200 token IDs (total supply is 1111)
+                    const plantCheckCalls = Array.from({ length: 1200 }, (_, i) => ({
+                        target: PLANT_ADDRESS,
+                        callData: erc721Interface.encodeFunctionData("ownerOf", [i + 1])
+                    }));
+                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+                    const plantResults = await mc.callStatic.tryAggregate(false, plantCheckCalls);
+                    plantResults.forEach((result: any, i: number) => {
+                        if (result.success) {
+                            try {
+                                const owner = ethers.utils.defaultAbiCoder.decode(["address"], result.returnData)[0];
+                                if (owner && owner.toLowerCase() === addr.toLowerCase()) {
+                                    plantIds.push({ tokenId: String(i + 1), staked: false, boost: 0 });
+                                }
+                            } catch {}
+                        }
+                    });
+                    if (plantIds.length > 0) {
+                        plantsToUse = plantIds;
+                        console.log("[NFT] Found plants on-chain:", plantIds.length);
+                    }
                 }
+                
+                if (landCount > 0 && landsToUse.length < landCount) {
+                    console.log("[NFT] Fetching lands on-chain...");
+                    const landIds: any[] = [];
+                    // Check first 500 token IDs (total supply is 420)
+                    const landCheckCalls = Array.from({ length: 500 }, (_, i) => ({
+                        target: LAND_ADDRESS,
+                        callData: erc721Interface.encodeFunctionData("ownerOf", [i + 1])
+                    }));
+                    const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+                    const landResults = await mc.callStatic.tryAggregate(false, landCheckCalls);
+                    landResults.forEach((result: any, i: number) => {
+                        if (result.success) {
+                            try {
+                                const owner = ethers.utils.defaultAbiCoder.decode(["address"], result.returnData)[0];
+                                if (owner && owner.toLowerCase() === addr.toLowerCase()) {
+                                    landIds.push({ tokenId: String(i + 1), staked: false, boost: 0 });
+                                }
+                            } catch {}
+                        }
+                    });
+                    if (landIds.length > 0) {
+                        landsToUse = landIds;
+                        console.log("[NFT] Found lands on-chain:", landIds.length);
+                    }
+                }
+            } catch (onChainErr) {
+                console.error("[NFT] On-chain verification failed:", onChainErr);
             }
             
-            console.log("[NFT] Got owned state:", {
-                plants: state.plants?.length || 0,
-                lands: state.lands?.length || 0,
-                superLands: state.superLands?.length || 0,
-                totals: state.totals
+            // Always fetch SuperLands on-chain since API often misses them
+            if (superLandsToUse.length === 0) {
+                console.log("[NFT] No SuperLands from API, fetching on-chain...");
+                superLandsToUse = await fetchSuperLandsOnChain(addr);
+            }
+            
+            const finalState = {
+                ...state,
+                plants: plantsToUse,
+                lands: landsToUse,
+                superLands: superLandsToUse,
+                totals: {
+                    plants: plantsToUse.length,
+                    lands: landsToUse.length,
+                    superLands: superLandsToUse.length
+                }
+            };
+            
+            console.log("[NFT] Final owned state:", {
+                plants: finalState.plants?.length || 0,
+                lands: finalState.lands?.length || 0,
+                superLands: finalState.superLands?.length || 0,
+                totals: finalState.totals
             });
-            ownedCacheRef.current = { addr, state };
-            return state;
+            ownedCacheRef.current = { addr, state: finalState };
+            return finalState;
         } catch (err) {
             console.error("[NFT] Failed to load owned tokens:", err);
             
-            // Even on API error, try to fetch SuperLands on-chain
+            // On error, fetch everything on-chain
+            console.log("[NFT] Falling back to full on-chain fetch...");
+            const plantIds: any[] = [];
+            const landIds: any[] = [];
+            
+            try {
+                const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+                
+                // Fetch plants on-chain
+                const plantCheckCalls = Array.from({ length: 1200 }, (_, i) => ({
+                    target: PLANT_ADDRESS,
+                    callData: erc721Interface.encodeFunctionData("ownerOf", [i + 1])
+                }));
+                const plantResults = await mc.callStatic.tryAggregate(false, plantCheckCalls);
+                plantResults.forEach((result: any, i: number) => {
+                    if (result.success) {
+                        try {
+                            const owner = ethers.utils.defaultAbiCoder.decode(["address"], result.returnData)[0];
+                            if (owner && owner.toLowerCase() === addr.toLowerCase()) {
+                                plantIds.push({ tokenId: String(i + 1), staked: false, boost: 0 });
+                            }
+                        } catch {}
+                    }
+                });
+                
+                // Fetch lands on-chain
+                const landCheckCalls = Array.from({ length: 500 }, (_, i) => ({
+                    target: LAND_ADDRESS,
+                    callData: erc721Interface.encodeFunctionData("ownerOf", [i + 1])
+                }));
+                const landResults = await mc.callStatic.tryAggregate(false, landCheckCalls);
+                landResults.forEach((result: any, i: number) => {
+                    if (result.success) {
+                        try {
+                            const owner = ethers.utils.defaultAbiCoder.decode(["address"], result.returnData)[0];
+                            if (owner && owner.toLowerCase() === addr.toLowerCase()) {
+                                landIds.push({ tokenId: String(i + 1), staked: false, boost: 0 });
+                            }
+                        } catch {}
+                    }
+                });
+            } catch (mcErr) {
+                console.error("[NFT] Multicall on-chain fetch failed:", mcErr);
+            }
+            
             const onChainSuperLands = await fetchSuperLandsOnChain(addr);
 
             return {
                 wallet: addr,
-                plants: [],
-                lands: [],
+                plants: plantIds,
+                lands: landIds,
                 superLands: onChainSuperLands,
-                totals: { plants: 0, lands: 0, superLands: onChainSuperLands.length }
+                totals: { plants: plantIds.length, lands: landIds.length, superLands: onChainSuperLands.length }
             };
         }
     }
@@ -1233,7 +1723,7 @@ export default function Home()
         }
     }
 
-    // Leaderboard refresh function
+    // Leaderboard refresh function - Uses API for fast loading
     async function refreshLeaderboard() {
         setLeaderboardLoading(true);
         try {
@@ -1832,6 +2322,7 @@ export default function Home()
         if (refreshV5StakingRef.current || !userAddress || !V5_STAKING_ADDRESS) return;
         refreshV5StakingRef.current = true;
         setLoadingV5Staking(true);
+        
         try {
             const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
             const [userData, pendingRaw, capacity, stakedPlantIds, stakedLandIds, stakedSuperLandIds, avgHealth, tokensPerDayRaw, landBoostBpsRaw, superLandBoostBpsRaw] = await Promise.all([
@@ -1935,7 +2426,9 @@ export default function Home()
             setV5StakedPlants(stakedPlantNums);
             setV5StakedLands(stakedLandNums);
 
-            const owned = await getOwnedState(userAddress);
+            // Force refresh owned state to get latest NFT data
+            ownedCacheRef.current = { addr: "", state: null };
+            const owned = await getOwnedState(userAddress, true);
 
             // Exclude NFTs staked in V4 from available
             let v4StakedPlantIds: number[] = [];
@@ -1980,7 +2473,7 @@ export default function Home()
     }
 
     useEffect(() => {
-        if (v5StakingOpen && userAddress && V5_STAKING_ADDRESS) { refreshV5StakingRef.current = false; refreshV5Staking(); }
+        if (userAddress && V5_STAKING_ADDRESS) { refreshV5StakingRef.current = false; refreshV5Staking(); }
     }, [v5StakingOpen, userAddress]);
 
     useEffect(() => {
@@ -2314,19 +2807,19 @@ export default function Home()
     const v4TotalWaterNeededForSelected = useMemo(() => selectedV4PlantsToWater.reduce((sum, id) => sum + Math.max(1, v4WaterNeeded[id] || 0), 0), [selectedV4PlantsToWater, v4WaterNeeded]);
 
     // Use environment variable or default to production URL
-    const BACKEND_API_URL = process.env.NEXT_PUBLIC_WARS_API_URL || "https://wars.x420ponzi.com";
+    const BACKEND_API_URL = WARS_BACKEND_URL || process.env.NEXT_PUBLIC_WARS_API_URL || "https://fcweed-wars-backend.onrender.com";
     const [warsBackendStatus, setWarsBackendStatus] = useState<"unknown" | "online" | "offline">("unknown");
 
     // Check backend health when wars tab opens
     async function checkWarsBackend() {
         try {
-            const response = await fetch(`${BACKEND_API_URL}/health`, {
+            const response = await fetch(`${BACKEND_API_URL}/api/health`, {
                 method: 'GET',
                 signal: AbortSignal.timeout(5000)
             });
             if (response.ok) {
                 setWarsBackendStatus("online");
-                console.log("[Wars] Backend is online");
+                console.log("[Wars] Backend is online at", BACKEND_API_URL);
                 return true;
             }
         } catch (err) {
@@ -2342,66 +2835,124 @@ export default function Home()
         }
     }, [activeTab]);
 
+    useEffect(() => {
+        if (connected && userAddress && activeTab === "wars") {
+            fetchInventory();
+        }
+    }, [connected, userAddress, activeTab]);
+
+
+
     async function loadWarsPlayerStats() {
         if (!userAddress) return;
         try {
             const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
-            const stats = await battlesContract.getPlayerStats(userAddress);
+            
+            // Get Cartel Wars stats
+            const stats = await battlesContract.getCartelPlayerStats(userAddress);
+            
+            // Get DEA stats
+            let deaStats = [0, 0, ethers.BigNumber.from(0), ethers.BigNumber.from(0), 0, false];
+            try {
+                deaStats = await battlesContract.getDeaAttackerStats(userAddress);
+            } catch {}
+            
             setWarsPlayerStats({
-                wins: stats.wins.toNumber(),
-                losses: stats.losses.toNumber(),
-                defWins: stats.defWins.toNumber(),
-                defLosses: stats.defLosses.toNumber(),
-                rewardsStolen: stats.rewardsStolen,
-                rewardsLost: stats.rewardsLost,
-                winStreak: stats.winStreak.toNumber(),
-                bestStreak: stats.bestStreak.toNumber(),
+                wins: stats[0].toNumber(),
+                losses: stats[1].toNumber(),
+                defWins: stats[2].toNumber(),
+                defLosses: stats[3].toNumber(),
+                rewardsStolen: stats[4],
+                rewardsLost: stats[5],
+                rewardsLostAttacking: stats[6],
+                winStreak: stats[7].toNumber(),
+                bestStreak: stats[8].toNumber(),
+                nukesUsed: stats[9].toNumber(),
+                hasShield: stats[10],
+                // DEA stats
+                deaRaidsWon: deaStats[0].toNumber ? deaStats[0].toNumber() : 0,
+                deaRaidsLost: deaStats[1].toNumber ? deaStats[1].toNumber() : 0,
+                deaRewardsStolen: deaStats[2],
             });
 
 
-            const cooldown = await battlesContract.getAttackCooldownRemaining(userAddress);
-            setWarsCooldown(cooldown.toNumber());
+            const canAttack = await battlesContract.canCartelAttack(userAddress);
+            if (!canAttack) {
+                try {
+                    const lastAttackTime = await battlesContract.lastCartelAttackTime(userAddress);
+                    const cooldownDuration = await battlesContract.cartelCooldown();
+                    const cooldownEnd = lastAttackTime.toNumber() + cooldownDuration.toNumber();
+                    const now = Math.floor(Date.now() / 1000);
+                    const remaining = cooldownEnd > now ? cooldownEnd - now : 0;
+                    setWarsCooldown(remaining);
+                } catch (e) {
+                    console.error("Cooldown fetch error:", e);
+                    setWarsCooldown(21600);
+                }
+            } else {
+                setWarsCooldown(0);
+            }
 
 
-            const fee = await battlesContract.searchFee();
+            const fee = await battlesContract.cartelSearchFee();
             const feeFormatted = parseFloat(ethers.utils.formatUnits(fee, 18));
             setWarsSearchFee(feeFormatted >= 1000 ? (feeFormatted / 1000).toFixed(0) + "K" : feeFormatted.toFixed(0));
 
 
-            const activeSearch = await battlesContract.getActiveSearch(userAddress);
-            if (activeSearch.isValid && activeSearch.target !== ethers.constants.AddressZero) {
-                setWarsTarget(activeSearch.target);
+            const searchTarget = await battlesContract.activeSearchTarget(userAddress);
+            const searchExpiry = await battlesContract.activeSearchExpiry(userAddress);
+            const now = Math.floor(Date.now() / 1000);
+            if (searchTarget !== ethers.constants.AddressZero && searchExpiry.toNumber() > now) {
+                setWarsTarget(searchTarget);
+                setWarsSearchExpiry(searchExpiry.toNumber());
 
-                const targetStats = await battlesContract.getTargetStats(activeSearch.target);
+                const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
+                const targetStats = await v5Contract.getUserBattleStats(searchTarget);
+                const targetPower = await v5Contract.calculateBattlePower(searchTarget);
+                const hasShield = await v5Contract.hasRaidShield(searchTarget).catch(() => false);
+                
                 setWarsTargetStats({
-                    plants: targetStats.plants.toNumber(),
-                    lands: targetStats.lands.toNumber(),
-                    superLands: targetStats.superLands.toNumber(),
-                    avgHealth: targetStats.avgHealth.toNumber(),
-                    pendingRewards: targetStats.pendingRewards,
-                    battlePower: targetStats.battlePower.toNumber(),
-                    hasShield: targetStats.hasShield,
+                    plants: targetStats[0].toNumber(),
+                    lands: targetStats[1].toNumber(),
+                    superLands: targetStats[2].toNumber(),
+                    avgHealth: targetStats[3].toNumber(),
+                    pendingRewards: targetStats[4],
+                    battlePower: targetPower.toNumber(),
+                    hasShield: hasShield,
                 });
 
-                const odds = await battlesContract.estimateBattleOdds(userAddress, activeSearch.target);
+                const attackerPower = await v5Contract.calculateBattlePower(userAddress);
+                const defPower = targetPower.toNumber();
+                const atkPower = attackerPower.toNumber();
+                const total = atkPower + defPower;
+                const winChance = total > 0 ? Math.round((atkPower / total) * 100) : 50;
                 setWarsOdds({
-                    attackerPower: odds.attackerPower.toNumber(),
-                    defenderPower: odds.defenderPower.toNumber(),
-                    estimatedWinChance: odds.estimatedWinChance.toNumber(),
+                    attackerPower: atkPower,
+                    defenderPower: defPower,
+                    estimatedWinChance: winChance,
                 });
             }
-
-
-            const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
-            const hasShield = await v5Contract.hasRaidShield(userAddress).catch(() => false);
-            setWarsPlayerStats((prev: any) => prev ? { ...prev, hasShield } : null);
 
         } catch (err) {
             console.error("[Wars] Failed to load player stats:", err);
         }
     }
 
+    // Effect to refresh data when refreshTrigger changes
+    useEffect(() => {
+        if (refreshTrigger > 0 && userAddress) {
+            loadWarsPlayerStats();
+            refreshV5StakingRef.current = false;
+            refreshV5Staking();
+        }
+    }, [refreshTrigger, userAddress]);
+
     async function handleWarsSearch() {
+        if (warsTransactionInProgress.current) return;
+        await executeWarsSearch();
+    }
+    
+    async function executeWarsSearch() {
         if (warsTransactionInProgress.current) return;
         warsTransactionInProgress.current = true;
         setWarsSearching(true);
@@ -2422,21 +2973,24 @@ export default function Home()
             const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
 
             // Check if already have a LOCKED target on-chain
-            const activeSearch = await battlesContract.getActiveSearch(ctx.userAddress);
-            if (activeSearch.isValid && activeSearch.target !== ethers.constants.AddressZero) {
-                setWarsTarget(activeSearch.target);
+            const searchTarget = await battlesContract.activeSearchTarget(ctx.userAddress);
+            const searchExpiry = await battlesContract.activeSearchExpiry(ctx.userAddress);
+            const now = Math.floor(Date.now() / 1000);
+            if (searchTarget !== ethers.constants.AddressZero && searchExpiry.toNumber() > now) {
+                setWarsTarget(searchTarget);
                 setWarsTargetLocked(true); // Already paid
-                setWarsSearchExpiry(activeSearch.expiry.toNumber());
+                setWarsSearchExpiry(searchExpiry.toNumber());
 
                 // Fetch target stats directly from V5 staking (more reliable)
                 const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, [
                     "function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)",
-                    "function hasRaidShield(address) external view returns (bool)"
+                    "function hasRaidShield(address) external view returns (bool)",
+                    "function calculateBattlePower(address) external view returns (uint256)"
                 ], readProvider);
 
                 let tPlants = 0, tLands = 0, tSuperLands = 0, tAvgHealth = 100, tPending = ethers.BigNumber.from(0);
                 try {
-                    const targetStats = await v5Contract.getUserBattleStats(activeSearch.target);
+                    const targetStats = await v5Contract.getUserBattleStats(searchTarget);
                     tPlants = targetStats[0].toNumber();
                     tLands = targetStats[1].toNumber();
                     tSuperLands = targetStats[2].toNumber();
@@ -2449,10 +3003,10 @@ export default function Home()
 
                 let hasShield = false;
                 try {
-                    hasShield = await v5Contract.hasRaidShield(activeSearch.target);
+                    hasShield = await v5Contract.hasRaidShield(searchTarget);
                 } catch (e) {}
 
-                const defenderPower = Math.round((tPlants * 100 + tLands * 50 + tSuperLands * 150) * tAvgHealth / 100);
+                const defenderPower = await v5Contract.calculateBattlePower(searchTarget).then((p: any) => p.toNumber()).catch(() => Math.round((tPlants * 100 + tLands * 50 + tSuperLands * 150) * tAvgHealth / 100));
 
                 setWarsTargetStats({
                     plants: tPlants,
@@ -2603,7 +3157,7 @@ export default function Home()
             const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
 
             setWarsStatus("Checking approval...");
-            const searchFee = await battlesContract.searchFee();
+            const searchFee = await battlesContract.cartelSearchFee();
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             let allowance = await tokenContract.allowance(ctx.userAddress, V5_BATTLES_ADDRESS);
 
@@ -2620,7 +3174,7 @@ export default function Home()
 
             const searchTx = await txAction().sendContractTx(
                 V5_BATTLES_ADDRESS,
-                v4BattlesInterface.encodeFunctionData("searchForTarget", [target, nonce, deadline, signature]),
+                v4BattlesInterface.encodeFunctionData("searchForTarget", [target, deadline, signature]),
                 "0x1E8480"
             );
 
@@ -2637,12 +3191,27 @@ export default function Home()
             // NOW show stats - they paid!
             setWarsTargetLocked(true);
             setWarsPreviewData(null);
+            
+            // Backend returns pendingRewards as formatted string (e.g. "3434000.123")
+            // Convert back to BigNumber for display
+            let pendingBN;
+            try {
+                pendingBN = ethers.utils.parseUnits(stats.pendingRewards.toString(), 18);
+            } catch {
+                // If it's already a raw number string, try BigNumber.from
+                try {
+                    pendingBN = ethers.BigNumber.from(stats.pendingRewards);
+                } catch {
+                    pendingBN = ethers.BigNumber.from(0);
+                }
+            }
+            
             setWarsTargetStats({
                 plants: stats.plants,
                 lands: stats.lands,
                 superLands: stats.superLands,
                 avgHealth: stats.avgHealth,
-                pendingRewards: ethers.BigNumber.from(stats.pendingRewards),
+                pendingRewards: pendingBN,
                 hasShield: stats.hasShield,
             });
             setWarsSearchExpiry(Math.floor(Date.now() / 1000) + 600);
@@ -2723,9 +3292,14 @@ export default function Home()
 
     async function handleWarsAttack() {
         if (warsTransactionInProgress.current || !warsTarget) return;
+        await executeWarsAttack();
+    }
+    
+    async function executeWarsAttack() {
+        if (warsTransactionInProgress.current || !warsTarget) return;
         warsTransactionInProgress.current = true;
         setWarsAttacking(true);
-        setWarsStatus("Attacking...");
+        setWarsStatus("Preparing attack...");
 
         try {
             const ctx = await ensureWallet();
@@ -2736,8 +3310,30 @@ export default function Home()
                 return;
             }
 
+            // Check if we have an active shield - if so, remove it first
+            const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, V5_ITEMSHOP_ABI, readProvider);
+            const shieldInfo = await itemShopContract.hasActiveShield(ctx.userAddress);
+            
+            if (shieldInfo[0]) {
+                setWarsStatus("Removing your shield...");
+                const removeShieldTx = await txAction().sendContractTx(
+                    V5_ITEMSHOP_ADDRESS, 
+                    v5ItemShopInterface.encodeFunctionData("removeShieldSelf", []), 
+                    "0x1E8480"
+                );
+                if (!removeShieldTx) {
+                    setWarsStatus("Shield removal rejected");
+                    setWarsAttacking(false);
+                    warsTransactionInProgress.current = false;
+                    return;
+                }
+                await waitForTx(removeShieldTx, readProvider);
+                setWarsStatus("Shield removed! Attacking...");
+            } else {
+                setWarsStatus("Attacking...");
+            }
 
-            const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("attack", []), "0x1E8480");
+            const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cartelAttack", []), "0x1E8480");
             if (!tx) {
                 setWarsStatus("Transaction rejected");
                 setWarsAttacking(false);
@@ -2751,7 +3347,7 @@ export default function Home()
             const receipt = await waitForTx(tx, readProvider);
 
 
-            const battleResultTopic = v4BattlesInterface.getEventTopic("BattleResult");
+            const battleResultTopic = v4BattlesInterface.getEventTopic("CartelBattleResult");
             let battleResult: any = null;
 
             if (receipt && receipt.logs) {
@@ -2868,8 +3464,10 @@ export default function Home()
             if (!ctx) return;
 
             const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
-            const activeSearch = await battlesContract.getActiveSearch(ctx.userAddress);
-            if (activeSearch.isValid) {
+            const searchTarget = await battlesContract.activeSearchTarget(ctx.userAddress);
+            const searchExpiry = await battlesContract.activeSearchExpiry(ctx.userAddress);
+            const now = Math.floor(Date.now() / 1000);
+            if (searchTarget !== ethers.constants.AddressZero && searchExpiry.toNumber() > now) {
                 setWarsStatus("Cancelling locked target...");
                 const cancelTx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cancelSearch", []), "0x1E8480");
                 if (cancelTx) await waitForTx(cancelTx, readProvider);
@@ -2918,7 +3516,17 @@ export default function Home()
         return () => clearInterval(interval);
     }, [warsSearchExpiry]);
 
-    const connected = !!userAddress;
+    const [timerTick, setTimerTick] = useState(0);
+    useEffect(() => {
+        const hasActiveTimer = boostExpiry > Math.floor(Date.now() / 1000) || 
+                               shieldExpiry > Math.floor(Date.now() / 1000) || 
+                               ak47Expiry > Math.floor(Date.now() / 1000) || 
+                               rpgExpiry > Math.floor(Date.now() / 1000) || 
+                               nukeExpiry > Math.floor(Date.now() / 1000);
+        if (!hasActiveTimer) return;
+        const interval = setInterval(() => setTimerTick(n => n + 1), 1000);
+        return () => clearInterval(interval);
+    }, [boostExpiry, shieldExpiry, ak47Expiry, rpgExpiry, nukeExpiry]);
 
 
     const handleConnectWallet = async (e: React.MouseEvent | React.TouchEvent) => {
@@ -2958,6 +3566,51 @@ export default function Home()
         })();
     }, [connected, userAddress, readProvider]);
 
+    // Auto-load user data on wallet connect (crate stats, inventory, V5 staking)
+    useEffect(() => {
+        if (!connected || !userAddress || !readProvider) return;
+        
+        // Load crate/dust stats
+        (async () => {
+            try {
+                const vaultAbi = [
+                    "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)"
+                ];
+                const vaultContract = new ethers.Contract(CRATE_VAULT_ADDRESS, vaultAbi, readProvider);
+                const stats = await vaultContract.getUserStats(userAddress);
+                console.log("[CrateStats] Raw stats:", stats);
+                console.log("[CrateStats] dustBalance:", stats.dustBalance?.toString(), "cratesOpened:", stats.cratesOpened?.toString());
+                
+                // Try named properties first, fall back to indices
+                const dustBalance = stats.dustBalance ?? stats[0];
+                const cratesOpened = stats.cratesOpened ?? stats[1];
+                const fcweedWon = stats.fcweedWon ?? stats[2];
+                const usdcWon = stats.usdcWon ?? stats[3];
+                const nftsWon = stats.nftsWon ?? stats[4];
+                const totalSpent = stats.totalSpent ?? stats[5];
+                
+                setCrateUserStats({
+                    opened: typeof cratesOpened === 'number' ? cratesOpened : cratesOpened.toNumber(),
+                    dust: typeof dustBalance === 'number' ? dustBalance : dustBalance.toNumber(),
+                    fcweed: parseFloat(ethers.utils.formatUnits(fcweedWon, 18)),
+                    usdc: parseFloat(ethers.utils.formatUnits(usdcWon, 6)),
+                    nfts: typeof nftsWon === 'number' ? nftsWon : nftsWon.toNumber(),
+                    totalSpent: parseFloat(ethers.utils.formatUnits(totalSpent, 18)),
+                });
+                console.log("[CrateStats] Loaded successfully");
+            } catch (e) {
+                console.error("[CrateStats] Failed to load:", e);
+            }
+        })();
+        
+        // Load inventory
+        fetchInventory();
+        
+        // Load V5 staking data in background WITHOUT opening modal
+        refreshV5StakingRef.current = false;
+        refreshV5Staking();
+    }, [connected, userAddress, readProvider]);
+
 
     useEffect(() => {
         if (activeTab !== "crates") return;
@@ -2965,14 +3618,36 @@ export default function Home()
         (async () => {
             try {
                 const vaultContract = new ethers.Contract(CRATE_VAULT_ADDRESS, CRATE_VAULT_ABI, readProvider);
-
-
-                const [plants, lands, superLands] = await vaultContract.getVaultInventory();
-                setVaultNfts({
-                    plants: plants.toNumber(),
-                    lands: lands.toNumber(),
-                    superLands: superLands.toNumber(),
-                });
+                
+                // Try to get from contract first, but fallback to checking treasury wallet directly
+                const TREASURY_WALLET = "0x5A567898881cef8DF767D192B74d99513cAa6e46";
+                
+                try {
+                    // Check NFT balances of treasury wallet directly
+                    const plantContract = new ethers.Contract(PLANT_ADDRESS, ERC721_VIEW_ABI, readProvider);
+                    const landContract = new ethers.Contract(LAND_ADDRESS, ERC721_VIEW_ABI, readProvider);
+                    const superLandContract = new ethers.Contract(SUPER_LAND_ADDRESS, ERC721_VIEW_ABI, readProvider);
+                    
+                    const [plantBal, landBal, superLandBal] = await Promise.all([
+                        plantContract.balanceOf(TREASURY_WALLET),
+                        landContract.balanceOf(TREASURY_WALLET),
+                        superLandContract.balanceOf(TREASURY_WALLET),
+                    ]);
+                    
+                    setVaultNfts({
+                        plants: plantBal.toNumber(),
+                        lands: landBal.toNumber(),
+                        superLands: superLandBal.toNumber(),
+                    });
+                } catch (e) {
+                    console.log("Fallback to getVaultInventory:", e);
+                    const [plants, lands, superLands] = await vaultContract.getVaultInventory();
+                    setVaultNfts({
+                        plants: plants.toNumber(),
+                        lands: lands.toNumber(),
+                        superLands: superLands.toNumber(),
+                    });
+                }
 
 
                 const [totalOpened, totalBurned, , , , , uniqueUsers] = await vaultContract.getGlobalStats();
@@ -2989,13 +3664,21 @@ export default function Home()
 
 
                 if (userAddress) {
-                    const [dustBalance, cratesOpened, fcweedWon, usdcWon, nftsWon, totalSpent] = await vaultContract.getUserStats(userAddress);
+                    const stats = await vaultContract.getUserStats(userAddress);
+                    console.log("[CratesTab] User stats:", stats);
+                    const dustBalance = stats.dustBalance ?? stats[0];
+                    const cratesOpened = stats.cratesOpened ?? stats[1];
+                    const fcweedWon = stats.fcweedWon ?? stats[2];
+                    const usdcWon = stats.usdcWon ?? stats[3];
+                    const nftsWon = stats.nftsWon ?? stats[4];
+                    const totalSpent = stats.totalSpent ?? stats[5];
+                    
                     setCrateUserStats({
-                        opened: cratesOpened.toNumber(),
-                        dust: dustBalance.toNumber(),
+                        opened: typeof cratesOpened === 'number' ? cratesOpened : cratesOpened.toNumber(),
+                        dust: typeof dustBalance === 'number' ? dustBalance : dustBalance.toNumber(),
                         fcweed: parseFloat(ethers.utils.formatUnits(fcweedWon, 18)),
                         usdc: parseFloat(ethers.utils.formatUnits(usdcWon, 6)),
-                        nfts: nftsWon.toNumber(),
+                        nfts: typeof nftsWon === 'number' ? nftsWon : nftsWon.toNumber(),
                         totalSpent: parseFloat(ethers.utils.formatUnits(totalSpent, 18)),
                     });
                 }
@@ -3788,14 +4471,14 @@ export default function Home()
             data-theme={theme}
             onPointerDown={() => { if (!isPlaying && !manualPause && audioRef.current) audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {}); }}
         >
-            {/* CSS Keyframes for scrolling text */}
+            
             <style>{`
                 @keyframes scrollText {
                     0% { transform: translateX(0); }
                     100% { transform: translateX(-100%); }
                 }
             `}</style>
-            {/* Onboarding Modal */}
+            
             {showOnboarding && (
                 <div style={{
                     position: "fixed",
@@ -3932,7 +4615,7 @@ export default function Home()
                 </div>
             )}
             
-            {/* Disconnect Modal */}
+            
             {showDisconnectModal && (
                 <div style={{
                     position: "fixed",
@@ -4041,7 +4724,7 @@ export default function Home()
                     <ConnectWalletButton />
                 </div>
                 <div className={styles.headerRight}>
-                    {/* Theme Toggle Button */}
+                    
                     <button 
                         type="button" 
                         className={styles.iconButton}
@@ -4088,19 +4771,8 @@ export default function Home()
                         <section style={{ textAlign: "center", padding: "10px 0", display: "flex", justifyContent: "center" }}>
                             <Image src={GIFS[gifIndex]} alt="FCWEED" width={280} height={100} style={{ borderRadius: 14, objectFit: "cover" }} />
                         </section>
-                        <section className={styles.infoCard} style={{
-                            background: theme === "light" ? "#ffffff" : undefined,
-                            borderColor: theme === "light" ? "#e2e8f0" : undefined
-                        }}>
-                            <h1 style={{ fontSize: 20, margin: "0 0 6px", color: theme === "light" ? "#2563eb" : "#7cb3ff" }}>FCWEED Farming on Base</h1>
-                            <p style={{ fontSize: 12, color: theme === "light" ? "#475569" : "#b5c3f2", margin: 0, lineHeight: 1.5 }}>
-                                Stake-to-earn Farming — Powered by FCWEED on Base<br />
-                                Collect <b>Land</b> &amp; <b>Plant NFTs</b>, stake them to grow yields, and boost rewards with expansion.<br />
-                    Every Land NFT unlocks more Plant slots and increases your <span style={{ color: "#16a34a" }}>Land Boost</span> for higher payouts.
-                            </p>
-                        </section>
 
-                        {/* Token Supply Stats */}
+                        
                         <section style={{ display: "flex", justifyContent: "center", padding: "8px 0" }}>
                             <div style={{
                                 background: theme === "light" 
@@ -4155,18 +4827,29 @@ export default function Home()
                                 <li>Each Land allows you to stake <b style={{ color: "#16a34a" }}>+3 extra Plant Buds</b>.</li>
                                 <li>Each Land grants a <b style={{ color: "#16a34a" }}>+2.5% token boost</b> to all yield earned.</li>
                                 <li>The more Land you stack — the stronger your multiplier will be.</li>
-                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}><b>NEW: Super Land</b> — Burn 1 Land + 2M FCWEED to upgrade!</li>
+                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}><b>Super Land</b> — Burn 1 Land + 2M FCWEED to upgrade!</li>
                                 <li>Each Super Land grants <b style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}>+12% token boost</b>.</li>
-                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}><b>NEW: Open Crates</b> for Prizes by spending <b>200,000 $FCWEED</b>!</li>
-                                <li style={{ color: "#ef4444", marginTop: 8 }}><b>NEW: Cartel Wars</b> — Battle other farmers!</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Search for opponents (50K FCWEED fee, refunded on win)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Attack other farmers to steal <b>up to 50%</b> of their pending rewards</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Losing battles damages your plants 10-15% and you lose up to 50% of pending</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Defenders get 25K bonus when attackers lose</li>
-                                <li style={{ color: "#10b981", marginTop: 8 }}><b>NEW: Item Shop</b> — Buy Water!</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> restores plant health to 100%</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Water Shop open <b>12PM-6PM EST</b> daily with limited supply</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• More decay = more water needed (neglect is expensive!)</li>
+                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}><b>Open Crates</b> for Prizes by spending <b>200,000 $FCWEED</b>!</li>
+                                <li style={{ color: "#ef4444", marginTop: 8 }}><b>Cartel Wars (PvP)</b> — Battle other farmers!</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>50K FCWEED</b> to search for opponents with 200K+ pending</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Combat Power = Plants × Health × Boosts</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Win: steal up to 50% | Lose: lose up to 50%</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>6h cooldown</b> between attacks</li>
+                                <li style={{ color: "#ef4444", marginTop: 8 }}><b>DEA RAIDS (Hunt Sellers)</b> — Target wallets that sold FCWEED!</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>100K FCWEED</b> raid fee to attack sellers</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>6h cooldown</b> (Same Target) | <b style={{ color: "#fbbf24" }}>2h cooldown</b> (After Successful Raid)</li>
+                                <li style={{ color: "#dc2626", marginTop: 8 }}><b>THE PURGE (Chaos Event)</b> — Weekly chaos mode!</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Active <b>Saturday 11PM - Sunday 11PM EST</b></li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>250K FCWEED</b> to target ANY wallet directly</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>20 min cooldown</b> | <b style={{ color: "#ef4444" }}>All shields BYPASSED</b></li>
+                                <li style={{ color: "#10b981", marginTop: 8 }}><b>Item Shop</b> — Power-ups for your farm!</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> — Restores plant health to 100% (Shop open 12PM-6PM EST)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals to 80%, 2.5K Dust or 2.5M FCWEED (20/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection, 2.5K Dust only (25/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% power for 6h, 400 Dust or 400K FCWEED</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% power for 6h, 2K Dust or 2M FCWEED (15/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% power for 1h, 5K Dust or 5M FCWEED (3/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 100% | STEAL: 100%</b></li>
                             </ul>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
                             <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
@@ -4183,8 +4866,8 @@ export default function Home()
                         <section className={styles.infoCard} style={getCardStyle()}>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Coming Soon</h2>
                             <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
-                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}>🎁 Referrals — Earn rewards for inviting friends</li>
-                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}>🛒 More Shop Items — Boosts, shields, and more</li>
+                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}>🎁 <b>Referrals + Quests</b> — Earn rewards for inviting friends and completing Quests</li>
+                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}>🛒 <b>More Shop Items</b> — Fertilizers, Growth Serums, Weapons, Explosives...</li>
                             </ul>
                         </section>
                     </>
@@ -4197,7 +4880,7 @@ export default function Home()
                     <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
                 </div>
 
-                {/* NFT Supply Display */}
+                
                 <div style={{
                     display: "flex",
                     justifyContent: "center",
@@ -4289,25 +4972,49 @@ export default function Home()
                         <section className={styles.infoCard} style={getCardStyle({ padding: '14px 10px' })}>
                             <h2 style={{ fontSize: 15, margin: '0 0 10px', color: '#7cb3ff', textAlign: 'center' }}>Open Crates for Prizes</h2>
 
-                            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 10 }}>
-                                <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 9, textAlign: 'center' }}>
-                                    <div style={{ color: '#f87171', fontWeight: 700 }}>{crateGlobalStats.totalBurned}</div>
-                                    <div style={{ color: '#6b7280', fontSize: 7 }}>Global $FCWEED Spent</div>
-                                </div>
-                            </div>
-
                             {connected && (
-                                <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                                    <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 10 }}>
-                                        <span style={{ color: '#9ca3af' }}>Bal: </span><span style={{ color: '#34d399', fontWeight: 600 }}>{fcweedBalance}</span>
+                                <>
+                                    
+                                    <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '8px 12px', marginBottom: 10, textAlign: 'center' }}>
+                                        <div style={{ color: '#f87171', fontSize: 9, fontWeight: 600, marginBottom: 2 }}>🔥 GLOBAL FCWEED SPENT</div>
+                                        <div style={{ color: '#f87171', fontWeight: 800, fontSize: 16 }}>{crateGlobalStats.totalBurned}</div>
                                     </div>
-                                    <div style={{ background: 'rgba(107,114,128,0.1)', border: '1px solid rgba(107,114,128,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 10 }}>
-                                        <span style={{ color: '#9ca3af' }}>Dust: </span><span style={{ color: '#d1d5db', fontWeight: 600 }}>{crateUserStats.dust.toLocaleString()}</span>
+                                    
+                                    
+                                    <div style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.1))", border: "1px solid rgba(139,92,246,0.4)", borderRadius: 12, padding: 12, marginBottom: 12 }}>
+                                        <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600, marginBottom: 8, textAlign: "center" }}>📊 YOUR STATS</div>
+                                        
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 6 }}>
+                                            <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>FCWEED</div>
+                                                <div style={{ color: '#34d399', fontWeight: 700, fontSize: 11 }}>{fcweedBalance}</div>
+                                            </div>
+                                            <div style={{ background: 'rgba(107,114,128,0.1)', border: '1px solid rgba(107,114,128,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>DUST</div>
+                                                <div style={{ color: '#d1d5db', fontWeight: 700, fontSize: 11 }}>{crateUserStats.dust.toLocaleString()}</div>
+                                            </div>
+                                            <div style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>OPENED</div>
+                                                <div style={{ color: '#fbbf24', fontWeight: 700, fontSize: 11 }}>{crateUserStats.opened}</div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                                            <div style={{ background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>FCWEED WON</div>
+                                                <div style={{ color: '#4ade80', fontWeight: 700, fontSize: 11 }}>{crateUserStats.fcweed >= 1e6 ? (crateUserStats.fcweed / 1e6).toFixed(1) + "M" : crateUserStats.fcweed >= 1e3 ? (crateUserStats.fcweed / 1e3).toFixed(0) + "K" : crateUserStats.fcweed.toFixed(0)}</div>
+                                            </div>
+                                            <div style={{ background: 'rgba(39,117,202,0.1)', border: '1px solid rgba(39,117,202,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>USDC WON</div>
+                                                <div style={{ color: '#2775CA', fontWeight: 700, fontSize: 11 }}>${crateUserStats.usdc.toFixed(2)}</div>
+                                            </div>
+                                            <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>FCWEED SPENT</div>
+                                                <div style={{ color: '#f87171', fontWeight: 700, fontSize: 11 }}>{crateUserStats.totalSpent >= 1e6 ? (crateUserStats.totalSpent / 1e6).toFixed(1) + "M" : crateUserStats.totalSpent >= 1e3 ? (crateUserStats.totalSpent / 1e3).toFixed(0) + "K" : crateUserStats.totalSpent.toFixed(0)}</div>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 10 }}>
-                                        <span style={{ color: '#9ca3af' }}>Opened: </span><span style={{ color: '#fbbf24', fontWeight: 600 }}>{crateUserStats.opened}</span>
-                                    </div>
-                                </div>
+                                </>
                             )}
 
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4, marginBottom: 12, fontSize: 9 }}>
@@ -4372,7 +5079,7 @@ export default function Home()
                     </>
                 )}
 
-                {/* Crate Confirm Modal */}
+                
                 {crateConfirmOpen && (
                     <div className={styles.modalBackdrop}>
                         <div className={`${styles.modal} c-pop`} style={{ maxWidth: 300, padding: 16 }}>
@@ -4389,7 +5096,7 @@ export default function Home()
                     </div>
                 )}
 
-                {/* Crate Reel Modal */}
+                
                 {crateReelOpen && (
                     <div className={styles.modalBackdrop} style={{ background: 'rgba(0,0,0,0.95)' }}>
                         <div style={{ width: '100%', maxWidth: 440, padding: 16 }}>
@@ -4411,7 +5118,7 @@ export default function Home()
                     </div>
                 )}
 
-                {/* Crate Win Modal */}
+                
                 {crateShowWin && crateWon && (
                     <div className={styles.modalBackdrop} onClick={onCrateClose}>
                         <div id="crate-win-card" className={`${styles.modal} c-pop ${crateWon.isJackpot ? 'c-jack' : ''}`} onClick={e => e.stopPropagation()} style={{ maxWidth: 300, padding: 20, background: crateWon.isJackpot ? 'linear-gradient(135deg, #1a1a2e, #16213e)' : '#0f172a', border: crateWon.isJackpot ? '2px solid #ffd700' : '1px solid #334155' }}>
@@ -4442,9 +5149,9 @@ export default function Home()
 
                 {activeTab === "wars" && (
                     <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 16 })}>
-                        <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#ef4444" }}>⚔️ Cartel Wars</h2>
+                        <h2 style={{ fontSize: 18, margin: "0 0 8px", color: "#ef4444" }}>⚔️ Cartel Wars</h2>
 
-                        {/* Backend Status Indicator */}
+                        
                         <div style={{
                             display: "flex",
                             justifyContent: "center",
@@ -4461,76 +5168,254 @@ export default function Home()
                                 background: warsBackendStatus === "online" ? "#10b981" : warsBackendStatus === "offline" ? "#ef4444" : "#6b7280"
                             }} />
                             Backend: {warsBackendStatus === "online" ? "Online" : warsBackendStatus === "offline" ? "Offline" : "Checking..."}
-                            {warsBackendStatus === "offline" && (
-                                <button
-                                    type="button"
-                                    onClick={checkWarsBackend}
-                                    style={{ fontSize: 9, padding: "2px 6px", background: theme === "light" ? "#e2e8f0" : "#374151", border: `1px solid ${theme === "light" ? "#cbd5e1" : "#4b5563"}`, borderRadius: 4, color: theme === "light" ? "#1e293b" : "#fff", cursor: "pointer" }}
-                                >
-                                    Retry
-                                </button>
-                            )}
                         </div>
 
+                        
+                        <div style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.08))", border: "1px solid rgba(139,92,246,0.3)", borderRadius: 12, padding: 14, marginBottom: 16, textAlign: "left" }}>
+                            <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700, marginBottom: 12, textAlign: "center" }}>📖 HOW IT ALL WORKS</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
+                                <div>
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: "#60a5fa", marginBottom: 4 }}>⚔️ CARTEL WARS (PvP)</div>
+                                    <div style={{ fontSize: 9, color: theme === "light" ? "#475569" : "#c0c9f4", lineHeight: 1.5, paddingLeft: 8 }}>
+                                        • Pay <span style={{ color: "#fbbf24" }}>50K FCWEED</span> to search for opponents with 200K+ pending<br/>
+                                        • Combat Power = Plants × Health × Boosts | Win: steal up to 50% | Lose: lose up to 50%<br/>
+                                        • <span style={{ color: "#fbbf24" }}>6h cooldown between attacks</span>
+                                    </div>
+                                </div>
+                                <div style={{ borderTop: "1px solid rgba(139,92,246,0.2)", paddingTop: 10 }}>
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: "#ef4444", marginBottom: 4 }}>🚔 DEA RAIDS (Hunt Sellers)</div>
+                                    <div style={{ fontSize: 9, color: theme === "light" ? "#475569" : "#c0c9f4", lineHeight: 1.5, paddingLeft: 8 }}>
+                                        • Target wallets that sold FCWEED (under investigation)<br/>
+                                        • Pay <span style={{ color: "#fbbf24" }}>100K FCWEED</span> raid fee<br/>
+                                        • <span style={{ color: "#fbbf24" }}>6h cooldown</span> (Same Target) | <span style={{ color: "#fbbf24" }}>2h cooldown</span> (After Successful Raid)
+                                    </div>
+                                </div>
+                                <div style={{ borderTop: "1px solid rgba(139,92,246,0.2)", paddingTop: 10 }}>
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: "#dc2626", marginBottom: 4 }}>🔪 THE PURGE (Chaos Event)</div>
+                                    <div style={{ fontSize: 9, color: theme === "light" ? "#475569" : "#c0c9f4", lineHeight: 1.5, paddingLeft: 8 }}>
+                                        • Scheduled chaos events - target ANY wallet directly for <span style={{ color: "#fbbf24" }}>250K FCWEED</span>!<br/>
+                                        • <span style={{ color: "#fbbf24" }}>20 min cooldown</span> | <span style={{ color: "#ef4444" }}>All shields BYPASSED</span>. No mercy.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+
+                        
+                        {connected && (
+                            <div style={{ background: theme === "light" ? "rgba(99,102,241,0.05)" : "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 8, padding: 8, marginBottom: 10 }}>
+                                <div style={{ fontSize: 9, color: "#a78bfa", fontWeight: 700, marginBottom: 6, textAlign: "center" }}>🎒 INVENTORY</div>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 3 }}>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 3, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                                        <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 1 }}>
+                                            <img src="/images/items/ak47.png" alt="AK-47" style={{ maxWidth: 22, maxHeight: 22, objectFit: "contain" }} />
+                                        </div>
+                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600 }}>AK-47</div>
+                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444" }}>{inventoryAK47}</div>
+                                        {ak47Expiry > Math.floor(Date.now() / 1000) ? (
+                                            <div style={{ width: "100%", padding: "2px 3px", fontSize: 7, borderRadius: 3, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, marginTop: 1, textAlign: "center" }}>{Math.floor((ak47Expiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((ak47Expiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
+                                        ) : (
+                                            <button onClick={handleActivateAK47} disabled={inventoryAK47 === 0 || inventoryLoading} style={{ width: "100%", padding: "2px 3px", fontSize: 6, borderRadius: 3, border: "none", background: inventoryAK47 > 0 ? "linear-gradient(135deg, #ef4444, #dc2626)" : "#374151", color: "#fff", cursor: inventoryAK47 > 0 ? "pointer" : "not-allowed", fontWeight: 600, marginTop: 1 }}>Activate</button>
+                                        )}
+                                    </div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(239,68,68,0.1)", borderRadius: 6, padding: 3, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", border: "1px solid rgba(239,68,68,0.3)" }}>
+                                        <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 1 }}>
+                                            <img src="/images/items/nuke.png" alt="Nuke" style={{ maxWidth: 22, maxHeight: 22, objectFit: "contain" }} />
+                                        </div>
+                                        <div style={{ fontSize: 7, color: "#ef4444", fontWeight: 600 }}>TACTICAL NUKE</div>
+                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444" }}>{inventoryNuke}</div>
+                                        {nukeExpiry > Math.floor(Date.now() / 1000) ? (
+                                            <div style={{ width: "100%", padding: "2px 3px", fontSize: 7, borderRadius: 3, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, marginTop: 1, textAlign: "center" }}>{Math.floor((nukeExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(nukeExpiry - Math.floor(Date.now() / 1000)) % 60}s</div>
+                                        ) : (
+                                            <button onClick={() => setNukeConfirmOpen(true)} disabled={inventoryNuke === 0 || inventoryLoading} style={{ width: "100%", padding: "2px 3px", fontSize: 6, borderRadius: 3, border: "none", background: inventoryNuke > 0 ? "linear-gradient(135deg, #ef4444, #b91c1c)" : "#374151", color: "#fff", cursor: inventoryNuke > 0 ? "pointer" : "not-allowed", fontWeight: 600, marginTop: 1 }}>Activate</button>
+                                        )}
+                                    </div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 3, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                                        <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 1 }}>
+                                            <img src="/images/items/rpg.png" alt="RPG" style={{ maxWidth: 22, maxHeight: 22, objectFit: "contain" }} />
+                                        </div>
+                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600 }}>RPG</div>
+                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#a855f7" }}>{inventoryRPG}</div>
+                                        {rpgExpiry > Math.floor(Date.now() / 1000) ? (
+                                            <div style={{ width: "100%", padding: "2px 3px", fontSize: 7, borderRadius: 3, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, marginTop: 1, textAlign: "center" }}>{Math.floor((rpgExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(rpgExpiry - Math.floor(Date.now() / 1000)) % 60}s</div>
+                                        ) : (
+                                            <button onClick={handleActivateRPG} disabled={inventoryRPG === 0 || inventoryLoading} style={{ width: "100%", padding: "2px 3px", fontSize: 6, borderRadius: 3, border: "none", background: inventoryRPG > 0 ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: "#fff", cursor: inventoryRPG > 0 ? "pointer" : "not-allowed", fontWeight: 600, marginTop: 1 }}>Activate</button>
+                                        )}
+                                    </div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 3, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                                        <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 1 }}>
+                                            <img src="/images/items/healthpack.png" alt="Health Pack" style={{ maxWidth: 22, maxHeight: 22, objectFit: "contain" }} />
+                                        </div>
+                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600 }}>HEALTH PACKS</div>
+                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#10b981" }}>{inventoryHealthPacks}</div>
+                                        <button onClick={() => setHealthPackModalOpen(true)} disabled={inventoryHealthPacks === 0 || v5StakedPlants.length === 0} style={{ width: "100%", padding: "2px 3px", fontSize: 6, borderRadius: 3, border: "none", background: inventoryHealthPacks > 0 && v5StakedPlants.length > 0 ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: "#fff", cursor: inventoryHealthPacks > 0 && v5StakedPlants.length > 0 ? "pointer" : "not-allowed", fontWeight: 600, marginTop: 1 }}>Use</button>
+                                    </div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 3, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                                        <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 1 }}>
+                                            <span style={{ fontSize: 18 }}>🛡️</span>
+                                        </div>
+                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600 }}>SHIELDS</div>
+                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6" }}>{inventoryShields}</div>
+                                        {shieldExpiry > Math.floor(Date.now() / 1000) ? (
+                                            <div style={{ width: "100%", padding: "2px 3px", fontSize: 7, borderRadius: 3, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, marginTop: 1, textAlign: "center" }}>{Math.floor((shieldExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((shieldExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
+                                        ) : (
+                                            <button onClick={handleActivateShield} disabled={inventoryShields === 0 || inventoryLoading} style={{ width: "100%", padding: "2px 3px", fontSize: 6, borderRadius: 3, border: "none", background: inventoryShields > 0 ? "linear-gradient(135deg, #3b82f6, #60a5fa)" : "#374151", color: "#fff", cursor: inventoryShields > 0 ? "pointer" : "not-allowed", fontWeight: 600, marginTop: 1 }}>Activate</button>
+                                        )}
+                                    </div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 3, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                                        <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 1 }}>
+                                            <span style={{ fontSize: 18 }}>⚡</span>
+                                        </div>
+                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600 }}>ATTACK BOOST</div>
+                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b" }}>{inventoryBoosts}</div>
+                                        {boostExpiry > Math.floor(Date.now() / 1000) ? (
+                                            <div style={{ width: "100%", padding: "2px 3px", fontSize: 7, borderRadius: 3, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, marginTop: 1, textAlign: "center" }}>{Math.floor((boostExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((boostExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
+                                        ) : (
+                                            <button onClick={handleActivateBoost} disabled={inventoryBoosts === 0 || inventoryLoading} style={{ width: "100%", padding: "2px 3px", fontSize: 6, borderRadius: 3, border: "none", background: inventoryBoosts > 0 ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151", color: inventoryBoosts > 0 ? "#000" : "#fff", cursor: inventoryBoosts > 0 ? "pointer" : "not-allowed", fontWeight: 600, marginTop: 1 }}>Activate</button>
+                                        )}
+                                    </div>
+                                </div>
+                                {inventoryStatus && <div style={{ fontSize: 8, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{inventoryStatus}</div>}
+                            </div>
+                        )}
+
+
+                        
                         {connected && warsPlayerStats && (
                             <>
                                 {warsPlayerStats.hasShield && (
                                     <div style={{ background: theme === "light" ? "rgba(59,130,246,0.1)" : "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
                                         <div style={{ fontSize: 11, color: "#3b82f6", fontWeight: 600 }}>🛡️ Raid Shield ACTIVE</div>
-                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>You are protected from attacks. Attacking others will remove your shield!</div>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>Protected from attacks. Attacking others will remove your shield!</div>
                                     </div>
                                 )}
                                 
-                                {/* Defense Stats Box */}
-                                <div style={{ background: theme === "light" ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 8, padding: 8, marginBottom: 8 }}>
-                                    <div style={{ fontSize: 9, color: "#60a5fa", fontWeight: 700, textAlign: "center", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>🛡️ Defense Stats</div>
-                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4 }}>
-                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
-                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>WINS</div>
-                                            <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.defWins || 0}</div>
-                                        </div>
-                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
-                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOSSES</div>
-                                            <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.defLosses || 0}</div>
-                                        </div>
-                                    </div>
-                                </div>
                                 
-                                {/* Attack Stats Box */}
-                                <div style={{ background: theme === "light" ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
-                                    <div style={{ fontSize: 9, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>⚔️ Attack Stats</div>
-                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4 }}>
-                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
-                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>WINS</div>
-                                            <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
-                                        </div>
-                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
-                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOSSES</div>
-                                            <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
-                                        </div>
-                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
-                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>STREAK</div>
-                                            <div style={{ fontSize: 14, color: theme === "light" ? "#d97706" : "#fbbf24", fontWeight: 700 }}>{warsPlayerStats.winStreak || 0}🔥</div>
-                                        </div>
-                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center", border: theme === "light" ? "1px solid #e2e8f0" : "none" }}>
-                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>STOLEN</div>
-                                            <div style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>{warsPlayerStats.rewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                                    
+                                    <div style={{ background: theme === "light" ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 10, padding: 10 }}>
+                                        <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>🛡️ Defense</div>
+                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>WINS</div>
+                                                <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.defWins || 0}</div>
+                                            </div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOSSES</div>
+                                                <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.defLosses || 0}</div>
+                                            </div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOST</div>
+                                                <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 600 }}>{warsPlayerStats.rewardsLost ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsLost, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div style={{ fontSize: 8, color: "#6b7280", textAlign: "center", marginTop: 6, fontStyle: "italic" }}>* Streak includes attack & defense wins</div>
+                                    
+                                    
+                                    <div style={{ background: theme === "light" ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 10 }}>
+                                        <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>⚔️ Attack</div>
+                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>WINS</div>
+                                                <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
+                                            </div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOSSES</div>
+                                                <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
+                                            </div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>STOLEN</div>
+                                                <div style={{ fontSize: 14, color: "#10b981", fontWeight: 600 }}>{warsPlayerStats.rewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </>
                         )}
 
-                        {warsCooldown > 0 && (
-                            <div style={{ background: theme === "light" ? "rgba(251,191,36,0.08)" : "rgba(251,191,36,0.1)", border: `1px solid ${theme === "light" ? "rgba(217,119,6,0.3)" : "rgba(251,191,36,0.3)"}`, borderRadius: 8, padding: 8, marginBottom: 12 }}>
-                                <div style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24" }}>⏳ Attack Cooldown: {Math.floor(warsCooldown / 3600)}h {Math.floor((warsCooldown % 3600) / 60)}m</div>
+                        
+                        {connected && v5StakingStats && (
+                            <div style={{ background: theme === "light" ? "rgba(139,92,246,0.08)" : "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)", borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                                <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700, textAlign: "center", marginBottom: 10 }}>🌿 FCWEED FARM COMBAT POWER</div>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 8 }}>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>PLANTS</div>
+                                        <div style={{ fontSize: 16, color: "#22c55e", fontWeight: 700 }}>{v5StakedPlants.length}</div>
+                                    </div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LANDS</div>
+                                        <div style={{ fontSize: 16, color: "#8b4513", fontWeight: 700 }}>{v5StakedLands.length}</div>
+                                    </div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>SUPER LANDS</div>
+                                        <div style={{ fontSize: 16, color: "#ff6b35", fontWeight: 700 }}>{v5StakedSuperLands.length}</div>
+                                    </div>
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>AVG HEALTH</div>
+                                        <div style={{ fontSize: 14, color: v5StakingStats.avgHealth >= 70 ? "#22c55e" : v5StakingStats.avgHealth >= 40 ? "#fbbf24" : "#ef4444", fontWeight: 700 }}>{v5StakingStats.avgHealth || 0}%</div>
+                                    </div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LAND BOOST</div>
+                                        <div style={{ fontSize: 14, color: "#fbbf24", fontWeight: 700 }}>+{v5StakingStats.boostPct || 0}%</div>
+                                    </div>
+                                </div>
+                                {(boostExpiry > Math.floor(Date.now() / 1000) || ak47Expiry > Math.floor(Date.now() / 1000) || rpgExpiry > Math.floor(Date.now() / 1000) || nukeExpiry > Math.floor(Date.now() / 1000)) ? (
+                                    <div style={{ background: theme === "light" ? "rgba(245,158,11,0.1)" : "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 6, padding: 6, marginBottom: 8 }}>
+                                        <div style={{ fontSize: 8, color: "#fbbf24", fontWeight: 600, marginBottom: 4, textAlign: "center" }}>⚡ ACTIVE MODIFIERS</div>
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, justifyContent: "center" }}>
+                                            {boostExpiry > Math.floor(Date.now() / 1000) && (
+                                                <span style={{ background: "rgba(245,158,11,0.2)", padding: "2px 6px", borderRadius: 4, fontSize: 8, color: "#fbbf24", fontWeight: 600 }}>⚡ +20% ({Math.floor((boostExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((boostExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m)</span>
+                                            )}
+                                            {ak47Expiry > Math.floor(Date.now() / 1000) && (
+                                                <span style={{ background: "rgba(239,68,68,0.2)", padding: "2px 6px", borderRadius: 4, fontSize: 8, color: "#ef4444", fontWeight: 600 }}>🔫 AK-47 +100% ({Math.floor((ak47Expiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((ak47Expiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m)</span>
+                                            )}
+                                            {rpgExpiry > Math.floor(Date.now() / 1000) && (
+                                                <span style={{ background: "rgba(168,85,247,0.2)", padding: "2px 6px", borderRadius: 4, fontSize: 8, color: "#a855f7", fontWeight: 600 }}>🚀 RPG +500% ({Math.floor((rpgExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(rpgExpiry - Math.floor(Date.now() / 1000)) % 60}s)</span>
+                                            )}
+                                            {nukeExpiry > Math.floor(Date.now() / 1000) && (
+                                                <span style={{ background: "rgba(239,68,68,0.3)", padding: "2px 6px", borderRadius: 4, fontSize: 8, color: "#ef4444", fontWeight: 700 }}>☢️ NUKE +10000% ({Math.floor((nukeExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(nukeExpiry - Math.floor(Date.now() / 1000)) % 60}s)</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div style={{ background: theme === "light" ? "rgba(107,114,128,0.1)" : "rgba(107,114,128,0.15)", border: "1px solid rgba(107,114,128,0.3)", borderRadius: 6, padding: 6, marginBottom: 8, textAlign: "center" }}>
+                                        <div style={{ fontSize: 8, color: "#6b7280", fontWeight: 600 }}>No Active Modifiers</div>
+                                    </div>
+                                )}
+                                <div style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.2), rgba(168,85,247,0.15))", border: "1px solid rgba(139,92,246,0.4)", borderRadius: 8, padding: 8, textAlign: "center" }}>
+                                    <div style={{ fontSize: 9, color: "#a78bfa", marginBottom: 2 }}>TOTAL COMBAT POWER</div>
+                                    <div style={{ fontSize: 22, color: "#a78bfa", fontWeight: 800 }}>
+                                        {(() => {
+                                            const basePower = v5StakedPlants.length * 100;
+                                            const healthMult = (v5StakingStats.avgHealth || 100) / 100;
+                                            const landBoostMult = 1 + ((v5StakingStats.boostPct || 0) / 100);
+                                            let itemBoost = 1;
+                                            if (nukeExpiry > Math.floor(Date.now() / 1000)) itemBoost = 101;
+                                            else if (rpgExpiry > Math.floor(Date.now() / 1000)) itemBoost = 6;
+                                            else if (ak47Expiry > Math.floor(Date.now() / 1000)) itemBoost = 2;
+                                            else if (boostExpiry > Math.floor(Date.now() / 1000)) itemBoost = 1.2;
+                                            const total = Math.floor(basePower * healthMult * landBoostMult * itemBoost);
+                                            return total >= 1000 ? (total / 1000).toFixed(1) + "K" : total;
+                                        })()}
+                                    </div>
+                                </div>
                             </div>
                         )}
 
-                        {!warsTarget ? (
-                            <div style={{ marginBottom: 12 }}>
-                                <div style={{ background: theme === "light" ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+                        
+                        <div style={{ background: theme === "light" ? "rgba(239,68,68,0.05)" : "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, padding: 14, marginBottom: 16 }}>
+                            <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700, marginBottom: 12, textAlign: "center" }}>⚔️ CARTEL WARS</div>
+                            
+                            {warsCooldown > 0 && (
+                                <div style={{ background: theme === "light" ? "rgba(251,191,36,0.08)" : "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
+                                    <div style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24" }}>⏳ Attack Cooldown: {Math.floor(warsCooldown / 3600)}h {Math.floor((warsCooldown % 3600) / 60)}m</div>
+                                </div>
+                            )}
+
+                            {!warsTarget ? (
+                                <div style={{ textAlign: "center" }}>
                                     <div style={{ fontSize: 32, marginBottom: 8 }}>🎯</div>
                                     <p style={{ fontSize: 11, color: theme === "light" ? "#475569" : "#c0c9f4", margin: "0 0 12px" }}>Search for an opponent to raid their pending rewards!</p>
                                     <button
@@ -4544,245 +5429,212 @@ export default function Home()
                                     </button>
                                     {warsStatus && <p style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24", marginTop: 8 }}>{warsStatus}</p>}
                                 </div>
-                            </div>
-                        ) : (
-                            <div style={{ marginBottom: 12 }}>
-                                <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1))", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 12, padding: 16, marginBottom: 12 }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                                        <div style={{ fontSize: 10, color: "#9ca3af" }}>🎯 {warsTargetLocked ? "TARGET LOCKED" : "OPPONENT FOUND"}</div>
-                                        {warsSearchExpiry > 0 && warsTargetLocked && (
-                                            <div style={{ fontSize: 11, color: "#fbbf24", fontWeight: 600 }}>
-                                                ⏱️ {Math.max(0, Math.floor((warsSearchExpiry - Math.floor(Date.now() / 1000)) / 60))}:{String(Math.max(0, (warsSearchExpiry - Math.floor(Date.now() / 1000)) % 60)).padStart(2, '0')}
+                            ) : (
+                                <div>
+                                    <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1))", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 12, padding: 16 }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                                            <div style={{ fontSize: 10, color: "#9ca3af" }}>🎯 {warsTargetLocked ? "TARGET LOCKED" : "OPPONENT FOUND"}</div>
+                                            {warsSearchExpiry > 0 && warsTargetLocked && (
+                                                <div style={{ fontSize: 11, color: "#fbbf24", fontWeight: 600 }}>
+                                                    ⏱️ {Math.max(0, Math.floor((warsSearchExpiry - Math.floor(Date.now() / 1000)) / 60))}:{String(Math.max(0, (warsSearchExpiry - Math.floor(Date.now() / 1000)) % 60)).padStart(2, '0')}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div style={{ fontSize: 12, color: "#fff", marginBottom: 12, wordBreak: "break-all" }}>{warsTarget.slice(0, 8)}...{warsTarget.slice(-6)}</div>
+
+                                        {!warsTargetLocked && (
+                                            <div style={{ background: "rgba(251,191,36,0.1)", border: "1px dashed rgba(251,191,36,0.5)", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                                                <div style={{ fontSize: 24, marginBottom: 8 }}>❓</div>
+                                                <p style={{ fontSize: 11, color: "#fbbf24", margin: 0 }}>Pay {warsSearchFee} FCWEED to reveal stats and fight!</p>
                                             </div>
                                         )}
-                                    </div>
-                                    <div style={{ fontSize: 12, color: "#fff", marginBottom: 12, wordBreak: "break-all" }}>{warsTarget.slice(0, 8)}...{warsTarget.slice(-6)}</div>
 
-                                    {/* PREVIEW MODE - Not locked yet */}
-                                    {!warsTargetLocked && (
-                                        <div style={{ background: "rgba(251,191,36,0.1)", border: "1px dashed rgba(251,191,36,0.5)", borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                                            <div style={{ fontSize: 24, marginBottom: 8 }}>❓</div>
-                                            <p style={{ fontSize: 11, color: "#fbbf24", margin: 0 }}>Pay {warsSearchFee} FCWEED to reveal stats and fight!</p>
-                                        </div>
-                                    )}
-
-                                    {/* LOCKED MODE - Show stats */}
-                                    {warsTargetLocked && warsTargetStats && (
-                                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 12 }}>
-                                            <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 6, padding: 6 }}>
-                                                <div style={{ fontSize: 8, color: "#9ca3af" }}>PLANTS</div>
-                                                <div style={{ fontSize: 14, color: "#10b981" }}>{warsTargetStats.plants}</div>
-                                            </div>
-                                            <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 6, padding: 6 }}>
-                                                <div style={{ fontSize: 8, color: "#9ca3af" }}>HEALTH</div>
-                                                <div style={{ fontSize: 14, color: warsTargetStats.avgHealth >= 80 ? "#10b981" : warsTargetStats.avgHealth >= 50 ? "#fbbf24" : "#ef4444" }}>{warsTargetStats.avgHealth}%</div>
-                                            </div>
-                                            <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 6, padding: 6 }}>
-                                                <div style={{ fontSize: 8, color: "#9ca3af" }}>PENDING</div>
-                                                <div style={{ fontSize: 12, color: "#fbbf24" }}>{warsTargetStats.pendingRewards ? (parseFloat(ethers.utils.formatUnits(warsTargetStats.pendingRewards, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {warsTargetLocked && warsOdds && (
-                                        <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
-                                            <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 4 }}>BATTLE ODDS</div>
-                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                                <div style={{ textAlign: "center" }}>
-                                                    <div style={{ fontSize: 8, color: "#9ca3af" }}>YOU</div>
-                                                    <div style={{ fontSize: 12, color: "#10b981" }}>{warsOdds.attackerPower}</div>
+                                        {warsTargetLocked && warsTargetStats && (
+                                            <div style={{ marginBottom: 12 }}>
+                                                
+                                                <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 8, marginBottom: 12 }}>
+                                                    
+                                                    <div style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: 8, padding: 8 }}>
+                                                        <div style={{ fontSize: 9, color: "#22c55e", fontWeight: 600, textAlign: "center", marginBottom: 6 }}>⚔️ YOU</div>
+                                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                                                            <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 4, padding: 4, textAlign: "center" }}>
+                                                                <div style={{ fontSize: 7, color: "#9ca3af" }}>PLANTS</div>
+                                                                <div style={{ fontSize: 12, fontWeight: 700, color: "#22c55e" }}>{v5StakedPlants?.length || 0}</div>
+                                                            </div>
+                                                            <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 4, padding: 4, textAlign: "center" }}>
+                                                                <div style={{ fontSize: 7, color: "#9ca3af" }}>HEALTH</div>
+                                                                <div style={{ fontSize: 12, fontWeight: 700, color: "#22c55e" }}>{v5AverageHealth || 100}%</div>
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 4, padding: 4, textAlign: "center", marginTop: 4 }}>
+                                                            <div style={{ fontSize: 7, color: "#9ca3af" }}>COMBAT POWER</div>
+                                                            <div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{warsOdds?.attackerPower || "..."}</div>
+                                                        </div>
+                                                        
+                                                        <div style={{ marginTop: 6 }}>
+                                                            <div style={{ fontSize: 7, color: "#9ca3af", textAlign: "center", marginBottom: 2 }}>MODIFIERS</div>
+                                                            <div style={{ display: "flex", flexWrap: "wrap", gap: 2, justifyContent: "center" }}>
+                                                                {ak47Expiry > Math.floor(Date.now() / 1000) && (
+                                                                    <span style={{ fontSize: 7, padding: "2px 4px", borderRadius: 3, background: "rgba(239,68,68,0.3)", color: "#ef4444" }}>🔫 AK +100%</span>
+                                                                )}
+                                                                {rpgExpiry > Math.floor(Date.now() / 1000) && (
+                                                                    <span style={{ fontSize: 7, padding: "2px 4px", borderRadius: 3, background: "rgba(249,115,22,0.3)", color: "#f97316" }}>🚀 RPG +500%</span>
+                                                                )}
+                                                                {boostExpiry > Math.floor(Date.now() / 1000) && (
+                                                                    <span style={{ fontSize: 7, padding: "2px 4px", borderRadius: 3, background: "rgba(251,191,36,0.3)", color: "#fbbf24" }}>⚡ +20%</span>
+                                                                )}
+                                                                {nukeExpiry > Math.floor(Date.now() / 1000) && (
+                                                                    <span style={{ fontSize: 7, padding: "2px 4px", borderRadius: 3, background: "rgba(220,38,38,0.3)", color: "#dc2626" }}>☢️ NUKE</span>
+                                                                )}
+                                                                {ak47Expiry <= Math.floor(Date.now() / 1000) && rpgExpiry <= Math.floor(Date.now() / 1000) && boostExpiry <= Math.floor(Date.now() / 1000) && nukeExpiry <= Math.floor(Date.now() / 1000) && (
+                                                                    <span style={{ fontSize: 7, color: "#6b7280" }}>None</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    
+                                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                                        <div style={{ fontSize: 16, fontWeight: 700, color: "#ef4444" }}>VS</div>
+                                                    </div>
+                                                    
+                                                    
+                                                    <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: 8 }}>
+                                                        <div style={{ fontSize: 9, color: "#ef4444", fontWeight: 600, textAlign: "center", marginBottom: 6 }}>🛡️ TARGET</div>
+                                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                                                            <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 4, padding: 4, textAlign: "center" }}>
+                                                                <div style={{ fontSize: 7, color: "#9ca3af" }}>PLANTS</div>
+                                                                <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444" }}>{warsTargetStats.plants}</div>
+                                                            </div>
+                                                            <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 4, padding: 4, textAlign: "center" }}>
+                                                                <div style={{ fontSize: 7, color: "#9ca3af" }}>HEALTH</div>
+                                                                <div style={{ fontSize: 12, fontWeight: 700, color: warsTargetStats.avgHealth > 50 ? "#fbbf24" : "#ef4444" }}>{warsTargetStats.avgHealth}%</div>
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 4, padding: 4, textAlign: "center", marginTop: 4 }}>
+                                                            <div style={{ fontSize: 7, color: "#9ca3af" }}>COMBAT POWER</div>
+                                                            <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>{warsOdds?.defenderPower || warsTargetStats.battlePower || "..."}</div>
+                                                        </div>
+                                                        
+                                                        <div style={{ marginTop: 6 }}>
+                                                            <div style={{ fontSize: 7, color: "#9ca3af", textAlign: "center", marginBottom: 2 }}>MODIFIERS</div>
+                                                            <div style={{ display: "flex", flexWrap: "wrap", gap: 2, justifyContent: "center" }}>
+                                                                {warsTargetStats.hasShield ? (
+                                                                    <span style={{ fontSize: 7, padding: "2px 4px", borderRadius: 3, background: "rgba(59,130,246,0.3)", color: "#3b82f6" }}>🛡️ Shield</span>
+                                                                ) : (
+                                                                    <span style={{ fontSize: 7, color: "#6b7280" }}>None</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div style={{ fontSize: 18, color: "#fbbf24", fontWeight: 700 }}>{warsOdds.estimatedWinChance}%</div>
-                                                <div style={{ textAlign: "center" }}>
-                                                    <div style={{ fontSize: 8, color: "#9ca3af" }}>THEM</div>
-                                                    <div style={{ fontSize: 12, color: "#ef4444" }}>{warsOdds.defenderPower}</div>
+                                                
+                                                
+                                                <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 8, padding: 8, marginBottom: 8, textAlign: "center" }}>
+                                                    <div style={{ fontSize: 9, color: "#fbbf24", marginBottom: 4 }}>💰 TARGET'S PENDING REWARDS</div>
+                                                    <div style={{ fontSize: 20, fontWeight: 700, color: "#fbbf24" }}>
+                                                        {warsTargetStats.pendingRewards ? (parseFloat(ethers.utils.formatUnits(warsTargetStats.pendingRewards, 18)) / 1000).toFixed(0) + "K" : "0"} FCWEED
+                                                    </div>
                                                 </div>
+
+                                                
+                                                {warsOdds && (
+                                                    <div style={{ background: warsOdds.estimatedWinChance > 50 ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)", border: `1px solid ${warsOdds.estimatedWinChance > 50 ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"}`, borderRadius: 8, padding: 10, textAlign: "center" }}>
+                                                        <div style={{ fontSize: 10, color: warsOdds.estimatedWinChance > 50 ? "#22c55e" : "#ef4444", marginBottom: 4 }}>🎲 ESTIMATED WIN CHANCE</div>
+                                                        <div style={{ fontSize: 28, fontWeight: 700, color: warsOdds.estimatedWinChance > 50 ? "#22c55e" : "#ef4444" }}>{warsOdds.estimatedWinChance}%</div>
+                                                    </div>
+                                                )}
                                             </div>
-                                        </div>
-                                    )}
+                                        )}
 
-                                    {/* BUTTONS - Different for preview vs locked */}
-                                    {!warsTargetLocked ? (
-                                        /* PREVIEW MODE BUTTONS */
-                                        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                                            <button
-                                                type="button"
-                                                onClick={handleNextOpponent}
-                                                disabled={warsSearching}
-                                                className={styles.btnPrimary}
-                                                style={{ flex: 1, padding: 10, fontSize: 11, background: warsSearching ? "#374151" : "linear-gradient(135deg, #6366f1, #8b5cf6)" }}
-                                            >
-                                                {warsSearching ? "🔄 Searching..." : `🔄 Find Another (${warsSearchFee})`}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={handleLockAndFight}
-                                                disabled={warsSearching || !warsPreviewData}
-                                                className={styles.btnPrimary}
-                                                style={{ flex: 2, padding: 10, fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}
-                                            >
-                                                💰 Pay {warsSearchFee} & Fight!
+                                        <div style={{ display: "flex", gap: 8 }}>
+                                            {!warsTargetLocked ? (
+                                                <button type="button" onClick={handleLockAndFight} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #f59e0b, #fbbf24)" }}>
+                                                    {warsSearching ? "Processing..." : `🔓 Lock & Reveal (${warsSearchFee})`}
+                                                </button>
+                                            ) : (
+                                                <button type="button" onClick={handleWarsAttack} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}>
+                                                    {warsSearching ? "Attacking..." : "⚔️ ATTACK"}
+                                                </button>
+                                            )}
+                                            <button type="button" onClick={handleNextOpponent} disabled={warsSearching} style={{ padding: "10px 14px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(239,68,68,0.5)", background: "transparent", color: "#ef4444", cursor: warsSearching ? "not-allowed" : "pointer" }}>
+                                                Skip
                                             </button>
                                         </div>
-                                    ) : (
-                                        /* LOCKED MODE BUTTONS */
-                                        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                                            <button
-                                                type="button"
-                                                onClick={handleNextOpponent}
-                                                disabled={warsSearching || warsAttacking}
-                                                className={styles.btnPrimary}
-                                                style={{ flex: 1, padding: 10, fontSize: 11, background: warsSearching ? "#374151" : "linear-gradient(135deg, #6366f1, #8b5cf6)" }}
-                                            >
-                                                {warsSearching ? "🔄 Searching..." : `🔄 Next (${warsSearchFee})`}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={handleWarsAttack}
-                                                disabled={warsAttacking}
-                                                className={styles.btnPrimary}
-                                                style={{ flex: 2, padding: 10, fontSize: 12, background: warsAttacking ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}
-                                            >
-                                                {warsAttacking ? "⚔️ Attacking..." : "⚔️ ATTACK!"}
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    <div style={{ fontSize: 9, color: "#6b7280", textAlign: "center" }}>
-                                        {!warsTargetLocked
-                                            ? `Pay ${warsSearchFee} FCWEED to reveal stats and fight, or find another opponent`
-                                            : `Find different opponent for ${warsSearchFee} FCWEED (resets 10min timer)`
-                                        }
+                                        {warsStatus && <p style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24", marginTop: 8 }}>{warsStatus}</p>}
                                     </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
 
-                        {warsResult && (
-                            <div id="wars-result-card" style={{ background: warsResult.won ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)", border: `2px solid ${warsResult.won ? "rgba(16,185,129,0.6)" : "rgba(239,68,68,0.6)"}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
-                                <div style={{ fontSize: 48, marginBottom: 8 }}>{warsResult.won ? "🎉" : "💀"}</div>
-                                <div style={{ fontSize: 20, color: warsResult.won ? "#10b981" : "#ef4444", fontWeight: 800, marginBottom: 8 }}>{warsResult.won ? "VICTORY!" : "DEFEAT!"}</div>
-
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 12 }}>
-                                    <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 8, padding: 8 }}>
-                                        <div style={{ fontSize: 9, color: "#9ca3af" }}>{warsResult.won ? "REWARDS STOLEN" : "REWARDS LOST"}</div>
-                                        <div style={{ fontSize: 16, color: warsResult.won ? "#10b981" : "#ef4444", fontWeight: 700 }}>
-                                            {(() => {
-                                                const amount = parseFloat(ethers.utils.formatUnits(warsResult.rewardsTransferred || 0, 18));
-                                                return amount >= 1000 ? (amount / 1000).toFixed(1) + "K" : amount.toFixed(0);
-                                            })()} FCWEED
-                                        </div>
+                            {warsResult && (
+                                <div style={{ marginTop: 12, background: warsResult.won ? "linear-gradient(135deg, rgba(16,185,129,0.2), rgba(34,197,94,0.1))" : "linear-gradient(135deg, rgba(239,68,68,0.2), rgba(220,38,38,0.1))", border: `2px solid ${warsResult.won ? "rgba(16,185,129,0.5)" : "rgba(239,68,68,0.5)"}`, borderRadius: 12, padding: 20, textAlign: "center" }}>
+                                    <div style={{ fontSize: 48, marginBottom: 12 }}>{warsResult.won ? "🎉" : "💀"}</div>
+                                    <div style={{ fontSize: 18, fontWeight: 700, color: warsResult.won ? "#10b981" : "#ef4444", marginBottom: 8 }}>{warsResult.won ? "VICTORY!" : "DEFEAT!"}</div>
+                                    <div style={{ fontSize: 12, color: theme === "light" ? "#475569" : "#c0c9f4" }}>
+                                        {warsResult.won
+                                            ? `You raided ${(parseFloat(ethers.utils.formatUnits(warsResult.amount, 18)) / 1000).toFixed(1)}K FCWEED!`
+                                            : `You lost ${(parseFloat(ethers.utils.formatUnits(warsResult.amount, 18)) / 1000).toFixed(1)}K FCWEED!`}
                                     </div>
-                                    <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 8, padding: 8 }}>
-                                        <div style={{ fontSize: 9, color: "#9ca3af" }}>DAMAGE DEALT</div>
-                                        <div style={{ fontSize: 16, color: "#fbbf24", fontWeight: 700 }}>{warsResult.damageDealt || 0}%</div>
-                                    </div>
-                                </div>
-
-                                <p style={{ fontSize: 10, color: "#c0c9f4", margin: "0 0 12px" }}>
-                                    {warsResult.won
-                                        ? "Your target's plants have been damaged and their pending rewards reduced!"
-                                        : "Your plants have been damaged. Water them to restore health!"}
-                                </p>
-
-                                {warsResult.won && (
-                                    <p style={{ fontSize: 9, color: "#10b981", margin: "0 0 8px" }}>
-                                        💰 Search fee refunded + rewards sent!
-                                    </p>
-                                )}
-                                {!warsResult.won && (
-                                    <p style={{ fontSize: 9, color: "#ef4444", margin: "0 0 8px" }}>
-                                        💸 Search fee lost to Defender. Pending rewards lost forever!
-                                    </p>
-                                )}
-
-                                <div style={{ display: "flex", gap: 8 }}>
-                                    <button type="button" onClick={() => setWarsResult(null)} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsResult.won ? "linear-gradient(135deg, #059669, #10b981)" : "linear-gradient(135deg, #374151, #4b5563)" }}>
-                                        {warsResult.won ? "Celebrate! 🎊" : "Try Again"}
-                                    </button>
-                                    <button 
-                                        type="button" 
-                                        onClick={() => {
-                                            const amount = parseFloat(ethers.utils.formatUnits(warsResult.rewardsTransferred || 0, 18));
-                                            const amountStr = amount >= 1000 ? (amount / 1000).toFixed(1) + "K" : amount.toFixed(0);
-                                            const text = warsResult.won 
-                                                ? `⚔️ VICTORY in FCWEED Cartel Wars! 🎉\n\n💰 Stole ${amountStr} $FCWEED\n💥 Dealt ${warsResult.damageDealt}% damage\n\nBuild your farming empire on @base 🌿\n\nhttps://x420ponzi.com`
-                                                : `⚔️ Battle in FCWEED Cartel Wars! 💀\n\nLost ${amountStr} $FCWEED but I'll be back stronger!\n\nJoin the farming war on @base 🌿\n\nhttps://x420ponzi.com`;
-                                            captureAndShare('wars-result-card', text, composeCast);
-                                        }}
-                                        style={{ padding: "10px 16px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(255,255,255,0.2)", background: "rgba(29,161,242,0.2)", color: "#1da1f2", cursor: "pointer" }}
-                                    >
-                                        📸 Share
+                                    <button type="button" onClick={() => setWarsResult(null)} className={styles.btnPrimary} style={{ marginTop: 16, padding: "10px 24px", fontSize: 12, background: "linear-gradient(135deg, #dc2626, #ef4444)" }}>
+                                        Continue
                                     </button>
                                 </div>
-                            </div>
-                        )}
-
-                        {warsStatus && !warsResult && (
-                            <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 8, padding: 10, marginBottom: 12 }}>
-                                <div style={{ fontSize: 11, color: "#fbbf24" }}>{warsStatus}</div>
-                            </div>
-                        )}
-
-                        <div style={{ background: "rgba(107,114,128,0.1)", border: "1px solid rgba(107,114,128,0.2)", borderRadius: 8, padding: 10, marginBottom: 12 }}>
-                            <div style={{ fontSize: 9, color: "#9ca3af" }}>💡 TIP: Higher plant health = more battle power. Buy a Raid Shield from the Item Shop to protect your farm!</div>
+                            )}
                         </div>
 
-                        {/* How It Works Section */}
-                        <div style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.08))", border: "1px solid rgba(139,92,246,0.3)", borderRadius: 12, padding: 14, textAlign: "left" }}>
-                            <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700, marginBottom: 10, textAlign: "center" }}>📖 HOW CARTEL WARS WORKS</div>
+                        
+                        <ThePurge
+                            connected={connected}
+                            userAddress={userAddress}
+                            theme={theme}
+                            readProvider={readProvider}
+                            sendContractTx={sendContractTx}
+                            ensureAllowance={ensureFcweedAllowance}
+                            refreshData={refreshAllData}
+                        />
 
-                            <div style={{ fontSize: 10, color: "#c0c9f4", marginBottom: 10 }}>
-                                <div style={{ fontWeight: 600, color: "#60a5fa", marginBottom: 4 }}>🔍 SEARCHING</div>
-                                <div style={{ paddingLeft: 8, lineHeight: 1.5 }}>
-                                    • Pay <span style={{ color: "#fbbf24" }}>50K FCWEED</span> to search for a target<br/>
-                                    • Targets must have <span style={{ color: "#10b981" }}>200K+ pending rewards</span><br/>
-                                    • Don't like the target? Pay another 50K to skip<br/>
-                                    • Search expires after <span style={{ color: "#fbbf24" }}>10 minutes</span>
-                                </div>
-                            </div>
-
-                            <div style={{ fontSize: 10, color: "#c0c9f4", marginBottom: 10 }}>
-                                <div style={{ fontWeight: 600, color: "#60a5fa", marginBottom: 4 }}>⚔️ BATTLE MECHANICS</div>
-                                <div style={{ paddingLeft: 8, lineHeight: 1.5 }}>
-                                    • <span style={{ color: "#10b981" }}>Combat Power</span> = Plants × Avg Health × Boosts<br/>
-                                    • Higher health = higher win chance<br/>
-                                    • Win chance shown before you attack<br/>
-                                    • Outcome has some randomness (±10%)
-                                </div>
-                            </div>
-
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
-                                <div style={{ background: "rgba(16,185,129,0.1)", borderRadius: 8, padding: 8 }}>
-                                    <div style={{ fontSize: 9, color: "#10b981", fontWeight: 600, marginBottom: 4 }}>🏆 IF YOU WIN</div>
-                                    <div style={{ fontSize: 9, color: "#c0c9f4", lineHeight: 1.4 }}>
-                                        • Steal <span style={{ color: "#10b981" }}>up to 50%</span> of their pending<br/>
-                                        • Deal <span style={{ color: "#fbbf24" }}>10-15%</span> damage to their plants<br/>
-                                        • Get your 50K search fee back<br/>
-                                        • <span style={{ color: "#fbbf24" }}>6 hour cooldown</span> before next attack
+                        
+                        {connected && warsPlayerStats && (warsPlayerStats.deaRaidsWon > 0 || warsPlayerStats.deaRaidsLost > 0) && (
+                            <div style={{ background: theme === "light" ? "rgba(220,38,38,0.08)" : "rgba(220,38,38,0.1)", border: "1px solid rgba(220,38,38,0.3)", borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                                <div style={{ fontSize: 12, color: "#dc2626", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>🚔 Your DEA Raids Stats</div>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>WINS</div>
+                                        <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.deaRaidsWon || 0}</div>
                                     </div>
-                                </div>
-                                <div style={{ background: "rgba(239,68,68,0.1)", borderRadius: 8, padding: 8 }}>
-                                    <div style={{ fontSize: 9, color: "#ef4444", fontWeight: 600, marginBottom: 4 }}>💀 IF YOU LOSE</div>
-                                    <div style={{ fontSize: 9, color: "#c0c9f4", lineHeight: 1.4 }}>
-                                        • Lose <span style={{ color: "#ef4444" }}>up to 50%</span> of YOUR pending<br/>
-                                        • Take <span style={{ color: "#fbbf24" }}>10-15%</span> damage to your plants<br/>
-                                        • Defender gets <span style={{ color: "#10b981" }}>25K bonus</span><br/>
-                                        • Search fee goes to treasury
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOSSES</div>
+                                        <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.deaRaidsLost || 0}</div>
+                                    </div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>STOLEN</div>
+                                        <div style={{ fontSize: 14, color: "#10b981", fontWeight: 600 }}>{warsPlayerStats.deaRewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.deaRewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
+                        )}
+
+                        <DEARaidsLeaderboard
+                            connected={connected}
+                            userAddress={userAddress}
+                            theme={theme}
+                            readProvider={readProvider}
+                            sendContractTx={sendContractTx}
+                            ensureAllowance={ensureFcweedAllowance}
+                            refreshData={refreshAllData}
+                        />
                     </section>
                 )}
 
-                {activeTab === "referrals" && (
+
+
+                                {activeTab === "referrals" && (
                     <section className={styles.infoCard} style={getCardStyle({ position: "relative", textAlign: "center", padding: 40, minHeight: 300 })}>
                         <div style={{ position: "absolute", inset: 0, background: "rgba(5,8,18,0.85)", backdropFilter: "blur(8px)", borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
                             <div>
-                                <div style={{ fontSize: 48, marginBottom: 12 }}>🎁</div>
+                                <div style={{ fontSize: 48, marginBottom: 12 }}>📜</div>
                                 <h2 style={{ fontSize: 20, color: "#fbbf24" }}>Coming Soon</h2>
-                                <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 8 }}>Earn rewards for inviting friends</p>
+                                <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 8, maxWidth: 280, lineHeight: 1.5 }}>Earn Dust by completing Quests and Referring Friends</p>
                             </div>
                         </div>
                     </section>
@@ -4790,91 +5642,61 @@ export default function Home()
 
                 {activeTab === "shop" && (
                     <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 16 })}>
-                        <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#10b981" }}>🛒 Item Shop</h2>
-
-                        <div style={{ background: "linear-gradient(135deg, rgba(96,165,250,0.15), rgba(59,130,246,0.1))", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-                            <div style={{ fontSize: 32, marginBottom: 8 }}>💧</div>
-                            <h3 style={{ fontSize: 14, color: "#60a5fa", margin: "0 0 8px" }}>Water Shop</h3>
-                            <p style={{ fontSize: 10, color: "#9ca3af", margin: "0 0 12px" }}>Water restores plant health. Neglected plants cost more water!</p>
-
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 12 }}>
-                                <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 8, padding: 8 }}>
-                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>SHOP STATUS</div>
-                                    <div style={{ fontSize: 14, color: waterShopInfo?.isOpen ? "#10b981" : "#ef4444", fontWeight: 700 }}>{waterShopInfo?.isOpen ? "🟢 OPEN" : "🔴 CLOSED"}</div>
+                        <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#10b981" }}>🛒 Shop</h2>
+                        <div style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.1))", border: "1px solid rgba(139,92,246,0.4)", borderRadius: 12, padding: 12, marginBottom: 16 }}>
+                            <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600, marginBottom: 8, textAlign: "center" }}>🎒 YOUR INVENTORY</div>
+                            <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 12px" }}>
+                                    <div style={{ fontSize: 7, color: "#9ca3af" }}>FCWEED</div>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>{fcweedBalance}</div>
                                 </div>
-                                <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 8, padding: 8 }}>
-                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>HOURS (EST)</div>
-                                    <div style={{ fontSize: 12, color: "#c0c9f4", fontWeight: 600 }}>12PM - 6PM</div>
-                                </div>
-                                <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 8, padding: 8 }}>
-                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>PRICE / LITER</div>
-                                    <div style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>{waterShopInfo?.pricePerLiter ? waterShopInfo.pricePerLiter.toLocaleString() : "75,000"} FCWEED</div>
-                                </div>
-                                <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 8, padding: 8 }}>
-                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>YOUR LIMIT</div>
-                                    <div style={{ fontSize: 12, color: "#c0c9f4", fontWeight: 600 }}>{waterShopInfo?.walletLimit ? waterShopInfo.walletLimit.toFixed(0) : "0"}L ({waterShopInfo?.stakedPlants || 0} plants)</div>
+                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 12px" }}>
+                                    <div style={{ fontSize: 7, color: "#9ca3af" }}>DUST</div>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24" }}>{crateUserStats.dust.toLocaleString()}</div>
                                 </div>
                             </div>
-
-                            {waterShopInfo?.isOpen && (
-                                <div style={{ marginBottom: 12 }}>
-                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 8 }}>
-                                        <div style={{ background: "rgba(16,185,129,0.1)", borderRadius: 8, padding: 8 }}>
-                                            <div style={{ fontSize: 9, color: "#9ca3af" }}>DAILY SUPPLY LEFT</div>
-                                            <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{waterShopInfo?.dailyRemaining || "0"}L</div>
-                                        </div>
-                                        <div style={{ background: "rgba(96,165,250,0.1)", borderRadius: 8, padding: 8 }}>
-                                            <div style={{ fontSize: 9, color: "#9ca3af" }}>YOUR REMAINING</div>
-                                            <div style={{ fontSize: 14, color: "#60a5fa", fontWeight: 700 }}>{waterShopInfo?.walletRemaining || "0"}L</div>
-                                        </div>
-                                    </div>
-
-                                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                                        <button type="button" onClick={() => setWaterBuyAmount(Math.max(1, waterBuyAmount - 1))} style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid #374151", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>-</button>
-                                        <div style={{ flex: 1, background: "rgba(5,8,20,0.5)", borderRadius: 8, padding: "8px 16px", textAlign: "center" }}>
-                                            <div style={{ fontSize: 18, color: "#60a5fa", fontWeight: 700 }}>{waterBuyAmount}L</div>
-                                            <div style={{ fontSize: 10, color: "#9ca3af" }}>{(waterBuyAmount * 75000).toLocaleString()} FCWEED</div>
-                                        </div>
-                                        <button type="button" onClick={() => setWaterBuyAmount(waterBuyAmount + 1)} style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid #374151", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 16 }}>+</button>
-                                    </div>
-
-                                    <button
-                                        type="button"
-                                        onClick={handleBuyWater}
-                                        disabled={waterLoading || !connected || waterBuyAmount > (waterShopInfo?.walletRemaining || 0)}
-                                        className={styles.btnPrimary}
-                                        style={{ width: "100%", padding: 12, fontSize: 12, background: waterLoading ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)" }}
-                                    >
-                                        {waterLoading ? "💧 Buying..." : `💧 Buy ${waterBuyAmount}L Water`}
-                                    </button>
-                                    {waterStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 6 }}>{waterStatus}</p>}
+                            <div style={{ display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+                                <div style={{ textAlign: "center", background: "rgba(96,165,250,0.15)", borderRadius: 6, padding: "4px 8px", minWidth: 42, border: "1px solid rgba(96,165,250,0.4)" }}>
+                                    <div style={{ fontSize: 16, lineHeight: "22px" }}>💧</div>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#60a5fa" }}>{v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18)).toFixed(1) : "0"}L</div>
                                 </div>
-                            )}
-
-                            {!waterShopInfo?.isOpen && (
-                                <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 8, padding: 10 }}>
-                                    <div style={{ fontSize: 10, color: "#fbbf24" }}>⏰ Shop opens at 12PM EST daily</div>
+                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
+                                    <img src="/images/items/ak47.png" alt="AK-47" style={{ width: 22, height: 22, objectFit: "contain" }} />
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444" }}>{inventoryAK47}</div>
                                 </div>
-                            )}
-                        </div>
-
-                        <div style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 8, padding: 10, marginBottom: 12 }}>
-                            <div style={{ fontSize: 10, color: "#fbbf24", fontWeight: 600, marginBottom: 4 }}>⚠️ Water Costs Scale With Decay!</div>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 4, fontSize: 9, color: "#9ca3af" }}>
-                                <div>90% health → 0.2L</div>
-                                <div>70% health → 1.8L</div>
-                                <div>50% health → 5.0L</div>
-                                <div>30% health → 9.8L</div>
-                                <div>10% health → 16.2L</div>
-                                <div>0% health → 20.0L</div>
+                                <div style={{ textAlign: "center", background: "rgba(239,68,68,0.15)", borderRadius: 6, padding: "4px 8px", minWidth: 42, border: "1px solid rgba(239,68,68,0.4)" }}>
+                                    <img src="/images/items/nuke.png" alt="Nuke" style={{ width: 22, height: 22, objectFit: "contain" }} />
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444" }}>{inventoryNuke}</div>
+                                </div>
+                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
+                                    <img src="/images/items/rpg.png" alt="RPG" style={{ width: 22, height: 22, objectFit: "contain" }} />
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#a855f7" }}>{inventoryRPG}</div>
+                                </div>
+                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
+                                    <img src="/images/items/healthpack.png" alt="Health Pack" style={{ width: 22, height: 22, objectFit: "contain" }} />
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#10b981" }}>{inventoryHealthPacks}</div>
+                                </div>
+                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
+                                    <div style={{ fontSize: 16, lineHeight: "22px" }}>🛡️</div>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#3b82f6" }}>{inventoryShields}</div>
+                                </div>
+                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
+                                    <div style={{ fontSize: 16, lineHeight: "22px" }}>⚡</div>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b" }}>{inventoryBoosts}</div>
+                                </div>
                             </div>
-                            <p style={{ fontSize: 9, color: "#ef4444", margin: "6px 0 0" }}>💡 Water early! Costs increase exponentially as health drops.</p>
                         </div>
-
-                        <div style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: 8, padding: 10 }}>
-                            <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600, marginBottom: 4 }}>🎁 More Items Coming Soon!</div>
-                            <p style={{ fontSize: 9, color: "#9ca3af", margin: 0 }}>Growth Serums, Fertilizers, Raid Shields, Attack Boosts...</p>
+                        <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+                            <button onClick={() => setWaterModalOpen(true)} style={{ flex: 1, padding: "16px 12px", borderRadius: 12, border: "1px solid rgba(96,165,250,0.4)", background: "linear-gradient(135deg, rgba(96,165,250,0.15), rgba(59,130,246,0.1))", color: "#60a5fa", cursor: "pointer", fontSize: 14, fontWeight: 700, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                                <span style={{ fontSize: 28 }}>💧</span>
+                                <span>WATER</span>
+                            </button>
+                            <button onClick={() => setItemsModalOpen(true)} style={{ flex: 1, padding: "16px 12px", borderRadius: 12, border: "1px solid rgba(245,158,11,0.4)", background: "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.1))", color: "#f59e0b", cursor: "pointer", fontSize: 14, fontWeight: 700, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                                <span style={{ fontSize: 28 }}>🏪</span>
+                                <span>ITEMS</span>
+                            </button>
                         </div>
+                        {shopStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 8, textAlign: "center" }}>{shopStatus}</p>}
                     </section>
                 )}
             </main>
@@ -4887,7 +5709,7 @@ export default function Home()
                     { key: "wars", icon: "⚔️", label: "WARS" },
                     { key: "crates", icon: "📦", label: "CRATES" },
                     { key: "shop", icon: "🛒", label: "SHOP" },
-                    { key: "referrals", icon: "🎁", label: "REFER" },
+                    { key: "referrals", icon: "📜", label: "QUESTS" },
                 ].map((tab) => (
                     <button key={tab.key} type="button" onClick={() => setActiveTab(tab.key as any)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 2px", border: "none", background: activeTab === tab.key ? "rgba(59,130,246,0.2)" : "transparent", borderRadius: 8, cursor: "pointer" }}>
                         <span style={{ fontSize: 18 }}>{tab.icon}</span>
@@ -4896,7 +5718,7 @@ export default function Home()
                 ))}
             </nav>
 
-            {/* V5 Staking Modal */}
+            
             {v5StakingOpen && (
                 <div className={styles.modalBackdrop} style={{ background: theme === "light" ? "rgba(0,0,0,0.4)" : undefined }}>
                     <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto", background: theme === "light" ? "#ffffff" : undefined, color: theme === "light" ? "#1e293b" : undefined }}>
@@ -5075,7 +5897,7 @@ export default function Home()
 
                                 {loadingV4Staking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12 }}>Loading NFTs…</p> : (
                                     <>
-                                        {/* Available section hidden - staking disabled */}
+                                        
                                         <div style={{ marginBottom: 10 }}>
                                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                                                 <span style={{ fontSize: 11, fontWeight: 600 }}>Staked ({v4StakedPlants.length + v4StakedLands.length + v4StakedSuperLands.length})</span>
@@ -5188,6 +6010,446 @@ export default function Home()
                         <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
                             <button type="button" className={styles.btnPrimary} disabled={!selectedLandForUpgrade || actionLoading || loadingUpgrade} onClick={handleUpgradeLand} style={{ flex: 1, padding: 12, background: selectedLandForUpgrade ? "linear-gradient(to right, #f59e0b, #fbbf24)" : "#374151", color: selectedLandForUpgrade ? "#000" : "#9ca3af", cursor: selectedLandForUpgrade ? "pointer" : "not-allowed" }}>{actionLoading ? "Processing…" : "Continue"}</button>
                             <button type="button" onClick={() => { setUpgradeModalOpen(false); setSelectedLandForUpgrade(null); setMintStatus(""); }} style={{ flex: 1, padding: 12, borderRadius: 999, border: "1px solid #374151", background: "transparent", color: "#9ca3af", cursor: "pointer" }}>Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            
+            {nukeConfirmOpen && (
+                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 16 }}>
+                    <div style={{ background: "linear-gradient(135deg, #1a0000, #2d0a0a)", borderRadius: 16, padding: 24, maxWidth: 380, width: "100%", border: "2px solid #ef4444", boxShadow: "0 0 40px rgba(239,68,68,0.3)" }}>
+                        <div style={{ textAlign: "center", marginBottom: 20 }}>
+                            <div style={{ fontSize: 48, marginBottom: 12 }}>☢️</div>
+                            <h3 style={{ margin: 0, fontSize: 22, color: "#ef4444", fontWeight: 700 }}>TACTICAL NUKE</h3>
+                            <p style={{ fontSize: 12, color: "#fca5a5", margin: "8px 0 0" }}>+10,000% Combat Power</p>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
+                            <div style={{ background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.4)", borderRadius: 8, padding: 10, textAlign: "center" }}>
+                                <div style={{ fontSize: 9, color: "#22c55e", marginBottom: 4 }}>WIN CHANCE</div>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: "#22c55e" }}>100%</div>
+                            </div>
+                            <div style={{ background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.4)", borderRadius: 8, padding: 10, textAlign: "center" }}>
+                                <div style={{ fontSize: 9, color: "#fbbf24", marginBottom: 4 }}>STEAL</div>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: "#fbbf24" }}>100%</div>
+                            </div>
+                            <div style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 8, padding: 10, textAlign: "center" }}>
+                                <div style={{ fontSize: 9, color: "#ef4444", marginBottom: 4 }}>DAMAGE</div>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: "#ef4444" }}>100%</div>
+                            </div>
+                        </div>
+                        <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 14, marginBottom: 20 }}>
+                            <div style={{ fontSize: 11, color: "#fca5a5", textAlign: "center", lineHeight: 1.6 }}>
+                                <strong style={{ color: "#ef4444" }}>⚠️ WARNING</strong><br/><br/>
+                                Activating the Tactical Nuke lasts <strong>10 minutes</strong> - just enough time to <strong>destroy your worst enemy</strong>.<br/><br/>
+                                Make sure you have a target ready before confirming!
+                            </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 10 }}>
+                            <button
+                                onClick={() => setNukeConfirmOpen(false)}
+                                style={{
+                                    flex: 1,
+                                    padding: 14,
+                                    borderRadius: 10,
+                                    border: "1px solid #374151",
+                                    background: "transparent",
+                                    color: "#9ca3af",
+                                    fontWeight: 600,
+                                    fontSize: 13,
+                                    cursor: "pointer"
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleActivateNuke}
+                                disabled={inventoryLoading}
+                                style={{
+                                    flex: 1,
+                                    padding: 14,
+                                    borderRadius: 10,
+                                    border: "none",
+                                    background: "linear-gradient(135deg, #dc2626, #b91c1c)",
+                                    color: "#fff",
+                                    fontWeight: 700,
+                                    fontSize: 13,
+                                    cursor: "pointer",
+                                    boxShadow: "0 0 20px rgba(220,38,38,0.4)"
+                                }}
+                            >
+                                {inventoryLoading ? "Launching..." : "☢️ LAUNCH NUKE"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            
+            {healthPackModalOpen && (
+                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
+                    <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 520, width: "100%", maxHeight: "85vh", overflow: "auto", border: "1px solid rgba(16,185,129,0.3)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                            <h3 style={{ margin: 0, fontSize: 18, color: "#10b981", display: "flex", alignItems: "center", gap: 8 }}>
+                                <img src="/images/items/healthpack.png" alt="Health Pack" style={{ width: 28, height: 28, objectFit: "contain" }} />
+                                Health Packs
+                            </h3>
+                            <button onClick={() => { setHealthPackModalOpen(false); setSelectedPlantsForHealthPack([]); setInventoryStatus(""); }} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
+                        </div>
+                        
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16, background: "rgba(16,185,129,0.08)", borderRadius: 12, padding: 12 }}>
+                            <div style={{ textAlign: "center" }}>
+                                <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>Health Packs</div>
+                                <div style={{ fontSize: 20, fontWeight: 700, color: "#10b981" }}>{inventoryHealthPacks}</div>
+                            </div>
+                            <div style={{ textAlign: "center" }}>
+                                <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>Staked Plants</div>
+                                <div style={{ fontSize: 20, fontWeight: 700, color: "#a78bfa" }}>{v5StakedPlants.length}</div>
+                            </div>
+                            <div style={{ textAlign: "center" }}>
+                                <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>Avg Health</div>
+                                <div style={{ fontSize: 20, fontWeight: 700, color: v5StakedPlants.length > 0 ? (v5StakedPlants.reduce((acc, id) => acc + (v5PlantHealths[id] ?? 100), 0) / v5StakedPlants.length >= 70 ? "#10b981" : v5StakedPlants.reduce((acc, id) => acc + (v5PlantHealths[id] ?? 100), 0) / v5StakedPlants.length >= 40 ? "#fbbf24" : "#ef4444") : "#10b981" }}>
+                                    {v5StakedPlants.length > 0 ? Math.round(v5StakedPlants.reduce((acc, id) => acc + (v5PlantHealths[id] ?? 100), 0) / v5StakedPlants.length) : 100}%
+                                </div>
+                            </div>
+                        </div>
+
+                        <p style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 12, textAlign: "center" }}>Select plants to heal to 80% health. Each plant uses 1 health pack.</p>
+                        
+                        <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <label style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 6, color: "#10b981", cursor: "pointer" }}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={selectedPlantsForHealthPack.length === v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 80).length && selectedPlantsForHealthPack.length > 0}
+                                    onChange={() => {
+                                        const needsHealing = v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 80).slice(0, inventoryHealthPacks);
+                                        if (selectedPlantsForHealthPack.length === needsHealing.length && needsHealing.length > 0) {
+                                            setSelectedPlantsForHealthPack([]);
+                                        } else {
+                                            setSelectedPlantsForHealthPack(needsHealing);
+                                        }
+                                    }}
+                                    style={{ accentColor: "#10b981" }}
+                                />
+                                Select all below 80%
+                            </label>
+                            <div style={{ fontSize: 10, color: selectedPlantsForHealthPack.length > inventoryHealthPacks ? "#ef4444" : "#9ca3af" }}>
+                                Selected: {selectedPlantsForHealthPack.length} / {inventoryHealthPacks} packs
+                            </div>
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 16, maxHeight: 350, overflow: "auto", padding: 4 }}>
+                            {v5StakedPlants.map((id) => {
+                                const health = v5PlantHealths[id] ?? 100;
+                                const isSelected = selectedPlantsForHealthPack.includes(id);
+                                const needsHeal = health < 80;
+                                return (
+                                    <div 
+                                        key={id}
+                                        onClick={() => {
+                                            if (isSelected) {
+                                                setSelectedPlantsForHealthPack(prev => prev.filter(p => p !== id));
+                                            } else if (selectedPlantsForHealthPack.length < inventoryHealthPacks) {
+                                                setSelectedPlantsForHealthPack(prev => [...prev, id]);
+                                            }
+                                        }}
+                                        style={{
+                                            background: isSelected ? "rgba(16,185,129,0.15)" : theme === "light" ? "#f8fafc" : "rgba(15,23,42,0.8)",
+                                            border: isSelected ? "2px solid #10b981" : "1px solid rgba(100,116,139,0.2)",
+                                            borderRadius: 10,
+                                            padding: 10,
+                                            textAlign: "center",
+                                            cursor: needsHeal || isSelected ? "pointer" : "default",
+                                            opacity: !needsHeal && !isSelected ? 0.6 : 1,
+                                            transition: "all 0.15s ease"
+                                        }}
+                                    >
+                                        <div style={{ fontSize: 11, color: theme === "light" ? "#475569" : "#94a3b8", marginBottom: 4, fontWeight: 600 }}>Plant #{id}</div>
+                                        <div style={{ 
+                                            width: 56, 
+                                            height: 56, 
+                                            borderRadius: 8, 
+                                            margin: "0 auto 8px",
+                                            overflow: "hidden",
+                                            border: health >= 80 ? "2px solid #22c55e" : health >= 50 ? "2px solid #eab308" : "2px solid #ef4444"
+                                        }}>
+                                            <img 
+                                                src={plantImages[id] || PLANT_FALLBACK_IMG} 
+                                                alt={`Plant #${id}`}
+                                                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                            />
+                                        </div>
+                                        <div style={{ marginBottom: 6 }}>
+                                            <div style={{ 
+                                                height: 8, 
+                                                background: "rgba(0,0,0,0.3)", 
+                                                borderRadius: 4, 
+                                                overflow: "hidden",
+                                                border: "1px solid rgba(255,255,255,0.1)"
+                                            }}>
+                                                <div style={{ 
+                                                    height: "100%", 
+                                                    width: `${health}%`, 
+                                                    background: health >= 80 ? "linear-gradient(90deg, #22c55e, #4ade80)" : health >= 50 ? "linear-gradient(90deg, #eab308, #facc15)" : "linear-gradient(90deg, #dc2626, #ef4444)",
+                                                    borderRadius: 4,
+                                                    transition: "width 0.3s ease"
+                                                }} />
+                                            </div>
+                                        </div>
+                                        <div style={{ 
+                                            fontSize: 12, 
+                                            fontWeight: 700, 
+                                            color: health >= 80 ? "#22c55e" : health >= 50 ? "#eab308" : "#ef4444" 
+                                        }}>
+                                            {health}% HP
+                                        </div>
+                                        {health >= 80 && (
+                                            <div style={{ fontSize: 8, color: "#22c55e", marginTop: 2 }}>✓ Healthy</div>
+                                        )}
+                                        {isSelected && (
+                                            <div style={{ fontSize: 8, color: "#10b981", marginTop: 2, fontWeight: 600 }}>✓ Selected</div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {v5StakedPlants.length === 0 && (
+                            <div style={{ textAlign: "center", padding: 20 }}>
+                                <div style={{ fontSize: 40, marginBottom: 8 }}>🌱</div>
+                                <p style={{ fontSize: 12, color: theme === "light" ? "#64748b" : "#9ca3af" }}>No staked plants found</p>
+                            </div>
+                        )}
+
+                        {inventoryStatus && <p style={{ fontSize: 11, color: "#fbbf24", marginBottom: 12, textAlign: "center" }}>{inventoryStatus}</p>}
+
+                        <div style={{ display: "flex", gap: 10 }}>
+                            <button
+                                onClick={handleUseHealthPack}
+                                disabled={selectedPlantsForHealthPack.length === 0 || selectedPlantsForHealthPack.length > inventoryHealthPacks || inventoryLoading}
+                                style={{
+                                    flex: 1,
+                                    padding: 14,
+                                    borderRadius: 10,
+                                    border: "none",
+                                    background: selectedPlantsForHealthPack.length > 0 && selectedPlantsForHealthPack.length <= inventoryHealthPacks ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151",
+                                    color: "#fff",
+                                    fontWeight: 700,
+                                    fontSize: 13,
+                                    cursor: selectedPlantsForHealthPack.length > 0 && selectedPlantsForHealthPack.length <= inventoryHealthPacks ? "pointer" : "not-allowed",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: 8
+                                }}
+                            >
+                                <img src="/images/items/healthpack.png" alt="" style={{ width: 20, height: 20, objectFit: "contain" }} />
+                                {inventoryLoading ? "Healing..." : `Heal ${selectedPlantsForHealthPack.length} Plant${selectedPlantsForHealthPack.length !== 1 ? "s" : ""}`}
+                            </button>
+                            <button
+                                onClick={() => { setHealthPackModalOpen(false); setSelectedPlantsForHealthPack([]); setInventoryStatus(""); }}
+                                style={{
+                                    padding: "14px 20px",
+                                    borderRadius: 10,
+                                    border: "1px solid #374151",
+                                    background: "transparent",
+                                    color: theme === "light" ? "#1e293b" : "#fff",
+                                    cursor: "pointer",
+                                    fontWeight: 600
+                                }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {waterModalOpen && (
+                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
+                    <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 420, width: "100%", maxHeight: "85vh", overflow: "auto", border: "1px solid rgba(96,165,250,0.3)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                            <h3 style={{ margin: 0, fontSize: 18, color: "#60a5fa" }}>💧 Water Shop</h3>
+                            <button onClick={() => setWaterModalOpen(false)} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
+                        </div>
+                        <p style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 16 }}>Water restores plant health. Neglected plants cost more water!</p>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 16 }}>
+                            <div style={{ background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: 10 }}>
+                                <div style={{ fontSize: 9, color: "#9ca3af" }}>SHOP STATUS</div>
+                                <div style={{ fontSize: 14, color: waterShopInfo?.isOpen ? "#10b981" : "#ef4444", fontWeight: 700 }}>{waterShopInfo?.isOpen ? "🟢 OPEN" : "🔴 CLOSED"}</div>
+                            </div>
+                            <div style={{ background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: 10 }}>
+                                <div style={{ fontSize: 9, color: "#9ca3af" }}>HOURS (EST)</div>
+                                <div style={{ fontSize: 13, color: "#c0c9f4", fontWeight: 600 }}>12PM - 6PM</div>
+                            </div>
+                            <div style={{ background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: 10 }}>
+                                <div style={{ fontSize: 9, color: "#9ca3af" }}>PRICE / LITER</div>
+                                <div style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>{waterShopInfo?.pricePerLiter ? waterShopInfo.pricePerLiter.toLocaleString() : "75,000"} FCWEED</div>
+                            </div>
+                            <div style={{ background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: 10 }}>
+                                <div style={{ fontSize: 9, color: "#9ca3af" }}>YOUR LIMIT</div>
+                                <div style={{ fontSize: 12, color: "#c0c9f4", fontWeight: 600 }}>{waterShopInfo?.walletLimit ? waterShopInfo.walletLimit.toFixed(0) : "0"}L</div>
+                            </div>
+                        </div>
+                        {waterShopInfo?.isOpen && (
+                            <div style={{ marginBottom: 16 }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 12 }}>
+                                    <div style={{ background: "rgba(16,185,129,0.1)", borderRadius: 8, padding: 10 }}>
+                                        <div style={{ fontSize: 9, color: "#9ca3af" }}>DAILY SUPPLY LEFT</div>
+                                        <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{waterShopInfo?.dailyRemaining || "0"}L</div>
+                                    </div>
+                                    <div style={{ background: "rgba(96,165,250,0.1)", borderRadius: 8, padding: 10 }}>
+                                        <div style={{ fontSize: 9, color: "#9ca3af" }}>YOUR REMAINING</div>
+                                        <div style={{ fontSize: 14, color: "#60a5fa", fontWeight: 700 }}>{waterShopInfo?.walletRemaining || "0"}L</div>
+                                    </div>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                                    <button type="button" onClick={() => setWaterBuyAmount(Math.max(1, waterBuyAmount - 1))} style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #374151", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 18, fontWeight: 700 }}>-</button>
+                                    <div style={{ flex: 1, background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: "10px 16px", textAlign: "center" }}>
+                                        <div style={{ fontSize: 20, color: "#60a5fa", fontWeight: 700 }}>{waterBuyAmount}L</div>
+                                        <div style={{ fontSize: 11, color: "#9ca3af" }}>{(waterBuyAmount * (waterShopInfo?.pricePerLiter || 75000)).toLocaleString()} FCWEED</div>
+                                    </div>
+                                    <button type="button" onClick={() => setWaterBuyAmount(waterBuyAmount + 1)} style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #374151", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 18, fontWeight: 700 }}>+</button>
+                                </div>
+                                <button type="button" onClick={handleBuyWater} disabled={waterLoading || !connected || waterBuyAmount > (waterShopInfo?.walletRemaining || 0)} style={{ width: "100%", padding: 14, fontSize: 13, fontWeight: 700, borderRadius: 10, border: "none", background: waterLoading ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)", color: "#fff", cursor: waterLoading || waterBuyAmount > (waterShopInfo?.walletRemaining || 0) ? "not-allowed" : "pointer" }}>
+                                    {waterLoading ? "💧 Buying..." : `💧 Buy ${waterBuyAmount}L Water`}
+                                </button>
+                                {waterStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 8, textAlign: "center" }}>{waterStatus}</p>}
+                            </div>
+                        )}
+                        {!waterShopInfo?.isOpen && (
+                            <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                                <div style={{ fontSize: 11, color: "#fbbf24", textAlign: "center" }}>⏰ Shop opens at 12PM EST daily</div>
+                            </div>
+                        )}
+                        <div style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 10, padding: 12 }}>
+                            <div style={{ fontSize: 11, color: "#fbbf24", fontWeight: 600, marginBottom: 8 }}>⚠️ Water Costs Scale With Decay!</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6, fontSize: 10, color: "#9ca3af" }}>
+                                <div>90% health → 0.2L</div>
+                                <div>70% health → 1.8L</div>
+                                <div>50% health → 5.0L</div>
+                                <div>30% health → 9.8L</div>
+                                <div>10% health → 16.2L</div>
+                                <div>0% health → 20.0L</div>
+                            </div>
+                            <p style={{ fontSize: 10, color: "#ef4444", margin: "8px 0 0", textAlign: "center" }}>💡 Water early! Costs increase exponentially as health drops.</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {itemsModalOpen && (
+                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
+                    <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 480, width: "100%", maxHeight: "90vh", overflow: "auto", border: "1px solid rgba(245,158,11,0.3)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                            <h3 style={{ margin: 0, fontSize: 18, color: "#f59e0b" }}>🏪 Item Shop</h3>
+                            <button onClick={() => setItemsModalOpen(false)} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
+                        </div>
+                        <div style={{ fontSize: 10, color: "#9ca3af", textAlign: "center", marginBottom: 12 }}>
+                            ⏰ Daily supply resets at 12:00 AM EST
+                        </div>
+                        <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 12 }}>🔫 WEAPONS</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
+                            <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1))", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 12, padding: 10, textAlign: "center" }}>
+                                <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+                                    <img src="/images/items/ak47.png" alt="AK-47" style={{ width: 40, height: 40, objectFit: "contain" }} />
+                                </div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>AK-47</div>
+                                <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+100% Combat</div>
+                                <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 6 hours</div>
+                                {(shopSupply[4]?.remaining ?? 15) > 0 ? (
+                                    <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[4]?.remaining ?? 15}/{shopSupply[4]?.total ?? 15}</span></div>
+                                ) : (
+                                    <div style={{ fontSize: 7, color: "#ef4444", marginBottom: 4, fontWeight: 600 }}>SOLD OUT • {Math.floor(shopTimeUntilReset / 3600)}h</div>
+                                )}
+                                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                    <button onClick={() => handleBuyItem(4, "dust")} disabled={shopLoading || crateUserStats.dust < 2000 || (shopSupply[4]?.remaining ?? 15) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2000 && (shopSupply[4]?.remaining ?? 15) > 0 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2000 && (shopSupply[4]?.remaining ?? 15) > 0 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2000 && (shopSupply[4]?.remaining ?? 15) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 2K DUST</button>
+                                    <button onClick={() => handleBuyItem(4, "fcweed")} disabled={shopLoading || (shopSupply[4]?.remaining ?? 15) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: (shopSupply[4]?.remaining ?? 15) > 0 ? "linear-gradient(135deg, #ef4444, #dc2626)" : "#374151", color: (shopSupply[4]?.remaining ?? 15) > 0 ? "#fff" : "#9ca3af", fontWeight: 600, cursor: (shopSupply[4]?.remaining ?? 15) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 2M FCWEED</button>
+                                </div>
+                            </div>
+                            <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.25), rgba(185,28,28,0.2))", border: "2px solid rgba(239,68,68,0.6)", borderRadius: 12, padding: 10, textAlign: "center", boxShadow: "0 0 20px rgba(239,68,68,0.25)" }}>
+                                <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+                                    <img src="/images/items/nuke.png" alt="Nuke" style={{ width: 40, height: 40, objectFit: "contain" }} />
+                                </div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>TACTICAL NUKE</div>
+                                <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+10,000% Combat</div>
+                                <div style={{ fontSize: 7, color: "#fca5a5", marginBottom: 3 }}>10 min (1 attack)</div>
+                                {(shopSupply[6]?.remaining ?? 1) > 0 ? (
+                                    <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[6]?.remaining ?? 1}/{shopSupply[6]?.total ?? 1}</span></div>
+                                ) : (
+                                    <div style={{ fontSize: 7, color: "#ef4444", marginBottom: 4, fontWeight: 600 }}>SOLD OUT • {Math.floor(shopTimeUntilReset / 3600)}h</div>
+                                )}
+                                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                    <button onClick={() => handleBuyItem(6, "dust")} disabled={shopLoading || crateUserStats.dust < 20000 || (shopSupply[6]?.remaining ?? 1) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 20000 && (shopSupply[6]?.remaining ?? 1) > 0 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 20000 && (shopSupply[6]?.remaining ?? 1) > 0 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 20000 && (shopSupply[6]?.remaining ?? 1) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 20K DUST</button>
+                                    <button onClick={() => handleBuyItem(6, "fcweed")} disabled={shopLoading || (shopSupply[6]?.remaining ?? 1) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: (shopSupply[6]?.remaining ?? 1) > 0 ? "linear-gradient(135deg, #dc2626, #b91c1c)" : "#374151", color: (shopSupply[6]?.remaining ?? 1) > 0 ? "#fff" : "#9ca3af", fontWeight: 600, cursor: (shopSupply[6]?.remaining ?? 1) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 20M FCWEED</button>
+                                </div>
+                            </div>
+                            <div style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.15), rgba(139,92,246,0.1))", border: "1px solid rgba(168,85,247,0.4)", borderRadius: 12, padding: 10, textAlign: "center" }}>
+                                <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+                                    <img src="/images/items/rpg.png" alt="RPG" style={{ width: 40, height: 40, objectFit: "contain" }} />
+                                </div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: "#a855f7", marginBottom: 2 }}>RPG</div>
+                                <div style={{ fontSize: 8, color: "#c4b5fd", marginBottom: 2 }}>+500% Combat</div>
+                                <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 1 hour</div>
+                                {(shopSupply[5]?.remaining ?? 3) > 0 ? (
+                                    <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#a855f7", fontWeight: 600 }}>{shopSupply[5]?.remaining ?? 3}/{shopSupply[5]?.total ?? 3}</span></div>
+                                ) : (
+                                    <div style={{ fontSize: 7, color: "#a855f7", marginBottom: 4, fontWeight: 600 }}>SOLD OUT • {Math.floor(shopTimeUntilReset / 3600)}h</div>
+                                )}
+                                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                    <button onClick={() => handleBuyItem(5, "dust")} disabled={shopLoading || crateUserStats.dust < 5000 || (shopSupply[5]?.remaining ?? 3) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 5000 && (shopSupply[5]?.remaining ?? 3) > 0 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 5000 && (shopSupply[5]?.remaining ?? 3) > 0 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 5000 && (shopSupply[5]?.remaining ?? 3) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 5K DUST</button>
+                                    <button onClick={() => handleBuyItem(5, "fcweed")} disabled={shopLoading || (shopSupply[5]?.remaining ?? 3) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: (shopSupply[5]?.remaining ?? 3) > 0 ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: (shopSupply[5]?.remaining ?? 3) > 0 ? "#fff" : "#9ca3af", fontWeight: 600, cursor: (shopSupply[5]?.remaining ?? 3) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 5M FCWEED</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#10b981", fontWeight: 700, textAlign: "center", marginBottom: 12 }}>🛡️ CONSUMABLES</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
+                            <div style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.15), rgba(34,197,94,0.1))", border: "1px solid rgba(16,185,129,0.4)", borderRadius: 12, padding: 10, textAlign: "center" }}>
+                                <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
+                                    <img src="/images/items/healthpack.png" alt="Health Pack" style={{ width: 36, height: 36, objectFit: "contain" }} />
+                                </div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: "#10b981", marginBottom: 2 }}>HEALTH PACK</div>
+                                <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>Heals one Plant Max to 80%<br/>Usage: 1 Per Plant</div>
+                                {(shopSupply[1]?.remaining ?? 20) > 0 ? (
+                                    <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#10b981", fontWeight: 600 }}>{shopSupply[1]?.remaining ?? 20}/{shopSupply[1]?.total ?? 20}</span></div>
+                                ) : (
+                                    <div style={{ fontSize: 7, color: "#10b981", marginBottom: 4, fontWeight: 600 }}>SOLD OUT • {Math.floor(shopTimeUntilReset / 3600)}h</div>
+                                )}
+                                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                    <button onClick={() => handleBuyItem(1, "dust")} disabled={shopLoading || crateUserStats.dust < 2500 || (shopSupply[1]?.remaining ?? 20) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2500 && (shopSupply[1]?.remaining ?? 20) > 0 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2500 && (shopSupply[1]?.remaining ?? 20) > 0 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2500 && (shopSupply[1]?.remaining ?? 20) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 2.5K DUST</button>
+                                    <button onClick={() => handleBuyItem(1, "fcweed")} disabled={shopLoading || (shopSupply[1]?.remaining ?? 20) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: (shopSupply[1]?.remaining ?? 20) > 0 ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: (shopSupply[1]?.remaining ?? 20) > 0 ? "#fff" : "#9ca3af", fontWeight: 600, cursor: (shopSupply[1]?.remaining ?? 20) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 2.5M FCWEED</button>
+                                </div>
+                            </div>
+                            <div style={{ background: "linear-gradient(135deg, rgba(59,130,246,0.15), rgba(96,165,250,0.1))", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 12, padding: 10, textAlign: "center" }}>
+                                <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
+                                    <span style={{ fontSize: 28 }}>🛡️</span>
+                                </div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: "#3b82f6", marginBottom: 2 }}>RAID SHIELD</div>
+                                <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>24h Protection<br/>Purge Bypasses Shields</div>
+                                {(shopSupply[2]?.remaining ?? 25) > 0 ? (
+                                    <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#3b82f6", fontWeight: 600 }}>{shopSupply[2]?.remaining ?? 25}/{shopSupply[2]?.total ?? 25}</span></div>
+                                ) : (
+                                    <div style={{ fontSize: 7, color: "#3b82f6", marginBottom: 4, fontWeight: 600 }}>SOLD OUT • {Math.floor(shopTimeUntilReset / 3600)}h</div>
+                                )}
+                                <button onClick={() => handleBuyItem(2, "dust")} disabled={shopLoading || crateUserStats.dust < 2500 || (shopSupply[2]?.remaining ?? 25) <= 0} style={{ width: "100%", padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2500 && (shopSupply[2]?.remaining ?? 25) > 0 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2500 && (shopSupply[2]?.remaining ?? 25) > 0 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2500 && (shopSupply[2]?.remaining ?? 25) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 2.5K DUST</button>
+                            </div>
+                            <div style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.1))", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 12, padding: 10, textAlign: "center" }}>
+                                <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
+                                    <span style={{ fontSize: 28 }}>⚡</span>
+                                </div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", marginBottom: 2 }}>ATTACK BOOST</div>
+                                <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>+20% Combat<br/>Lasts 6 hours</div>
+                                <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#f59e0b", fontWeight: 600 }}>∞</span></div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                    <button onClick={() => handleBuyItem(3, "dust")} disabled={shopLoading || crateUserStats.dust < 400} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 400 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 400 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 400 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 400 DUST</button>
+                                    <button onClick={() => handleBuyItem(3, "fcweed")} disabled={shopLoading} style={{ padding: "6px", borderRadius: 5, border: "none", background: "linear-gradient(135deg, #f59e0b, #fbbf24)", color: "#000", fontWeight: 600, cursor: "pointer", fontSize: 8 }}>🌿 400K FCWEED</button>
+                                </div>
+                            </div>
+                        </div>
+                        {shopStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 8, textAlign: "center" }}>{shopStatus}</p>}
+                        <div style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: 8, padding: 10, marginTop: 12 }}>
+                            <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600, marginBottom: 4 }}>🎁 More Items Coming Soon!</div>
+                            <p style={{ fontSize: 9, color: "#9ca3af", margin: 0 }}>Fertilizers, Growth Serums, and more...</p>
                         </div>
                     </div>
                 </div>
