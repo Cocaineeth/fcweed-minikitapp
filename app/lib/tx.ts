@@ -6,6 +6,7 @@ export type EnsureWalletCtx = {
   provider: ethers.providers.Provider;
   userAddress: string;
   isMini: boolean;
+  ethProvider?: any; // Add the raw eth provider to context
 };
 
 export type EnsureWalletFn = () => Promise<EnsureWalletCtx | null>;
@@ -34,8 +35,6 @@ export function makeTxActions(deps: TxDeps)
   const {
     ensureWallet,
     readProvider,
-    miniAppEthProvider,
-    usingMiniApp,
     CHAIN_ID,
     USDC_ADDRESS,
     USDC_DECIMALS,
@@ -45,18 +44,20 @@ export function makeTxActions(deps: TxDeps)
     setMintStatus,
   } = deps;
 
-  async function sendWalletCalls(
+  // Helper function to send wallet calls using provided ethProvider
+  async function sendWalletCallsWithProvider(
+    ethProvider: any,
     from: string,
     to: string,
     data: string,
     gasLimit: string = "0x1E8480"
   ): Promise<ethers.providers.TransactionResponse>
   {
-    if (!miniAppEthProvider) throw new Error("Mini app provider not available");
+    if (!ethProvider) throw new Error("Mini app provider not available");
 
     const req =
-      miniAppEthProvider.request?.bind(miniAppEthProvider) ??
-      miniAppEthProvider.send?.bind(miniAppEthProvider);
+      ethProvider.request?.bind(ethProvider) ??
+      ethProvider.send?.bind(ethProvider);
 
     if (!req) throw new Error("Mini app provider missing request/send method");
 
@@ -136,6 +137,17 @@ export function makeTxActions(deps: TxDeps)
     return fakeTx as ethers.providers.TransactionResponse;
   }
 
+  // Legacy sendWalletCalls that uses deps.miniAppEthProvider (kept for backward compatibility)
+  async function sendWalletCalls(
+    from: string,
+    to: string,
+    data: string,
+    gasLimit: string = "0x1E8480"
+  ): Promise<ethers.providers.TransactionResponse>
+  {
+    return sendWalletCallsWithProvider(deps.miniAppEthProvider, from, to, data, gasLimit);
+  }
+
   async function sendContractTx(
     to: string,
     data: string,
@@ -147,9 +159,13 @@ export function makeTxActions(deps: TxDeps)
 
     try
     {
-      if (ctx.isMini && miniAppEthProvider)
+      // Use ethProvider from context if available (fresh from ensureWallet)
+      // Fall back to deps.miniAppEthProvider for backward compatibility
+      const ethProvider = ctx.ethProvider || deps.miniAppEthProvider;
+      
+      if (ctx.isMini && ethProvider)
       {
-        return await sendWalletCalls(ctx.userAddress, to, data, gasLimit);
+        return await sendWalletCallsWithProvider(ethProvider, ctx.userAddress, to, data, gasLimit);
       }
 
       const tx = await ctx.signer.sendTransaction({
@@ -181,6 +197,7 @@ export function makeTxActions(deps: TxDeps)
     if (!ctx) return false;
 
     const { signer: s, userAddress: addr, isMini } = ctx;
+    const ethProvider = ctx.ethProvider || deps.miniAppEthProvider;
 
     setMintStatus("Checking USDC contract on Base…");
     const code = await readProvider.getCode(USDC_ADDRESS);
@@ -214,10 +231,10 @@ export function makeTxActions(deps: TxDeps)
 
     try
     {
-      if (isMini && miniAppEthProvider)
+      if (isMini && ethProvider)
       {
         const data = usdcInterface.encodeFunctionData("approve", [spender, required]);
-        await sendWalletCalls(addr, USDC_ADDRESS, data);
+        await sendWalletCallsWithProvider(ethProvider, addr, USDC_ADDRESS, data);
 
         setMintStatus("Waiting for USDC approve confirmation…");
         for (let i = 0; i < 20; i++)

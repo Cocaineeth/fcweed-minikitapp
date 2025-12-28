@@ -827,7 +827,7 @@ export default function Home()
 
     async function ensureWallet() {
         if (signer && provider && userAddress) {
-            return { signer, provider, userAddress, isMini: usingMiniApp };
+            return { signer, provider, userAddress, isMini: usingMiniApp, ethProvider: miniAppEthProvider };
         }
 
         try {
@@ -1017,7 +1017,7 @@ export default function Home()
             setUserAddress(addr);
             setConnecting(false);
 
-            return { signer: s, provider: p, userAddress: addr, isMini };
+            return { signer: s, provider: p, userAddress: addr, isMini, ethProvider: ethProv };
         } catch (err: any) {
             console.error("[Wallet] Connection failed:", err);
             const errorMessage = err?.message || "Wallet connection failed";
