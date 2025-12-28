@@ -19,6 +19,27 @@ const wagmiConfig = createConfig({
   ],
 });
 
+// Wrapper that only renders MiniKitProvider on client
+function SafeMiniKitProvider({ children }: { children: ReactNode }) {
+  const [canUseMiniKit, setCanUseMiniKit] = useState(false);
+
+  useEffect(() => {
+    // Only enable MiniKit on client side
+    setCanUseMiniKit(true);
+  }, []);
+
+  if (!canUseMiniKit) {
+    return <>{children}</>;
+  }
+
+  try {
+    return <MiniKitProvider>{children}</MiniKitProvider>;
+  } catch (e) {
+    console.warn("MiniKitProvider error:", e);
+    return <>{children}</>;
+  }
+}
+
 export function RootProvider({ children }: { children: ReactNode }) {
   // Track if we're on client side
   const [mounted, setMounted] = useState(false);
@@ -44,7 +65,7 @@ export function RootProvider({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        <MiniKitProvider>{children}</MiniKitProvider>
+        <SafeMiniKitProvider>{children}</SafeMiniKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );
