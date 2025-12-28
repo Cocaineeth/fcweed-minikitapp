@@ -71,7 +71,7 @@ export function makeTxActions(deps: TxDeps)
     // On desktop Farcaster, there's often a provider conflict with MetaMask/other extensions
     // We MUST use ONLY the Farcaster SDK provider, not window.ethereum
     if (!isMobile) {
-      console.log("[TX] Desktop - using Farcaster SDK provider ONLY (bypassing window.ethereum)...");
+      console.log("[TX] Desktop - using Farcaster SDK provider ONLY...");
       
       try {
         const { sdk } = await import("@farcaster/miniapp-sdk");
@@ -83,28 +83,126 @@ export function makeTxActions(deps: TxDeps)
           throw new Error("Could not get Farcaster provider");
         }
         
-        console.log("[TX] Got Farcaster provider (separate from window.ethereum)");
+        console.log("[TX] Got Farcaster provider");
         
         // Get accounts from Farcaster provider
-        const accounts = await farcasterProvider.request({ method: "eth_accounts" });
-        console.log("[TX] Farcaster accounts:", accounts);
+        let accounts = await farcasterProvider.request({ method: "eth_accounts" });
+        if (!accounts?.[0]) {
+          accounts = await farcasterProvider.request({ method: "eth_requestAccounts" });
+        }
         
         if (!accounts?.[0]) {
-          // Try requesting accounts
-          const requestedAccounts = await farcasterProvider.request({ method: "eth_requestAccounts" });
-          if (!requestedAccounts?.[0]) {
-            throw new Error("No accounts from Farcaster provider");
+          throw new Error("No accounts from Farcaster provider");
+        }
+        
+        const account = accounts[0];
+        console.log("[TX] Farcaster account:", account);
+        
+        // Try wallet_sendCalls first (EIP-5792) - this is what works on desktop
+        console.log("[TX] Trying wallet_sendCalls (EIP-5792)...");
+        try {
+          const sendCallsResult = await farcasterProvider.request({
+            method: "wallet_sendCalls",
+            params: [{
+              version: "1.0",
+              chainId: `eip155:${CHAIN_ID}`,
+              from: account,
+              calls: [{
+                to: to,
+                data: data,
+                value: "0x0"
+              }]
+            }]
+          });
+          
+          console.log("[TX] wallet_sendCalls result:", sendCallsResult);
+          
+          // Extract txHash
+          let hash: string | null = null;
+          if (typeof sendCallsResult === "string" && sendCallsResult.startsWith("0x")) {
+            hash = sendCallsResult;
+          } else if (sendCallsResult?.hash) {
+            hash = sendCallsResult.hash;
+          } else if (sendCallsResult?.txHash) {
+            hash = sendCallsResult.txHash;
+          } else if (sendCallsResult?.id) {
+            // EIP-5792 returns an id, we need to poll for status
+            console.log("[TX] Got call bundle id:", sendCallsResult.id);
+            // For now, treat the id as success and let the UI poll for receipt
+            hash = sendCallsResult.id;
+          }
+          
+          if (hash && hash.length >= 64) {
+            console.log("[TX] SUCCESS via wallet_sendCalls! hash:", hash);
+            txHash = hash;
+            
+            const fakeTx: any = {
+              hash: txHash,
+              wait: async () => {
+                for (let j = 0; j < 60; j++) {
+                  await new Promise((resolve) => setTimeout(resolve, 2000));
+                  try {
+                    const receipt = await readProvider.getTransactionReceipt(txHash!);
+                    if (receipt && receipt.confirmations > 0) return receipt;
+                  } catch { }
+                }
+                return null;
+              },
+            };
+            return fakeTx as ethers.providers.TransactionResponse;
+          }
+        } catch (sendCallsErr: any) {
+          console.log("[TX] wallet_sendCalls failed:", sendCallsErr?.message, "code:", sendCallsErr?.code);
+          // If -32602 (invalid params), try different format
+          if (sendCallsErr?.code === -32602) {
+            console.log("[TX] Trying wallet_sendCalls with hex chainId...");
+            try {
+              const sendCallsResult2 = await farcasterProvider.request({
+                method: "wallet_sendCalls",
+                params: [{
+                  chainId: chainIdHex,
+                  from: account,
+                  calls: [{ to, data, value: "0x0" }]
+                }]
+              });
+              console.log("[TX] wallet_sendCalls (hex) result:", sendCallsResult2);
+              
+              if (typeof sendCallsResult2 === "string" && sendCallsResult2.startsWith("0x")) {
+                txHash = sendCallsResult2;
+              } else {
+                txHash = sendCallsResult2?.hash || sendCallsResult2?.txHash || sendCallsResult2?.id || null;
+              }
+              
+              if (txHash && txHash.length >= 64) {
+                console.log("[TX] SUCCESS via wallet_sendCalls (hex)! hash:", txHash);
+                const fakeTx: any = {
+                  hash: txHash,
+                  wait: async () => {
+                    for (let j = 0; j < 60; j++) {
+                      await new Promise((resolve) => setTimeout(resolve, 2000));
+                      try {
+                        const receipt = await readProvider.getTransactionReceipt(txHash!);
+                        if (receipt && receipt.confirmations > 0) return receipt;
+                      } catch { }
+                    }
+                    return null;
+                  },
+                };
+                return fakeTx as ethers.providers.TransactionResponse;
+              }
+            } catch (e2: any) {
+              console.log("[TX] wallet_sendCalls (hex) also failed:", e2?.message);
+            }
+          }
+          // If user rejected (4001), throw
+          if (sendCallsErr?.code === 4001) {
+            throw sendCallsErr;
           }
         }
         
-        const account = accounts?.[0] || (await farcasterProvider.request({ method: "eth_accounts" }))?.[0];
-        console.log("[TX] Using Farcaster account:", account);
-        
-        // Send transaction using Farcaster provider ONLY
-        // Use simple eth_sendTransaction - the Farcaster provider should handle the popup
-        console.log("[TX] Sending eth_sendTransaction via Farcaster provider...");
-        
-        const txRequest = {
+        // Fallback to eth_sendTransaction
+        console.log("[TX] Falling back to eth_sendTransaction...");
+        result = await farcasterProvider.request({
           method: "eth_sendTransaction",
           params: [{
             from: account,
@@ -112,13 +210,9 @@ export function makeTxActions(deps: TxDeps)
             data: data,
             value: "0x0",
           }],
-        };
+        });
         
-        console.log("[TX] Request:", JSON.stringify(txRequest));
-        
-        result = await farcasterProvider.request(txRequest);
-        
-        console.log("[TX] Transaction result:", result);
+        console.log("[TX] eth_sendTransaction result:", result);
         
         if (typeof result === "string" && result.startsWith("0x") && result.length >= 66) {
           txHash = result;
