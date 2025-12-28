@@ -70,62 +70,78 @@ export function makeTxActions(deps: TxDeps)
     // Detect if we're on mobile
     const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     
-    // On desktop Farcaster, the raw provider auto-rejects. 
-    // Try to import and use the SDK's sendTransaction which handles the popup properly
+    // On desktop Farcaster, the raw provider auto-rejects with 4001. 
+    // Try using the Farcaster SDK's eth provider with a fresh request
     if (!isMobile) {
-      console.log("[TX] Desktop detected, trying Farcaster SDK sendTransaction...");
+      console.log("[TX] Desktop detected, trying fresh SDK provider...");
       try {
-        // Dynamically import the SDK to use its sendTransaction
+        // Dynamically import the SDK
         const { sdk } = await import("@farcaster/miniapp-sdk");
         
-        if (sdk?.wallet?.sendTransaction) {
-          console.log("[TX] Using sdk.wallet.sendTransaction...");
-          const sdkResult = await sdk.wallet.sendTransaction({
-            chainId: `eip155:${CHAIN_ID}`,
-            to: to,
-            data: data,
-            value: "0x0",
-          });
+        console.log("[TX] SDK imported, checking wallet methods:", {
+          hasWallet: !!sdk?.wallet,
+          walletKeys: sdk?.wallet ? Object.keys(sdk.wallet) : [],
+          hasSendTransaction: typeof sdk?.wallet?.sendTransaction,
+          hasGetProvider: typeof sdk?.wallet?.getEthereumProvider
+        });
+        
+        // Try getting a fresh provider from SDK
+        if (sdk?.wallet?.getEthereumProvider) {
+          console.log("[TX] Getting fresh provider from SDK...");
+          const freshProvider = await sdk.wallet.getEthereumProvider();
+          console.log("[TX] Fresh provider obtained:", !!freshProvider);
           
-          console.log("[TX] SDK sendTransaction result:", sdkResult);
-          
-          if (sdkResult?.transactionHash) {
-            txHash = sdkResult.transactionHash;
-          } else if (typeof sdkResult === 'string' && sdkResult.startsWith('0x')) {
-            txHash = sdkResult;
-          }
-          
-          if (txHash) {
-            console.log("[TX] Got txHash from SDK:", txHash);
-            // Return fake tx object
-            const fakeTx: any = {
-              hash: txHash,
-              wait: async () => {
-                for (let i = 0; i < 45; i++) {
-                  await new Promise((resolve) => setTimeout(resolve, 2000));
-                  try {
-                    const receipt = await readProvider.getTransactionReceipt(txHash!);
-                    if (receipt && receipt.confirmations > 0) return receipt;
-                  } catch { }
-                }
-                return null;
-              },
-            };
-            return fakeTx as ethers.providers.TransactionResponse;
+          if (freshProvider && freshProvider.request) {
+            console.log("[TX] Using fresh SDK provider for transaction...");
+            const freshReq = freshProvider.request.bind(freshProvider);
+            
+            result = await freshReq({
+              method: "eth_sendTransaction",
+              params: [
+                { from, to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit },
+              ],
+            });
+            
+            console.log("[TX] Fresh provider result:", result);
+            
+            if (typeof result === "string" && result.startsWith("0x")) txHash = result;
+            else txHash = result?.hash || result?.txHash || null;
+            
+            if (txHash && txHash.length >= 66) {
+              console.log("[TX] Got valid txHash from fresh provider:", txHash);
+              const fakeTx: any = {
+                hash: txHash,
+                wait: async () => {
+                  for (let i = 0; i < 45; i++) {
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                    try {
+                      const receipt = await readProvider.getTransactionReceipt(txHash!);
+                      if (receipt && receipt.confirmations > 0) return receipt;
+                    } catch { }
+                  }
+                  return null;
+                },
+              };
+              return fakeTx as ethers.providers.TransactionResponse;
+            }
           }
         }
       } catch (sdkErr: any) {
-        console.warn("[TX] SDK sendTransaction failed:", sdkErr?.message || sdkErr);
-        // Fall through to try regular provider
+        console.warn("[TX] SDK fresh provider failed:", {
+          message: sdkErr?.message,
+          code: sdkErr?.code,
+          error: sdkErr
+        });
+        // Fall through to try the passed-in provider
       }
     }
 
-    // Mobile path or desktop fallback: use the provider directly
+    // Mobile path or desktop fallback: use the passed-in provider
     const req =
       ethProvider.request?.bind(ethProvider) ??
       ethProvider.send?.bind(ethProvider);
 
-    console.log("[TX] Provider methods:", {
+    console.log("[TX] Using passed-in provider, methods:", {
       hasRequest: !!ethProvider.request,
       hasSend: !!ethProvider.send,
       reqType: typeof req
@@ -134,7 +150,7 @@ export function makeTxActions(deps: TxDeps)
     if (!req) throw new Error("Mini app provider missing request/send method");
 
     // Try eth_sendTransaction first
-    console.log("[TX] Attempting eth_sendTransaction...");
+    console.log("[TX] Attempting eth_sendTransaction with passed-in provider...");
     try {
       result = await req({
         method: "eth_sendTransaction",
