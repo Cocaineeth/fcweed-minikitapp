@@ -298,14 +298,20 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                 <div style={{ fontSize: 11, color: textMuted, marginBottom: 12 }}>24-hour no-shield battle event</div>
                 
                 {isPurgeScheduled ? (
-                    <div style={{ background: "rgba(139,92,246,0.2)", borderRadius: 10, padding: 12 }}>
-                        <div style={{ fontSize: 10, color: "#a855f7", marginBottom: 4 }}>⏰ NEXT PURGE BEGINS IN</div>
-                        <div style={{ fontSize: 28, fontWeight: 700, color: "#a855f7", fontFamily: "monospace" }}>{formatCountdownTime(countdown)}</div>
-                        <div style={{ fontSize: 10, color: textMuted, marginTop: 6 }}>
-                            {new Date(purgeInfo!.startTime * 1000).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })} at {new Date(purgeInfo!.startTime * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                        <div style={{ fontSize: 9, color: textMuted, marginTop: 2 }}>
-                            Duration: {Math.round((purgeInfo!.endTime - purgeInfo!.startTime) / 3600)} hours
+                    <div style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.25), rgba(168,85,247,0.2))", borderRadius: 12, padding: 16, border: "1px solid rgba(139,92,246,0.5)" }}>
+                        <div style={{ fontSize: 11, color: "#c4b5fd", marginBottom: 6, fontWeight: 600 }}>⏰ NEXT PURGE BEGINS IN</div>
+                        <div style={{ fontSize: 36, fontWeight: 800, color: "#a855f7", fontFamily: "monospace", textShadow: "0 0 20px rgba(139,92,246,0.5)", marginBottom: 8 }}>{formatCountdownTime(countdown)}</div>
+                        <div style={{ background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: 10, marginTop: 8 }}>
+                            <div style={{ fontSize: 10, color: "#c4b5fd", marginBottom: 4 }}>📅 Scheduled Start</div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: textMain }}>
+                                {new Date(purgeInfo!.startTime * 1000).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+                            </div>
+                            <div style={{ fontSize: 11, color: textMuted }}>
+                                at {new Date(purgeInfo!.startTime * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true })}
+                            </div>
+                            <div style={{ fontSize: 10, color: "#fbbf24", marginTop: 6, fontWeight: 500 }}>
+                                ⚡ Duration: {Math.round((purgeInfo!.endTime - purgeInfo!.startTime) / 3600)} hours of chaos
+                            </div>
                         </div>
                     </div>
                 ) : isPurgeEnded ? (
@@ -314,7 +320,10 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                         <div style={{ fontSize: 10, color: textMuted, marginTop: 4 }}>Waiting for next schedule...</div>
                     </div>
                 ) : (
-                    <div style={{ fontSize: 12, color: textMuted }}>No purge scheduled</div>
+                    <div style={{ background: "rgba(107,114,128,0.15)", borderRadius: 10, padding: 12 }}>
+                        <div style={{ fontSize: 12, color: textMuted }}>No purge currently scheduled</div>
+                        <div style={{ fontSize: 10, color: textMuted, marginTop: 4 }}>Check back Saturday at 11pm EST!</div>
+                    </div>
                 )}
                 
                 {globalStats && (
