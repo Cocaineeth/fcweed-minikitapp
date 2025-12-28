@@ -27,7 +27,7 @@ const battlesInterface = new ethers.utils.Interface(BATTLES_ABI);
 const stakingInterface = new ethers.utils.Interface(STAKING_ABI);
 
 interface PurgeTarget { address: string; plants: number; rank: number; }
-interface PurgeInfo { isActive: boolean; startTime: number; endTime: number; }
+interface PurgeInfo { isActive: boolean; startTime: number; endTime: number; timeUntilStart: number; timeUntilEnd: number; }
 interface AttackerStats { wins: number; losses: number; rewardsStolen: string; cooldownRemaining: number; canAttack: boolean; battlePower: number; }
 interface GlobalStats { totalPurgeAttacks: number; totalRewardsRedistributed: string; totalPurgeFeesBurned: string; }
 
@@ -82,9 +82,11 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
 
     const formatCountdownTime = (seconds: number): string => {
         if (seconds <= 0) return "NOW";
-        const h = Math.floor(seconds / 3600);
+        const d = Math.floor(seconds / 86400);
+        const h = Math.floor((seconds % 86400) / 3600);
         const m = Math.floor((seconds % 3600) / 60);
         const s = seconds % 60;
+        if (d > 0) return `${d}d ${h}h ${m}m`;
         if (h > 0) return `${h}h ${m}m ${s}s`;
         if (m > 0) return `${m}m ${s}s`;
         return `${s}s`;
@@ -110,7 +112,13 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             
             if (results[0].success) {
                 const info = battlesInterface.decodeFunctionResult("getPurgeInfo", results[0].returnData);
-                setPurgeInfo({ isActive: info.isActive, startTime: info.startTime.toNumber(), endTime: info.endTime.toNumber() });
+                setPurgeInfo({ 
+                    isActive: info.isActive, 
+                    startTime: info.startTime.toNumber(), 
+                    endTime: info.endTime.toNumber(),
+                    timeUntilStart: info.timeUntilStart.toNumber(),
+                    timeUntilEnd: info.timeUntilEnd.toNumber()
+                });
             }
             if (results[1].success) {
                 const fee = battlesInterface.decodeFunctionResult("purgeFee", results[1].returnData)[0];
@@ -241,9 +249,15 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
         if (!purgeInfo) return;
         const updateCountdown = () => {
             const now = Math.floor(Date.now() / 1000);
-            if (purgeInfo.isActive) setCountdown(Math.max(0, purgeInfo.endTime - now));
-            else if (purgeInfo.startTime > now) setCountdown(Math.max(0, purgeInfo.startTime - now));
-            else setCountdown(0);
+            if (purgeInfo.isActive) {
+                // Purge is active - show time until end
+                setCountdown(Math.max(0, purgeInfo.endTime - now));
+            } else if (purgeInfo.startTime > 0 && purgeInfo.startTime > now) {
+                // Purge is scheduled for future - show time until start
+                setCountdown(Math.max(0, purgeInfo.startTime - now));
+            } else {
+                setCountdown(0);
+            }
         };
         updateCountdown();
         const interval = setInterval(updateCountdown, 1000);
@@ -263,6 +277,11 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
     const cellBg = theme === "light" ? "#f8fafc" : "rgba(255,255,255,0.03)";
     const modalBg = theme === "light" ? "#fff" : "#0f172a";
 
+    // Check if purge is scheduled for the future
+    const now = Math.floor(Date.now() / 1000);
+    const isPurgeScheduled = purgeInfo && purgeInfo.startTime > 0 && purgeInfo.startTime > now;
+    const isPurgeEnded = purgeInfo && purgeInfo.endTime > 0 && purgeInfo.endTime < now && !purgeInfo.isActive;
+
     if (loading) return (
         <div style={{ background: cardBg, borderRadius: 12, padding: 20, border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.08)"}`, textAlign: "center" }}>
             <div style={{ fontSize: 24, marginBottom: 8 }}>☠️</div>
@@ -270,19 +289,34 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
         </div>
     );
 
+    // Purge is NOT active - show countdown or "no schedule" message
     if (!purgeInfo?.isActive) return (
         <div style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.15), rgba(168,85,247,0.1))", borderRadius: 12, padding: 16, border: "1px solid rgba(139,92,246,0.4)", marginTop: 16 }}>
             <div style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 32, marginBottom: 8 }}>☠️</div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: "#a855f7", marginBottom: 4 }}>THE PURGE</div>
                 <div style={{ fontSize: 11, color: textMuted, marginBottom: 12 }}>24-hour no-shield battle event</div>
-                {purgeInfo && purgeInfo.startTime > 0 ? (
+                
+                {isPurgeScheduled ? (
                     <div style={{ background: "rgba(139,92,246,0.2)", borderRadius: 10, padding: 12 }}>
-                        <div style={{ fontSize: 10, color: "#a855f7", marginBottom: 4 }}>NEXT PURGE IN</div>
-                        <div style={{ fontSize: 24, fontWeight: 700, color: "#a855f7", fontFamily: "monospace" }}>{formatCountdownTime(countdown)}</div>
-                        <div style={{ fontSize: 9, color: textMuted, marginTop: 4 }}>{new Date(purgeInfo.startTime * 1000).toLocaleDateString()} at {new Date(purgeInfo.startTime * 1000).toLocaleTimeString()}</div>
+                        <div style={{ fontSize: 10, color: "#a855f7", marginBottom: 4 }}>⏰ NEXT PURGE BEGINS IN</div>
+                        <div style={{ fontSize: 28, fontWeight: 700, color: "#a855f7", fontFamily: "monospace" }}>{formatCountdownTime(countdown)}</div>
+                        <div style={{ fontSize: 10, color: textMuted, marginTop: 6 }}>
+                            {new Date(purgeInfo!.startTime * 1000).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })} at {new Date(purgeInfo!.startTime * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                        <div style={{ fontSize: 9, color: textMuted, marginTop: 2 }}>
+                            Duration: {Math.round((purgeInfo!.endTime - purgeInfo!.startTime) / 3600)} hours
+                        </div>
                     </div>
-                ) : <div style={{ fontSize: 12, color: textMuted }}>No purge scheduled</div>}
+                ) : isPurgeEnded ? (
+                    <div style={{ background: "rgba(107,114,128,0.2)", borderRadius: 10, padding: 12 }}>
+                        <div style={{ fontSize: 11, color: textMuted }}>Last purge has ended</div>
+                        <div style={{ fontSize: 10, color: textMuted, marginTop: 4 }}>Waiting for next schedule...</div>
+                    </div>
+                ) : (
+                    <div style={{ fontSize: 12, color: textMuted }}>No purge scheduled</div>
+                )}
+                
                 {globalStats && (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 12 }}>
                         <div style={{ background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: 8, textAlign: "center" }}><div style={{ fontSize: 8, color: textMuted }}>TOTAL ATTACKS</div><div style={{ fontSize: 14, fontWeight: 700, color: "#a855f7" }}>{globalStats.totalPurgeAttacks}</div></div>
@@ -294,6 +328,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
         </div>
     );
 
+    // Purge IS active - show full UI with targets
     return (
         <>
             <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.2), rgba(220,38,38,0.15))", borderRadius: 12, padding: 16, border: "2px solid rgba(239,68,68,0.5)", marginTop: 16 }}>
