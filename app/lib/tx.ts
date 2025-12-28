@@ -53,11 +53,25 @@ export function makeTxActions(deps: TxDeps)
     gasLimit: string = "0x1E8480"
   ): Promise<ethers.providers.TransactionResponse>
   {
+    console.log("[TX] sendWalletCallsInternal called with:", { 
+      hasProvider: !!ethProvider, 
+      providerType: typeof ethProvider,
+      from, 
+      to: to.substring(0, 10) + "...",
+      dataLength: data.length 
+    });
+    
     if (!ethProvider) throw new Error("Mini app provider not available");
 
     const req =
       ethProvider.request?.bind(ethProvider) ??
       ethProvider.send?.bind(ethProvider);
+
+    console.log("[TX] Provider methods:", {
+      hasRequest: !!ethProvider.request,
+      hasSend: !!ethProvider.send,
+      reqType: typeof req
+    });
 
     if (!req) throw new Error("Mini app provider missing request/send method");
 
@@ -66,10 +80,9 @@ export function makeTxActions(deps: TxDeps)
     let result: any;
     let txHash: string | null = null;
 
-    // Use eth_sendTransaction - it's the standard method that works on both mobile and desktop
-    // Only fall back to wallet_sendCalls if eth_sendTransaction is not supported (not on user rejection)
+    // Try eth_sendTransaction first
+    console.log("[TX] Attempting eth_sendTransaction...");
     try {
-      console.log("[TX] Sending via eth_sendTransaction...");
       result = await req({
         method: "eth_sendTransaction",
         params: [
@@ -77,49 +90,53 @@ export function makeTxActions(deps: TxDeps)
         ],
       });
       
+      console.log("[TX] eth_sendTransaction raw result:", result);
+      
       if (typeof result === "string" && result.startsWith("0x")) txHash = result;
       else txHash = result?.hash || result?.txHash || null;
-      console.log("[TX] eth_sendTransaction result:", txHash);
+      
+      console.log("[TX] eth_sendTransaction parsed txHash:", txHash);
     } catch (err: any) {
-      const errMsg = err?.message || err?.reason || String(err);
+      console.error("[TX] eth_sendTransaction error:", {
+        code: err?.code,
+        message: err?.message,
+        reason: err?.reason,
+        fullError: err
+      });
       
-      // If user rejected, don't try fallback - just throw
-      if (err?.code === 4001 || errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("user rejected")) {
-        console.log("[TX] User rejected transaction");
-        throw err;
-      }
-      
-      // Only try wallet_sendCalls if eth_sendTransaction is not supported
-      if (errMsg.includes("unsupported") || errMsg.includes("not supported") || errMsg.includes("unknown method")) {
-        console.log("[TX] eth_sendTransaction not supported, trying wallet_sendCalls...");
-        try {
-          result = await req({
-            method: "wallet_sendCalls",
-            params: [
-              {
-                from,
-                chainId: chainIdHex,
-                atomicRequired: false,
-                capabilities: { paymasterService: {} },
-                calls: [{ to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit }],
-              },
-            ],
-          });
+      // Try wallet_sendCalls as fallback
+      console.log("[TX] Trying wallet_sendCalls fallback...");
+      try {
+        result = await req({
+          method: "wallet_sendCalls",
+          params: [
+            {
+              from,
+              chainId: chainIdHex,
+              atomicRequired: false,
+              capabilities: { paymasterService: {} },
+              calls: [{ to, data, value: "0x0", gas: gasLimit, gasLimit: gasLimit }],
+            },
+          ],
+        });
 
-          txHash =
-            result?.txHashes?.[0] ||
-            result?.txHash ||
-            result?.hash ||
-            result?.id ||
-            (typeof result === "string" && result.startsWith("0x") ? result : null);
-          console.log("[TX] wallet_sendCalls result:", txHash);
-        } catch (fallbackErr) {
-          console.error("[TX] wallet_sendCalls also failed:", fallbackErr);
-          throw fallbackErr;
-        }
-      } else {
-        // Some other error, just throw it
-        throw err;
+        console.log("[TX] wallet_sendCalls raw result:", result);
+
+        txHash =
+          result?.txHashes?.[0] ||
+          result?.txHash ||
+          result?.hash ||
+          result?.id ||
+          (typeof result === "string" && result.startsWith("0x") ? result : null);
+          
+        console.log("[TX] wallet_sendCalls parsed txHash:", txHash);
+      } catch (fallbackErr: any) {
+        console.error("[TX] wallet_sendCalls also failed:", {
+          code: fallbackErr?.code,
+          message: fallbackErr?.message,
+          fullError: fallbackErr
+        });
+        throw fallbackErr;
       }
     }
 
