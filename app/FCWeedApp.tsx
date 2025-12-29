@@ -305,6 +305,12 @@ export default function FCWeedApp()
     const [stakeModalOpen, setStakeModalOpen] = useState(false);
     const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
 
+    // Close staking modal when switching tabs
+    useEffect(() => {
+        setV5StakingOpen(false);
+        setV4StakingOpen(false);
+    }, [activeTab]);
+
     const [selectedPlantsToWater, setSelectedPlantsToWater] = useState<number[]>([]);
 
     const [v4StakingOpen, setV4StakingOpen] = useState(false);
@@ -388,6 +394,32 @@ export default function FCWeedApp()
     const [itemsModalOpen, setItemsModalOpen] = useState<boolean>(false);
     const [shopItems, setShopItems] = useState<any[]>([]);
     const [shopTimeUntilReset, setShopTimeUntilReset] = useState<number>(0);
+    
+    // Calculate time until midnight EST for shop reset
+    const getTimeUntilMidnightEST = useCallback(() => {
+        const now = new Date();
+        // Create midnight EST for next day
+        const estOffset = -5; // EST is UTC-5
+        const utcNow = now.getTime() + (now.getTimezoneOffset() * 60000);
+        const estNow = new Date(utcNow + (3600000 * estOffset));
+        
+        // Get next midnight EST
+        const nextMidnight = new Date(estNow);
+        nextMidnight.setHours(24, 0, 0, 0); // Next midnight
+        
+        // Convert back to local time for comparison
+        const nextMidnightUTC = nextMidnight.getTime() - (3600000 * estOffset);
+        const diffMs = nextMidnightUTC - now.getTime();
+        return Math.max(0, Math.floor(diffMs / 1000));
+    }, []);
+    
+    // Update shop reset timer every minute
+    useEffect(() => {
+        const updateTimer = () => setShopTimeUntilReset(getTimeUntilMidnightEST());
+        updateTimer();
+        const interval = setInterval(updateTimer, 60000);
+        return () => clearInterval(interval);
+    }, [getTimeUntilMidnightEST]);
     const [shopSupply, setShopSupply] = useState<Record<number, {remaining: number, total: number}>>({
         1: { remaining: 20, total: 20 },
         2: { remaining: 25, total: 25 },
@@ -488,6 +520,16 @@ export default function FCWeedApp()
     const [crateGlobalStats, setCrateGlobalStats] = useState({ totalOpened: 0, totalBurned: "0", uniqueUsers: 0 });
     const [fcweedBalance, setFcweedBalance] = useState("0");
     const [fcweedBalanceRaw, setFcweedBalanceRaw] = useState(ethers.BigNumber.from(0));
+    
+    // Item Shop FCWEED prices for balance checks
+    const SHOP_FCWEED_PRICES = {
+        healthPack: ethers.utils.parseUnits("2000000", 18),    // 2M
+        attackBoost: ethers.utils.parseUnits("200000", 18),    // 200K
+        ak47: ethers.utils.parseUnits("1000000", 18),          // 1M
+        rpg: ethers.utils.parseUnits("4000000", 18),           // 4M
+        nuke: ethers.utils.parseUnits("10000000", 18),         // 10M
+    };
+    
     const [vaultNfts, setVaultNfts] = useState({ plants: 0, lands: 0, superLands: 0 });
     const [loadingVault, setLoadingVault] = useState(false);
     const [crateLoading, setCrateLoading] = useState(false);
@@ -5281,79 +5323,97 @@ export default function FCWeedApp()
 
                         
                         {connected && (
-                            <div style={{ background: theme === "light" ? "rgba(99,102,241,0.05)" : "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 8, padding: 8, marginBottom: 10 }}>
-                                <div style={{ fontSize: 9, color: "#a78bfa", fontWeight: 700, marginBottom: 6, textAlign: "center" }}>🎒 INVENTORY</div>
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 3 }}>
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 3, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
-                                        <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 1 }}>
-                                            <img src="/images/items/ak47.png" alt="AK-47" style={{ maxWidth: 22, maxHeight: 22, objectFit: "contain" }} />
+                            <div style={{ background: theme === "light" ? "rgba(99,102,241,0.05)" : "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 10, padding: 10, marginBottom: 10 }}>
+                                <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 700, marginBottom: 8, textAlign: "center" }}>🎒 INVENTORY</div>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 4 }}>
+                                    {/* AK-47 */}
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
+                                        <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
+                                            <img src="/images/items/ak47.png" alt="AK-47" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
-                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600 }}>AK-47</div>
-                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444" }}>{inventoryAK47}</div>
-                                        {ak47Expiry > Math.floor(Date.now() / 1000) ? (
-                                            <div style={{ width: "100%", padding: "2px 3px", fontSize: 7, borderRadius: 3, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, marginTop: 1, textAlign: "center" }}>{Math.floor((ak47Expiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((ak47Expiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
-                                        ) : (
-                                            <button onClick={handleActivateAK47} disabled={inventoryAK47 === 0 || inventoryLoading} style={{ width: "100%", padding: "2px 3px", fontSize: 6, borderRadius: 3, border: "none", background: inventoryAK47 > 0 ? "linear-gradient(135deg, #ef4444, #dc2626)" : "#374151", color: "#fff", cursor: inventoryAK47 > 0 ? "pointer" : "not-allowed", fontWeight: 600, marginTop: 1 }}>Activate</button>
-                                        )}
+                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>AK-47</div>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>{inventoryAK47}</div>
+                                        <div style={{ marginTop: "auto", width: "100%" }}>
+                                            {ak47Expiry > Math.floor(Date.now() / 1000) ? (
+                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((ak47Expiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((ak47Expiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
+                                            ) : (
+                                                <button onClick={handleActivateAK47} disabled={inventoryAK47 === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryAK47 > 0 ? "linear-gradient(135deg, #ef4444, #dc2626)" : "#374151", color: "#fff", cursor: inventoryAK47 > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(239,68,68,0.1)", borderRadius: 6, padding: 3, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", border: "1px solid rgba(239,68,68,0.3)" }}>
-                                        <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 1 }}>
-                                            <img src="/images/items/nuke.png" alt="Nuke" style={{ maxWidth: 22, maxHeight: 22, objectFit: "contain" }} />
+                                    {/* Tactical Nuke */}
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(239,68,68,0.1)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", border: "1px solid rgba(239,68,68,0.3)", minHeight: 85 }}>
+                                        <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
+                                            <img src="/images/items/nuke.png" alt="Nuke" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
-                                        <div style={{ fontSize: 7, color: "#ef4444", fontWeight: 600 }}>TACTICAL NUKE</div>
-                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444" }}>{inventoryNuke}</div>
-                                        {nukeExpiry > Math.floor(Date.now() / 1000) ? (
-                                            <div style={{ width: "100%", padding: "2px 3px", fontSize: 7, borderRadius: 3, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, marginTop: 1, textAlign: "center" }}>{Math.floor((nukeExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(nukeExpiry - Math.floor(Date.now() / 1000)) % 60}s</div>
-                                        ) : (
-                                            <button onClick={() => setNukeConfirmOpen(true)} disabled={inventoryNuke === 0 || inventoryLoading} style={{ width: "100%", padding: "2px 3px", fontSize: 6, borderRadius: 3, border: "none", background: inventoryNuke > 0 ? "linear-gradient(135deg, #ef4444, #b91c1c)" : "#374151", color: "#fff", cursor: inventoryNuke > 0 ? "pointer" : "not-allowed", fontWeight: 600, marginTop: 1 }}>Activate</button>
-                                        )}
+                                        <div style={{ fontSize: 6, color: "#ef4444", fontWeight: 600, marginBottom: 2 }}>NUKE</div>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>{inventoryNuke}</div>
+                                        <div style={{ marginTop: "auto", width: "100%" }}>
+                                            {nukeExpiry > Math.floor(Date.now() / 1000) ? (
+                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((nukeExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(nukeExpiry - Math.floor(Date.now() / 1000)) % 60}s</div>
+                                            ) : (
+                                                <button onClick={() => setNukeConfirmOpen(true)} disabled={inventoryNuke === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryNuke > 0 ? "linear-gradient(135deg, #ef4444, #b91c1c)" : "#374151", color: "#fff", cursor: inventoryNuke > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 3, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
-                                        <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 1 }}>
-                                            <img src="/images/items/rpg.png" alt="RPG" style={{ maxWidth: 22, maxHeight: 22, objectFit: "contain" }} />
+                                    {/* RPG */}
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
+                                        <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
+                                            <img src="/images/items/rpg.png" alt="RPG" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
-                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600 }}>RPG</div>
-                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#a855f7" }}>{inventoryRPG}</div>
-                                        {rpgExpiry > Math.floor(Date.now() / 1000) ? (
-                                            <div style={{ width: "100%", padding: "2px 3px", fontSize: 7, borderRadius: 3, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, marginTop: 1, textAlign: "center" }}>{Math.floor((rpgExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(rpgExpiry - Math.floor(Date.now() / 1000)) % 60}s</div>
-                                        ) : (
-                                            <button onClick={handleActivateRPG} disabled={inventoryRPG === 0 || inventoryLoading} style={{ width: "100%", padding: "2px 3px", fontSize: 6, borderRadius: 3, border: "none", background: inventoryRPG > 0 ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: "#fff", cursor: inventoryRPG > 0 ? "pointer" : "not-allowed", fontWeight: 600, marginTop: 1 }}>Activate</button>
-                                        )}
+                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>RPG</div>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: "#a855f7", marginBottom: 4 }}>{inventoryRPG}</div>
+                                        <div style={{ marginTop: "auto", width: "100%" }}>
+                                            {rpgExpiry > Math.floor(Date.now() / 1000) ? (
+                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((rpgExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(rpgExpiry - Math.floor(Date.now() / 1000)) % 60}s</div>
+                                            ) : (
+                                                <button onClick={handleActivateRPG} disabled={inventoryRPG === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryRPG > 0 ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: "#fff", cursor: inventoryRPG > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 3, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
-                                        <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 1 }}>
-                                            <img src="/images/items/healthpack.png" alt="Health Pack" style={{ maxWidth: 22, maxHeight: 22, objectFit: "contain" }} />
+                                    {/* Health Packs */}
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
+                                        <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
+                                            <img src="/images/items/healthpack.png" alt="Health Pack" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
-                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600 }}>HEALTH PACKS</div>
-                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#10b981" }}>{inventoryHealthPacks}</div>
-                                        <button onClick={() => setHealthPackModalOpen(true)} disabled={inventoryHealthPacks === 0 || v5StakedPlants.length === 0} style={{ width: "100%", padding: "2px 3px", fontSize: 6, borderRadius: 3, border: "none", background: inventoryHealthPacks > 0 && v5StakedPlants.length > 0 ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: "#fff", cursor: inventoryHealthPacks > 0 && v5StakedPlants.length > 0 ? "pointer" : "not-allowed", fontWeight: 600, marginTop: 1 }}>Use</button>
+                                        <div style={{ fontSize: 6, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>HEALTH</div>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: "#10b981", marginBottom: 4 }}>{inventoryHealthPacks}</div>
+                                        <div style={{ marginTop: "auto", width: "100%" }}>
+                                            <button onClick={() => setHealthPackModalOpen(true)} disabled={inventoryHealthPacks === 0 || v5StakedPlants.length === 0} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryHealthPacks > 0 && v5StakedPlants.length > 0 ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: "#fff", cursor: inventoryHealthPacks > 0 && v5StakedPlants.length > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Use</button>
+                                        </div>
                                     </div>
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 3, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
-                                        <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 1 }}>
-                                            <span style={{ fontSize: 18 }}>🛡️</span>
+                                    {/* Shields */}
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
+                                        <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
+                                            <span style={{ fontSize: 20 }}>🛡️</span>
                                         </div>
-                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600 }}>SHIELDS</div>
-                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6" }}>{inventoryShields}</div>
-                                        {shieldExpiry > Math.floor(Date.now() / 1000) ? (
-                                            <div style={{ width: "100%", padding: "2px 3px", fontSize: 7, borderRadius: 3, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, marginTop: 1, textAlign: "center" }}>{Math.floor((shieldExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((shieldExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
-                                        ) : (
-                                            <button onClick={handleActivateShield} disabled={inventoryShields === 0 || inventoryLoading} style={{ width: "100%", padding: "2px 3px", fontSize: 6, borderRadius: 3, border: "none", background: inventoryShields > 0 ? "linear-gradient(135deg, #3b82f6, #60a5fa)" : "#374151", color: "#fff", cursor: inventoryShields > 0 ? "pointer" : "not-allowed", fontWeight: 600, marginTop: 1 }}>Activate</button>
-                                        )}
+                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>SHIELDS</div>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: "#3b82f6", marginBottom: 4 }}>{inventoryShields}</div>
+                                        <div style={{ marginTop: "auto", width: "100%" }}>
+                                            {shieldExpiry > Math.floor(Date.now() / 1000) ? (
+                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((shieldExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((shieldExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
+                                            ) : (
+                                                <button onClick={handleActivateShield} disabled={inventoryShields === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryShields > 0 ? "linear-gradient(135deg, #3b82f6, #60a5fa)" : "#374151", color: "#fff", cursor: inventoryShields > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 3, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
-                                        <div style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 1 }}>
-                                            <span style={{ fontSize: 18 }}>⚡</span>
+                                    {/* Attack Boost */}
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
+                                        <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
+                                            <span style={{ fontSize: 20 }}>⚡</span>
                                         </div>
-                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600 }}>ATTACK BOOST</div>
-                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b" }}>{inventoryBoosts}</div>
-                                        {boostExpiry > Math.floor(Date.now() / 1000) ? (
-                                            <div style={{ width: "100%", padding: "2px 3px", fontSize: 7, borderRadius: 3, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, marginTop: 1, textAlign: "center" }}>{Math.floor((boostExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((boostExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
-                                        ) : (
-                                            <button onClick={handleActivateBoost} disabled={inventoryBoosts === 0 || inventoryLoading} style={{ width: "100%", padding: "2px 3px", fontSize: 6, borderRadius: 3, border: "none", background: inventoryBoosts > 0 ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151", color: inventoryBoosts > 0 ? "#000" : "#fff", cursor: inventoryBoosts > 0 ? "pointer" : "not-allowed", fontWeight: 600, marginTop: 1 }}>Activate</button>
-                                        )}
+                                        <div style={{ fontSize: 6, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>BOOST</div>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b", marginBottom: 4 }}>{inventoryBoosts}</div>
+                                        <div style={{ marginTop: "auto", width: "100%" }}>
+                                            {boostExpiry > Math.floor(Date.now() / 1000) ? (
+                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((boostExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((boostExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
+                                            ) : (
+                                                <button onClick={handleActivateBoost} disabled={inventoryBoosts === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryBoosts > 0 ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151", color: inventoryBoosts > 0 ? "#000" : "#fff", cursor: inventoryBoosts > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
-                                {inventoryStatus && <div style={{ fontSize: 8, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{inventoryStatus}</div>}
+                                {inventoryStatus && <div style={{ fontSize: 9, color: "#fbbf24", marginTop: 6, textAlign: "center" }}>{inventoryStatus}</div>}
                             </div>
                         )}
 
@@ -5370,40 +5430,44 @@ export default function FCWeedApp()
                                 
                                 
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-                                    
-                                    <div style={{ background: theme === "light" ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 10, padding: 10 }}>
-                                        <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>🛡️ Defense</div>
-                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                                <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>WINS</div>
-                                                <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.defWins || 0}</div>
+                                    {/* Defense Box */}
+                                    <div style={{ background: theme === "light" ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 12, padding: 12 }}>
+                                        <div style={{ fontSize: 13, color: "#60a5fa", fontWeight: 700, textAlign: "center", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                                            <span>🛡️</span> Defense
+                                        </div>
+                                        <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}>
+                                            <div style={{ flex: 1, background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 4 }}>WINS</div>
+                                                <div style={{ fontSize: 20, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.defWins || 0}</div>
                                             </div>
-                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                                <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOSSES</div>
-                                                <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.defLosses || 0}</div>
+                                            <div style={{ flex: 1, background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 4 }}>LOSSES</div>
+                                                <div style={{ fontSize: 20, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.defLosses || 0}</div>
                                             </div>
-                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                                <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOST</div>
-                                                <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 600 }}>{warsPlayerStats.rewardsLost ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsLost, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
+                                            <div style={{ flex: 1, background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 4 }}>LOST</div>
+                                                <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.rewardsLost ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsLost, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
                                             </div>
                                         </div>
                                     </div>
                                     
-                                    
-                                    <div style={{ background: theme === "light" ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 10 }}>
-                                        <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>⚔️ Attack</div>
-                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                                <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>WINS</div>
-                                                <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
+                                    {/* Attack Box */}
+                                    <div style={{ background: theme === "light" ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, padding: 12 }}>
+                                        <div style={{ fontSize: 13, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                                            <span>⚔️</span> Attack
+                                        </div>
+                                        <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}>
+                                            <div style={{ flex: 1, background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 4 }}>WINS</div>
+                                                <div style={{ fontSize: 20, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
                                             </div>
-                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                                <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOSSES</div>
-                                                <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
+                                            <div style={{ flex: 1, background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 4 }}>LOSSES</div>
+                                                <div style={{ fontSize: 20, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
                                             </div>
-                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                                <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>STOLEN</div>
-                                                <div style={{ fontSize: 14, color: "#10b981", fontWeight: 600 }}>{warsPlayerStats.rewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
+                                            <div style={{ flex: 1, background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 4 }}>STOLEN</div>
+                                                <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.rewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -6376,6 +6440,13 @@ export default function FCWeedApp()
                             <h3 style={{ margin: 0, fontSize: 18, color: "#60a5fa" }}>💧 Water Shop</h3>
                             <button onClick={() => setWaterModalOpen(false)} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
                         </div>
+                        {/* FCWEED Balance Display */}
+                        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, padding: "8px 12px", background: "rgba(0,0,0,0.2)", borderRadius: 8 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontSize: 14 }}>🌿</span>
+                                <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>{fcweedBalance} FCWEED</span>
+                            </div>
+                        </div>
                         <p style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 16 }}>Water restores plant health. Neglected plants cost more water!</p>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 16 }}>
                             <div style={{ background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: 10 }}>
@@ -6413,7 +6484,7 @@ export default function FCWeedApp()
                                         <div style={{ fontSize: 20, color: "#60a5fa", fontWeight: 700 }}>{waterBuyAmount}L</div>
                                         <div style={{ fontSize: 11, color: "#9ca3af" }}>{(waterBuyAmount * (waterShopInfo?.pricePerLiter || 75000)).toLocaleString()} FCWEED</div>
                                     </div>
-                                    <button type="button" onClick={() => setWaterBuyAmount(waterBuyAmount + 1)} style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #374151", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 18, fontWeight: 700 }}>+</button>
+                                    <button type="button" onClick={() => setWaterBuyAmount(Math.min(waterShopInfo?.walletRemaining || 0, waterBuyAmount + 1))} disabled={waterBuyAmount >= (waterShopInfo?.walletRemaining || 0)} style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #374151", background: waterBuyAmount >= (waterShopInfo?.walletRemaining || 0) ? "#1f2937" : "transparent", color: waterBuyAmount >= (waterShopInfo?.walletRemaining || 0) ? "#6b7280" : "#fff", cursor: waterBuyAmount >= (waterShopInfo?.walletRemaining || 0) ? "not-allowed" : "pointer", fontSize: 18, fontWeight: 700 }}>+</button>
                                 </div>
                                 <button type="button" onClick={handleBuyWater} disabled={waterLoading || !connected || waterBuyAmount > (waterShopInfo?.walletRemaining || 0)} style={{ width: "100%", padding: 14, fontSize: 13, fontWeight: 700, borderRadius: 10, border: "none", background: waterLoading ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)", color: "#fff", cursor: waterLoading || waterBuyAmount > (waterShopInfo?.walletRemaining || 0) ? "not-allowed" : "pointer" }}>
                                     {waterLoading ? "💧 Buying..." : `💧 Buy ${waterBuyAmount}L Water`}
@@ -6449,6 +6520,17 @@ export default function FCWeedApp()
                             <h3 style={{ margin: 0, fontSize: 18, color: "#f59e0b" }}>🏪 Item Shop</h3>
                             <button onClick={() => setItemsModalOpen(false)} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
                         </div>
+                        {/* Balance Display */}
+                        <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 12, padding: "8px 12px", background: "rgba(0,0,0,0.2)", borderRadius: 8 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontSize: 14 }}>🌿</span>
+                                <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>{fcweedBalance} FCWEED</span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontSize: 14 }}>💨</span>
+                                <span style={{ fontSize: 12, color: "#9ca3af", fontWeight: 700 }}>{crateUserStats.dust.toLocaleString()} DUST</span>
+                            </div>
+                        </div>
                         <div style={{ fontSize: 10, color: "#9ca3af", textAlign: "center", marginBottom: 12 }}>
                             ⏰ Daily supply resets at 12:00 AM EST
                         </div>
@@ -6466,7 +6548,7 @@ export default function FCWeedApp()
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[4]?.remaining ?? 15}/{shopSupply[4]?.total ?? 15}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(4, "dust")} disabled={shopLoading || crateUserStats.dust < 1000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 1000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 1000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 1000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 1K DUST</button>
-                                            <button onClick={() => handleBuyItem(4, "fcweed")} disabled={shopLoading} style={{ padding: "6px", borderRadius: 5, border: "none", background: "linear-gradient(135deg, #ef4444, #dc2626)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 8 }}>🌿 1M FCWEED</button>
+                                            <button onClick={() => handleBuyItem(4, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.ak47)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "linear-gradient(135deg, #ef4444, #dc2626)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 1M FCWEED</button>
                                         </div>
                                     </>
                                 ) : (
@@ -6488,7 +6570,7 @@ export default function FCWeedApp()
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[6]?.remaining ?? 1}/{shopSupply[6]?.total ?? 1}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(6, "dust")} disabled={shopLoading || crateUserStats.dust < 10000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 10000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 10000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 10000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 10K DUST</button>
-                                            <button onClick={() => handleBuyItem(6, "fcweed")} disabled={shopLoading} style={{ padding: "6px", borderRadius: 5, border: "none", background: "linear-gradient(135deg, #dc2626, #b91c1c)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 8 }}>🌿 10M FCWEED</button>
+                                            <button onClick={() => handleBuyItem(6, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.nuke)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "linear-gradient(135deg, #dc2626, #b91c1c)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 10M FCWEED</button>
                                         </div>
                                     </>
                                 ) : (
@@ -6510,7 +6592,7 @@ export default function FCWeedApp()
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#a855f7", fontWeight: 600 }}>{shopSupply[5]?.remaining ?? 3}/{shopSupply[5]?.total ?? 3}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(5, "dust")} disabled={shopLoading || crateUserStats.dust < 4000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 4000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 4000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 4000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 4K DUST</button>
-                                            <button onClick={() => handleBuyItem(5, "fcweed")} disabled={shopLoading} style={{ padding: "6px", borderRadius: 5, border: "none", background: "linear-gradient(135deg, #a855f7, #8b5cf6)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 8 }}>🌿 4M FCWEED</button>
+                                            <button onClick={() => handleBuyItem(5, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.rpg)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 4M FCWEED</button>
                                         </div>
                                     </>
                                 ) : (
@@ -6534,7 +6616,7 @@ export default function FCWeedApp()
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#10b981", fontWeight: 600 }}>{shopSupply[1]?.remaining ?? 20}/{shopSupply[1]?.total ?? 20}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(1, "dust")} disabled={shopLoading || crateUserStats.dust < 2000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 2K DUST</button>
-                                            <button onClick={() => handleBuyItem(1, "fcweed")} disabled={shopLoading} style={{ padding: "6px", borderRadius: 5, border: "none", background: "linear-gradient(135deg, #10b981, #34d399)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 8 }}>🌿 2M FCWEED</button>
+                                            <button onClick={() => handleBuyItem(1, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.healthPack)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 2M FCWEED</button>
                                         </div>
                                     </>
                                 ) : (
@@ -6571,7 +6653,7 @@ export default function FCWeedApp()
                                 <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#f59e0b", fontWeight: 600 }}>∞</span></div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                     <button onClick={() => handleBuyItem(3, "dust")} disabled={shopLoading || crateUserStats.dust < 200} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 200 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 200 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 200 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 200 DUST</button>
-                                    <button onClick={() => handleBuyItem(3, "fcweed")} disabled={shopLoading} style={{ padding: "6px", borderRadius: 5, border: "none", background: "linear-gradient(135deg, #f59e0b, #fbbf24)", color: "#000", fontWeight: 600, cursor: "pointer", fontSize: 8 }}>🌿 200K FCWEED</button>
+                                    <button onClick={() => handleBuyItem(3, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.attackBoost)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "#000" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 200K FCWEED</button>
                                 </div>
                             </div>
                         </div>
