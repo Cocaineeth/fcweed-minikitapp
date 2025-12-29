@@ -54,7 +54,8 @@ export function CrimeLadder(props: {
                 )}
             </div>
 
-            {connected && farmerCount > 0 && (
+            {/* Your Stats - Shows when connected */}
+            {connected && (
                 <div
                     style={{
                         fontSize: 12,
@@ -66,7 +67,9 @@ export function CrimeLadder(props: {
                         color: isLight ? "#1e293b" : undefined,
                     }}
                 >
-                    {walletRow && walletRank ? (
+                    {loading ? (
+                        <span style={{ opacity: 0.7 }}>Loading your stats...</span>
+                    ) : walletRow && walletRank ? (
                         <>
                             <div style={{ marginBottom: 4 }}>
                                 Your rank: <b>#{walletRank}</b> out of <b>{farmerCount}</b>{" "}
