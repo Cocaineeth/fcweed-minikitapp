@@ -1350,7 +1350,7 @@ export default function FCWeedApp()
 
             console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, isBaseApp, userAgent: navigator.userAgent });
 
-            // Mobile-only app - always try SDK/mini app wallet first
+            // Mobile-only app - use Farcaster SDK which respects user's wallet preference
             try {
                 console.log("[Wallet] Attempting SDK wallet connection...");
 
@@ -1362,15 +1362,28 @@ export default function FCWeedApp()
                     console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
                 }
 
-                // Try Farcaster SDK wallet first (primary method)
+                // Farcaster SDK getEthereumProvider() returns the user's preferred wallet
+                // (Farcaster Wallet, Rabby, or External based on their settings)
                 try {
                     ethProv = await sdk.wallet.getEthereumProvider();
-                    console.log("[Wallet] Got provider via Farcaster SDK");
-                    isMini = true;
+                    if (ethProv) {
+                        console.log("[Wallet] Got provider via Farcaster SDK");
+                        
+                        // Log provider details to debug which wallet is being used
+                        const providerInfo = {
+                            isRabby: !!(ethProv as any).isRabby,
+                            isMetaMask: !!(ethProv as any).isMetaMask,
+                            isCoinbaseWallet: !!(ethProv as any).isCoinbaseWallet,
+                            isFarcaster: !!(ethProv as any).isFarcaster,
+                        };
+                        console.log("[Wallet] Provider info:", providerInfo);
+                        
+                        isMini = true;
+                    }
                 } catch (err1) {
-                    console.warn("[Wallet] Farcaster SDK failed:", err1);
+                    console.warn("[Wallet] Farcaster SDK getEthereumProvider failed:", err1);
                     
-                    // Try ethProvider property
+                    // Try ethProvider property as fallback
                     if ((sdk.wallet as any).ethProvider) {
                         ethProv = (sdk.wallet as any).ethProvider;
                         console.log("[Wallet] Got provider via ethProvider property");
@@ -1378,25 +1391,27 @@ export default function FCWeedApp()
                     }
                 }
 
-                // If no Farcaster provider, try Base/Coinbase wallet
+                // If SDK didn't return a provider, check window.ethereum
+                // Farcaster may inject the selected wallet there
                 if (!ethProv) {
                     const anyWindow = window as any;
-                    if (anyWindow.ethereum?.isCoinbaseWallet) {
+                    
+                    // Check what's available in window.ethereum
+                    if (anyWindow.ethereum) {
+                        const windowProviderInfo = {
+                            isRabby: !!anyWindow.ethereum.isRabby,
+                            isMetaMask: !!anyWindow.ethereum.isMetaMask,
+                            isCoinbaseWallet: !!anyWindow.ethereum.isCoinbaseWallet,
+                            isBase: !!anyWindow.ethereum.isBase,
+                        };
+                        console.log("[Wallet] window.ethereum info:", windowProviderInfo);
+                        
                         ethProv = anyWindow.ethereum;
-                        console.log("[Wallet] Got provider via Coinbase Wallet");
-                        isMini = true;
-                    } else if (anyWindow.ethereum?.isBase) {
-                        ethProv = anyWindow.ethereum;
-                        console.log("[Wallet] Got provider via Base App");
+                        console.log("[Wallet] Using window.ethereum as provider");
                         isMini = true;
                     } else if (anyWindow.coinbaseWalletExtension) {
                         ethProv = anyWindow.coinbaseWalletExtension;
                         console.log("[Wallet] Got provider via coinbaseWalletExtension");
-                        isMini = true;
-                    } else if (anyWindow.ethereum) {
-                        // Fallback to window.ethereum
-                        ethProv = anyWindow.ethereum;
-                        console.log("[Wallet] Got provider via window.ethereum fallback");
                         isMini = true;
                     }
                 }
@@ -4796,6 +4811,20 @@ export default function FCWeedApp()
                                     <div style={{ fontSize: 10, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Win NFTs, tokens, and rare items</div>
                                 </div>
                             </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <span style={{ fontSize: 20 }}>💧</span>
+                                <div>
+                                    <div style={{ fontWeight: 600, fontSize: 11, color: theme === "light" ? "#1e293b" : "#fff" }}>Water Shop</div>
+                                    <div style={{ fontSize: 10, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Water your plants daily to earn! Open 12-6pm EST</div>
+                                </div>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <span style={{ fontSize: 20 }}>🛒</span>
+                                <div>
+                                    <div style={{ fontWeight: 600, fontSize: 11, color: theme === "light" ? "#1e293b" : "#fff" }}>Item Shop</div>
+                                    <div style={{ fontSize: 10, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Health Packs, AK-47s, RPGs, Nukes & more!</div>
+                                </div>
+                            </div>
                         </div>
                         
                         <button
@@ -5129,12 +5158,12 @@ export default function FCWeedApp()
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>250K FCWEED</b> to target ANY wallet directly</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>20 min cooldown</b> | <b style={{ color: "#ef4444" }}>All shields BYPASSED</b></li>
                                 <li style={{ color: "#10b981", marginTop: 8 }}><b>Item Shop</b> — Power-ups for your farm!</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> — Restores plant health (Shop open 12PM-6PM EST)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection, Purge Day Bypasses Shields</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% Combat power for 6h</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% Combat power for 6h</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% Combat power for 1h</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> — Restores plant health to 100% (Shop open 12PM-6PM EST)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant, 2K Dust or 2M FCWEED (20/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection, Purge Bypasses Shields, 2.5K Dust only (25/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% power for 6h, 200 Dust or 200K FCWEED</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% power for 6h, 1K Dust or 1M FCWEED (15/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% power for 1h, 4K Dust or 4M FCWEED (3/day supply)</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 50% | STEAL: 50%</b></li>
                             </ul>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
