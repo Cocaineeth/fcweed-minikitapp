@@ -509,6 +509,42 @@ export default function FCWeedApp()
     const [manualPause, setManualPause] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [gifIndex, setGifIndex] = useState(0);
+    const [imagesLoaded, setImagesLoaded] = useState(false);
+
+    // Preload all images on mount to prevent flickering
+    useEffect(() => {
+        const imagesToPreload = [
+            ...GIFS,
+            '/images/items/ak47.png',
+            '/images/items/nuke.png',
+            '/images/items/rpg.png',
+            '/images/items/healthpack.png',
+        ];
+        
+        let loadedCount = 0;
+        const totalImages = imagesToPreload.length;
+        
+        imagesToPreload.forEach((src) => {
+            const img = new window.Image();
+            img.onload = () => {
+                loadedCount++;
+                if (loadedCount >= totalImages) {
+                    setImagesLoaded(true);
+                }
+            };
+            img.onerror = () => {
+                loadedCount++;
+                if (loadedCount >= totalImages) {
+                    setImagesLoaded(true);
+                }
+            };
+            img.src = src;
+        });
+        
+        // Fallback - mark as loaded after 2 seconds regardless
+        const timeout = setTimeout(() => setImagesLoaded(true), 2000);
+        return () => clearTimeout(timeout);
+    }, []);
 
     const [ladderRows, setLadderRows] = useState<FarmerRow[]>([]);
     const [ladderLoading, setLadderLoading] = useState(false);
@@ -4730,6 +4766,12 @@ export default function FCWeedApp()
                     min-height: 100vh;
                     min-height: 100dvh;
                 }
+                /* Anti-flicker for images */
+                img {
+                    image-rendering: -webkit-optimize-contrast;
+                    backface-visibility: hidden;
+                    transform: translateZ(0);
+                }
             `}</style>
             
             {showOnboarding && (
@@ -5083,8 +5125,20 @@ export default function FCWeedApp()
             <main className={styles.main}>
                 {activeTab === "info" && (
                     <>
-                        <section style={{ textAlign: "center", padding: "10px 0", display: "flex", justifyContent: "center" }}>
-                            <Image src={GIFS[gifIndex]} alt="FCWEED" width={280} height={100} style={{ borderRadius: 14, objectFit: "cover" }} />
+                        <section style={{ textAlign: "center", padding: "10px 0", display: "flex", justifyContent: "center", minHeight: 100 }}>
+                            <Image 
+                                src={GIFS[gifIndex]} 
+                                alt="FCWEED" 
+                                width={280} 
+                                height={100} 
+                                style={{ 
+                                    borderRadius: 14, 
+                                    objectFit: "cover",
+                                    opacity: imagesLoaded ? 1 : 0,
+                                    transition: "opacity 0.3s ease"
+                                }} 
+                                priority
+                            />
                         </section>
 
                         
@@ -5159,11 +5213,11 @@ export default function FCWeedApp()
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>20 min cooldown</b> | <b style={{ color: "#ef4444" }}>All shields BYPASSED</b></li>
                                 <li style={{ color: "#10b981", marginTop: 8 }}><b>Item Shop</b> — Power-ups for your farm!</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> — Restores plant health to 100% (Shop open 12PM-6PM EST)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant, 2K Dust or 2M FCWEED (20/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection, Purge Bypasses Shields, 2.5K Dust only (25/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% power for 6h, 200 Dust or 200K FCWEED</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% power for 6h, 1K Dust or 1M FCWEED (15/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% power for 1h, 4K Dust or 4M FCWEED (3/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection, Purge Day Bypasses Shields</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% Combat power for 6h</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% Combat power for 6h</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% Combat power for 1h</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 50% | STEAL: 50%</b></li>
                             </ul>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
@@ -5191,8 +5245,19 @@ export default function FCWeedApp()
         {activeTab === "mint" && (
             <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 20 })}>
                 <h2 style={{ fontSize: 18, margin: "0 0 12px", color: theme === "light" ? "#2563eb" : "#7cb3ff" }}>Mint NFTs</h2>
-                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
-                    <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, minHeight: 95 }}>
+                    <Image 
+                        src={GIFS[gifIndex]} 
+                        alt="FCWEED" 
+                        width={260} 
+                        height={95} 
+                        style={{ 
+                            borderRadius: 12, 
+                            objectFit: "cover",
+                            opacity: imagesLoaded ? 1 : 0,
+                            transition: "opacity 0.3s ease"
+                        }} 
+                    />
                 </div>
 
                 
@@ -5258,8 +5323,19 @@ export default function FCWeedApp()
                 {activeTab === "stake" && (
                     <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 20 })}>
                         <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#7cb3ff" }}>Staking</h2>
-                        <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
-                            <Image src={GIFS[gifIndex]} alt="FCWEED" width={260} height={95} style={{ borderRadius: 12, objectFit: "cover" }} />
+                        <div style={{ display: "flex", justifyContent: "center", marginBottom: 16, minHeight: 95 }}>
+                            <Image 
+                                src={GIFS[gifIndex]} 
+                                alt="FCWEED" 
+                                width={260} 
+                                height={95} 
+                                style={{ 
+                                    borderRadius: 12, 
+                                    objectFit: "cover",
+                                    opacity: imagesLoaded ? 1 : 0,
+                                    transition: "opacity 0.3s ease"
+                                }} 
+                            />
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                             <button type="button" className={styles.btnPrimary} onClick={() => setV5StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #10b981, #34d399)" }}>🚀 Staking V5</button>
