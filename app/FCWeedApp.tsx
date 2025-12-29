@@ -2,7 +2,52 @@
 
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import Image from "next/image";
-import { useMiniKit, useComposeCast } from "@coinbase/onchainkit/minikit";
+// import { useMiniKit, useComposeCast } from "@coinbase/onchainkit/minikit";
+// Using a safe wrapper since hooks can fail outside MiniKitProvider context
+
+// Safe hook that returns defaults if MiniKit is not available
+function useSafeMiniKit() {
+    const [state, setState] = useState({ 
+        setMiniAppReady: () => {}, 
+        isMiniAppReady: false,
+        context: null as any
+    });
+    
+    useEffect(() => {
+        // Try to dynamically check if we're in MiniKit context
+        const tryInit = async () => {
+            try {
+                // Signal frame ready via SDK directly
+                await sdk.actions.ready();
+                setState(prev => ({ ...prev, isMiniAppReady: true }));
+            } catch (e) {
+                // Not in frame context, that's OK
+                setState(prev => ({ ...prev, isMiniAppReady: true }));
+            }
+        };
+        tryInit();
+    }, []);
+    
+    return state;
+}
+
+function useSafeComposeCast() {
+    const composeCast = useCallback(async (options: { text?: string; embeds?: string[] }) => {
+        try {
+            // Try using Farcaster SDK directly
+            const context = await sdk.context;
+            if (context) {
+                await sdk.actions.openUrl(
+                    `https://warpcast.com/~/compose?text=${encodeURIComponent(options.text || '')}`
+                );
+            }
+        } catch (e) {
+            console.log("[FCWeed] composeCast not available");
+        }
+    }, []);
+    
+    return { composeCast };
+}
 import { ethers } from "ethers";
 import { sdk } from "@farcaster/miniapp-sdk";
 import styles from "./page.module.css";
@@ -226,8 +271,9 @@ async function captureAndShare(
 
 export default function FCWeedApp()
 {
-    const { setMiniAppReady, isMiniAppReady } = useMiniKit();
-    const { composeCast } = useComposeCast();
+    // Use safe versions of MiniKit hooks
+    const { setMiniAppReady, isMiniAppReady } = useSafeMiniKit();
+    const { composeCast } = useSafeComposeCast();
 
     // Theme state (light/dark)
     const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -858,11 +904,8 @@ export default function FCWeedApp()
 
     useEffect(() =>
         {
-            if (!isMiniAppReady)
-            {
-                setMiniAppReady();
-            }
-
+            // Skip frame ready call - handled by useSafeMiniKit hook
+            
             let cancelled = false;
             let t: ReturnType<typeof setTimeout> | null = null;
 
@@ -870,10 +913,9 @@ export default function FCWeedApp()
                 {
                     try
                     {
-                        console.log("[Init] Initializing Farcaster SDK...");
-                        await sdk.actions.ready();
+                        console.log("[Init] Initializing...");
+                        // SDK ready is called in useSafeMiniKit hook
                         if (cancelled) return;
-                        console.log("[Init] SDK ready");
 
                         const { isMiniApp } = detectMiniAppEnvironment();
                         if (isMiniApp && !userAddress)
@@ -890,7 +932,7 @@ export default function FCWeedApp()
                     }
                     catch (err)
                     {
-                        console.warn("[Init] SDK initialization failed:", err);
+                        console.warn("[Init] Initialization failed:", err);
                     }
                 })();
 
@@ -899,7 +941,7 @@ export default function FCWeedApp()
                     cancelled = true;
                     if (t) clearTimeout(t);
                 };
-        }, [isMiniAppReady, setMiniAppReady, userAddress]);
+        }, [userAddress]);
 
     // Paymaster URL for sponsored transactions (Coinbase Developer Platform)
     const PAYMASTER_URL = "https://api.developer.coinbase.com/rpc/v1/base/LBqFJaxfsfmt8cL44zkpJ3BHgill7Sw4";

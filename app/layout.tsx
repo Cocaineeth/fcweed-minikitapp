@@ -78,8 +78,18 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <meta name="base:app_id" content="694d066ac63ad876c90812b8" />
+        {/* Safe area insets for mobile */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       </head>
-      <body className={`${inter.variable} ${sourceCodePro.variable}`}>
+      <body 
+        className={`${inter.variable} ${sourceCodePro.variable}`}
+        style={{
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          paddingLeft: 'env(safe-area-inset-left)',
+          paddingRight: 'env(safe-area-inset-right)',
+        }}
+      >
         {children}
       </body>
     </html>
