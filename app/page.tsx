@@ -1,8 +1,6 @@
-// app/page.tsx
-import dynamic from 'next/dynamic';
+"use client";
 
-// Force dynamic rendering - no static generation
-export const dynamic = 'force-dynamic';
+import dynamic from 'next/dynamic';
 
 // Dynamically import the main app component with SSR disabled
 const FCWeedApp = dynamic(
