@@ -6,6 +6,11 @@ import { OnchainKitProvider } from "@coinbase/onchainkit";
 import "@coinbase/onchainkit/styles.css";
 import { sdk } from "@farcaster/miniapp-sdk";
 import FCWeedApp from "./FCWeedApp";
+import { autoRefreshManager } from "./lib/autoRefresh";
+
+// Configure WalletConnect for additional wallet support
+// This extends OnchainKit's built-in wallet support
+const WALLETCONNECT_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "";
 
 function Providers({ children }: { children: ReactNode }) {
   return (
@@ -18,6 +23,7 @@ function Providers({ children }: { children: ReactNode }) {
         },
         wallet: {
           display: "modal",
+          // Enable all wallet types including external wallets
           preference: "all",
         },
       }}
@@ -43,6 +49,15 @@ export default function App() {
       }
     };
     init();
+
+    // Initialize auto-refresh manager with backend URL
+    const backendUrl = process.env.NEXT_PUBLIC_WARS_BACKEND_URL || "https://wars.x420ponzi.com";
+    autoRefreshManager.setBackendUrl(backendUrl);
+
+    // Cleanup on unmount
+    return () => {
+      autoRefreshManager.stopAll();
+    };
   }, []);
 
   if (!mounted) {
