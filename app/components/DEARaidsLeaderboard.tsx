@@ -18,7 +18,7 @@ const BATTLES_ABI = [
     "function getDeaAttackerStats(address) view returns (uint256 raidsWon, uint256 raidsLost, uint256 rewardsStolen, uint256 rewardsLostAttacking, uint256 cooldownRemaining, bool canAttack)",
     "function getGlobalStats() view returns (uint256,uint256,uint256,uint256,uint256,uint256,uint256)",
     "function deaLastAttackOnTarget(address attacker, address target) view returns (uint256)",
-    "function deaLastRaidedAt(address target) view returns (uint256)",
+    "function suspects(address) view returns (bool isSuspect, uint256 firstFlaggedAt, uint256 lastSellTimestamp, uint256 lastRaidedAt, uint256 totalTimesRaided, uint256 totalLost, uint256 totalSoldAmount, uint256 sellCount)",
     "function deaTargetImmunity() view returns (uint256)",
     "function deaPerTargetCooldown() view returns (uint256)",
     "event DeaRaidResult(address indexed attacker, address indexed defender, bool attackerWon, uint256 stolenAmount, uint256 damagePct)"
@@ -327,7 +327,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("calculateBattlePower", [addr]) },
                     { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("hasRaidShield", [addr]) },
                     { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("canBeRaided", [addr]) },
-                    { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("deaLastRaidedAt", [addr]) }
+                    { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("suspects", [addr]) }
                 );
                
                 if (userAddress) {
@@ -371,7 +371,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     canBeRaided = battlesInterface.decodeFunctionResult("canBeRaided", results[baseIdx + 4].returnData)[0];
                 }
                 if (results[baseIdx + 5]?.success) {
-                    lastRaidedAt = battlesInterface.decodeFunctionResult("deaLastRaidedAt", results[baseIdx + 5].returnData)[0].toNumber();
+                    const suspectData = battlesInterface.decodeFunctionResult("suspects", results[baseIdx + 5].returnData);
+                    lastRaidedAt = suspectData.lastRaidedAt.toNumber();
                 }
                 if (userAddress && results[baseIdx + 6]?.success) {
                     myLastAttackAt = battlesInterface.decodeFunctionResult("deaLastAttackOnTarget", results[baseIdx + 6].returnData)[0].toNumber();
@@ -604,7 +605,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                         <th style={{ padding: "8px 4px", textAlign: "center", color: textMuted, fontWeight: 600 }}>🏠</th>
                                         <th style={{ padding: "8px 4px", textAlign: "center", color: textMuted, fontWeight: 600 }}>🌱</th>
                                         <th style={{ padding: "8px 4px", textAlign: "center", color: textMuted, fontWeight: 600 }}>❤️</th>
-                                        <th style={{ padding: "8px 4px", textAlign: "right", color: textMuted, fontWeight: 600 }}>Sold</th>
+                                        <th style={{ padding: "8px 4px", textAlign: "right", color: textMuted, fontWeight: 600 }}>24h Sold</th>
                                         <th style={{ padding: "8px 4px", textAlign: "center", color: textMuted, fontWeight: 600 }}>Status</th>
                                         <th style={{ padding: "8px 4px", textAlign: "center", color: textMuted, fontWeight: 600 }}></th>
                                     </tr>
