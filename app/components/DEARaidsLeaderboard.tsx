@@ -469,11 +469,6 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         if (selectedTarget.hasShield) { setStatus("Target has shield!"); return; }
         if (selectedTarget.plants === 0) { setStatus("Target has no plants!"); return; }
         
-        if (selectedTarget.needsFlagging) {
-            setStatus("⏳ Target pending verification - try again in a few minutes");
-            return;
-        }
-        
         setRaiding(true);
         setRaidResult(null);
         
@@ -815,13 +810,6 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                     <div style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 10, padding: 16, marginBottom: 16, textAlign: "center" }}>
                                         <div style={{ fontSize: 28, marginBottom: 4 }}>🛡️</div>
                                         <div style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600 }}>Target Protected</div>
-                                    </div>
-                                )}
-
-                                {/* Needs Flagging */}
-                                {selectedTarget.needsFlagging && !selectedTarget.hasShield && (
-                                    <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 6, padding: 6, marginBottom: 12, textAlign: "center" }}>
-                                        <span style={{ color: "#fbbf24", fontSize: 9 }}>📡 Will be flagged on-chain when you raid</span>
                                     </div>
                                 )}
 
