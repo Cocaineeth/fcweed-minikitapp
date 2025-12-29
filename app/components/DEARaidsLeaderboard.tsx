@@ -17,7 +17,10 @@ const BATTLES_ABI = [
     "function canBeRaided(address) view returns (bool)",
     "function getDeaAttackerStats(address) view returns (uint256 raidsWon, uint256 raidsLost, uint256 rewardsStolen, uint256 rewardsLostAttacking, uint256 cooldownRemaining, bool canAttack)",
     "function getGlobalStats() view returns (uint256,uint256,uint256,uint256,uint256,uint256,uint256)",
-    "function deaRaidStats(uint256) view returns (uint256)", // 0=totalRaids, 1=totalStolen
+    "function deaLastAttackOnTarget(address attacker, address target) view returns (uint256)",
+    "function deaLastRaidedAt(address target) view returns (uint256)",
+    "function deaTargetImmunity() view returns (uint256)",
+    "function deaPerTargetCooldown() view returns (uint256)",
     "event DeaRaidResult(address indexed attacker, address indexed defender, bool attackerWon, uint256 stolenAmount, uint256 damagePct)"
 ];
 
@@ -88,16 +91,20 @@ type Props = {
 
 const ITEMS_PER_PAGE = 10;
 const SUSPECT_EXPIRY = 24 * 60 * 60;
+const TARGET_IMMUNITY = 2 * 60 * 60; // 2 hours - everyone waits
+const PER_TARGET_COOLDOWN = 6 * 60 * 60; // 6 hours - attacker waits
 
 export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvider, sendContractTx, ensureAllowance, refreshData }: Props) {
     const [jeets, setJeets] = useState<JeetEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalRaids, setTotalRaids] = useState(0);
-    const [totalSeized, setTotalSeized] = useState("0");
     const [raidFee, setRaidFee] = useState("100K");
     const [raidFeeRaw, setRaidFeeRaw] = useState<ethers.BigNumber>(ethers.utils.parseUnits("100000", 18));
     const [deaEnabled, setDeaEnabled] = useState(true);
+    
+    // Player DEA stats
+    const [playerDeaStats, setPlayerDeaStats] = useState<{ wins: number; losses: number; stolen: string } | null>(null);
     
     const [showAttackModal, setShowAttackModal] = useState(false);
     const [showResultModal, setShowResultModal] = useState(false);
@@ -184,13 +191,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 setDeaEnabled(enabled);
                 setRaidFeeRaw(fee);
                 setRaidFee(formatLargeNumber(fee));
-                // globalStats: [0]=cartelBattles, [1]=deaRaids, [2]=purgeAttacks, [3]=suspectsFlagged, [4]=totalRedistributed(shared), [5]=feesCollected, [6]=purgeFeesBurned
                 setTotalRaids(globalStats[1].toNumber());
-                
-                // Try to get DEA-specific stolen amount
-                // Note: Contract may need update to track this separately
-                // For now showing totalRedistributed but this is shared across all battle types
-                setTotalSeized(formatLargeNumber(globalStats[4]));
             } catch (e) {
                 console.error("[DEA] Stats error:", e);
             }
@@ -204,6 +205,12 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     ]);
                     setCooldownRemaining(attackerStats.cooldownRemaining.toNumber());
                     setMyBattlePower(power.toNumber());
+                    // Set player DEA stats for display
+                    setPlayerDeaStats({
+                        wins: attackerStats.raidsWon.toNumber(),
+                        losses: attackerStats.raidsLost.toNumber(),
+                        stolen: formatLargeNumber(attackerStats.rewardsStolen)
+                    });
                 } catch (e) {
                     console.error("[DEA] User stats error:", e);
                 }
@@ -320,8 +327,13 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("getUserBattleStats", [addr]) },
                     { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("calculateBattlePower", [addr]) },
                     { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("hasRaidShield", [addr]) },
-                    { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("canBeRaided", [addr]) }
+                    { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("canBeRaided", [addr]) },
+                    { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("deaLastRaidedAt", [addr]) }
                 );
+                // Add per-attacker cooldown if user is connected
+                if (userAddress) {
+                    calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("deaLastAttackOnTarget", [userAddress, addr]) });
+                }
             });
             
             if (userAddress) {
@@ -333,12 +345,14 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             const updatedFarms: FarmInfo[] = [];
             let bestFarm: FarmInfo | null = null;
             const isBackendOnly = jeet.needsFlagging;
+            const callsPerFarm = userAddress ? 7 : 6; // 6 base + 1 for per-attacker cooldown if connected
             
             for (let i = 0; i < farmAddresses.length; i++) {
-                const baseIdx = i * 5;
+                const baseIdx = i * callsPerFarm;
                 const addr = farmAddresses[i];
                 
                 let pending = "0", plants = 0, avgHealth = 0, power = 0, hasShield = false, canBeRaided = false;
+                let lastRaidedAt = 0, myLastAttackAt = 0;
                 
                 if (results[baseIdx]?.success) {
                     pending = formatLargeNumber(stakingInterface.decodeFunctionResult("pending", results[baseIdx].returnData)[0]);
@@ -357,9 +371,22 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 if (results[baseIdx + 4]?.success) {
                     canBeRaided = battlesInterface.decodeFunctionResult("canBeRaided", results[baseIdx + 4].returnData)[0];
                 }
+                if (results[baseIdx + 5]?.success) {
+                    lastRaidedAt = battlesInterface.decodeFunctionResult("deaLastRaidedAt", results[baseIdx + 5].returnData)[0].toNumber();
+                }
+                if (userAddress && results[baseIdx + 6]?.success) {
+                    myLastAttackAt = battlesInterface.decodeFunctionResult("deaLastAttackOnTarget", results[baseIdx + 6].returnData)[0].toNumber();
+                }
                 
-                const hasImmunity = !canBeRaided && !isBackendOnly && plants > 0 && avgHealth > 0 && !hasShield;
-                const canAttack = plants > 0 && !hasShield && avgHealth > 0 && (canBeRaided || isBackendOnly);
+                // Calculate cooldown end times
+                const targetImmunityEnds = lastRaidedAt > 0 ? lastRaidedAt + TARGET_IMMUNITY : 0;
+                const myAttackCooldownEnds = myLastAttackAt > 0 ? myLastAttackAt + PER_TARGET_COOLDOWN : 0;
+                
+                // Can attack if: has plants, no shield, health > 0, and either backend-only or canBeRaided
+                // AND not on my personal cooldown AND not on target immunity
+                const hasImmunity = targetImmunityEnds > now;
+                const hasMyPersonalCooldown = myAttackCooldownEnds > now;
+                const canAttack = plants > 0 && !hasShield && avgHealth > 0 && (canBeRaided || isBackendOnly) && !hasImmunity && !hasMyPersonalCooldown;
                 
                 const farm: FarmInfo = {
                     address: addr,
@@ -369,8 +396,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     hasShield,
                     canAttack,
                     battlePower: power || Math.floor(plants * 3 * avgHealth / 100),
-                    targetImmunityEnds: hasImmunity ? 1 : 0,
-                    myAttackCooldownEnds: 0
+                    targetImmunityEnds,
+                    myAttackCooldownEnds
                 };
                 
                 updatedFarms.push(farm);
@@ -382,7 +409,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             
             let attackerPower = myBattlePower;
             if (userAddress) {
-                const attackerIdx = farmAddresses.length * 5;
+                const attackerIdx = farmAddresses.length * callsPerFarm;
                 if (results[attackerIdx]?.success) {
                     attackerPower = stakingInterface.decodeFunctionResult("calculateBattlePower", results[attackerIdx].returnData)[0].toNumber();
                     setMyBattlePower(attackerPower);
@@ -567,12 +594,29 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     
                     {/* Stats Box */}
                     <div style={{ background: "rgba(220,38,38,0.1)", border: "1px solid rgba(220,38,38,0.3)", borderRadius: 8, padding: 10 }}>
-                        <div style={{ display: "flex", justifyContent: "center", gap: 24, fontSize: 11 }}>
-                            <div style={{ textAlign: "center" }}>
-                                <div style={{ fontSize: 9, color: textMuted }}>TOTAL RAIDS</div>
-                                <div style={{ fontSize: 16, fontWeight: 700, color: "#ef4444" }}>{totalRaids}</div>
-                            </div>
+                        {/* Total Raids */}
+                        <div style={{ textAlign: "center", marginBottom: connected && playerDeaStats ? 8 : 0 }}>
+                            <div style={{ fontSize: 9, color: textMuted }}>TOTAL DEA RAIDS</div>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: "#ef4444" }}>{totalRaids}</div>
                         </div>
+                        
+                        {/* Player Stats */}
+                        {connected && playerDeaStats && (
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, borderTop: "1px solid rgba(220,38,38,0.2)", paddingTop: 8 }}>
+                                <div style={{ textAlign: "center" }}>
+                                    <div style={{ fontSize: 8, color: textMuted }}>WINS</div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>{playerDeaStats.wins}</div>
+                                </div>
+                                <div style={{ textAlign: "center" }}>
+                                    <div style={{ fontSize: 8, color: textMuted }}>LOSSES</div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>{playerDeaStats.losses}</div>
+                                </div>
+                                <div style={{ textAlign: "center" }}>
+                                    <div style={{ fontSize: 8, color: textMuted }}>SEIZED</div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>{playerDeaStats.stolen}</div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
                 
@@ -732,7 +776,20 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                             .filter(f => f.plants > 0)
                                             .map((farm) => {
                                                 const isSelected = selectedTarget.address === farm.address;
-                                                const hasCooldown = farm.targetImmunityEnds > 0;
+                                                // Check cooldowns
+                                                const myPersonalCooldownLeft = farm.myAttackCooldownEnds > now ? farm.myAttackCooldownEnds - now : 0;
+                                                const targetImmunityLeft = farm.targetImmunityEnds > now ? farm.targetImmunityEnds - now : 0;
+                                                const hasAnyCooldown = myPersonalCooldownLeft > 0 || targetImmunityLeft > 0;
+                                                
+                                                // Determine what cooldown to show
+                                                let cooldownDisplay = null;
+                                                if (myPersonalCooldownLeft > 0) {
+                                                    // 6h personal cooldown (you attacked this farm)
+                                                    cooldownDisplay = <span style={{ fontSize: 9, color: "#ef4444", fontWeight: 600 }}>⏳ {formatCooldown(myPersonalCooldownLeft)}</span>;
+                                                } else if (targetImmunityLeft > 0) {
+                                                    // 2h target immunity (someone else attacked)
+                                                    cooldownDisplay = <span style={{ fontSize: 9, color: "#fbbf24" }}>⏳ {formatCooldown(targetImmunityLeft)}</span>;
+                                                }
                                                 
                                                 return (
                                                     <button
@@ -743,9 +800,9 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                                             padding: "10px 12px",
                                                             border: "none",
                                                             borderBottom: "1px solid rgba(107,114,128,0.2)",
-                                                            background: isSelected ? "rgba(16,185,129,0.15)" : "transparent",
+                                                            background: isSelected ? "rgba(16,185,129,0.15)" : hasAnyCooldown ? "rgba(251,191,36,0.05)" : "transparent",
                                                             cursor: farm.canAttack ? "pointer" : "not-allowed",
-                                                            opacity: farm.canAttack ? 1 : 0.5,
+                                                            opacity: farm.canAttack ? 1 : 0.6,
                                                             textAlign: "left",
                                                             display: "flex",
                                                             justifyContent: "space-between",
@@ -762,8 +819,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                                         </div>
                                                         {farm.hasShield ? (
                                                             <span style={{ fontSize: 10, color: "#3b82f6" }}>🛡️</span>
-                                                        ) : hasCooldown ? (
-                                                            <span style={{ fontSize: 9, color: "#fbbf24" }}>⏳ 2h immunity</span>
+                                                        ) : cooldownDisplay ? (
+                                                            cooldownDisplay
                                                         ) : isSelected ? (
                                                             <span style={{ fontSize: 10, color: "#10b981" }}>✓</span>
                                                         ) : null}
