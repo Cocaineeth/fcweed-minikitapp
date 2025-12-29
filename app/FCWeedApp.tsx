@@ -3465,24 +3465,32 @@ export default function FCWeedApp()
             setWarsPreviewData(null);
             
             // Backend returns pendingRewards as formatted string (e.g. "3434000.123")
-            // Convert back to BigNumber for display
-            let pendingBN;
-            try {
-                pendingBN = ethers.utils.parseUnits(stats.pendingRewards.toString(), 18);
-            } catch {
-                // If it's already a raw number string, try BigNumber.from
+            // Convert back to BigNumber for display - with robust null/empty handling
+            let pendingBN = ethers.BigNumber.from(0);
+            const rawPending = stats?.pendingRewards;
+            if (rawPending !== null && rawPending !== undefined && rawPending !== "" && rawPending !== "0") {
                 try {
-                    pendingBN = ethers.BigNumber.from(stats.pendingRewards);
+                    // Try parsing as decimal string first
+                    const pendingStr = rawPending.toString().trim();
+                    if (pendingStr && !isNaN(parseFloat(pendingStr))) {
+                        pendingBN = ethers.utils.parseUnits(pendingStr, 18);
+                    }
                 } catch {
-                    pendingBN = ethers.BigNumber.from(0);
+                    // If parseUnits fails, try BigNumber.from for raw wei values
+                    try {
+                        pendingBN = ethers.BigNumber.from(rawPending);
+                    } catch {
+                        console.warn("[Wars] Could not parse pendingRewards:", rawPending);
+                        pendingBN = ethers.BigNumber.from(0);
+                    }
                 }
             }
             
             setWarsTargetStats({
-                plants: stats.plants,
-                lands: stats.lands,
-                superLands: stats.superLands,
-                avgHealth: stats.avgHealth,
+                plants: stats?.plants || 0,
+                lands: stats?.lands || 0,
+                superLands: stats?.superLands || 0,
+                avgHealth: stats?.avgHealth || 100,
                 pendingRewards: pendingBN,
                 hasShield: stats.hasShield,
             });
