@@ -401,7 +401,7 @@ export default function FCWeedApp()
     const [shopTimeUntilReset, setShopTimeUntilReset] = useState<number>(0);
     
     // Calculate time until midnight EST for shop reset
-    const getTimeUntilMidnightEST = useCallback(() => {
+    const getTimeUntilShopReset = useCallback(() => {
         const now = new Date();
         
         // Get current time in EST using Intl API for accuracy
@@ -421,21 +421,31 @@ export default function FCWeedApp()
         const estMinute = parseInt(estParts.find(p => p.type === 'minute')?.value || '0');
         const estSecond = parseInt(estParts.find(p => p.type === 'second')?.value || '0');
         
-        // Calculate seconds until midnight EST
-        const secondsInDay = 24 * 60 * 60;
+        // Calculate seconds until 7:00 PM EST (19:00) which is UTC midnight
+        const targetHour = 19; // 7:00 PM EST
         const currentSecondsInEST = estHour * 3600 + estMinute * 60 + estSecond;
-        const secondsUntilMidnight = secondsInDay - currentSecondsInEST;
+        const targetSecondsInEST = targetHour * 3600;
         
-        return secondsUntilMidnight;
+        let secondsUntilReset;
+        if (currentSecondsInEST < targetSecondsInEST) {
+            // Before 7 PM today - count down to 7 PM today
+            secondsUntilReset = targetSecondsInEST - currentSecondsInEST;
+        } else {
+            // After 7 PM today - count down to 7 PM tomorrow
+            const secondsInDay = 24 * 60 * 60;
+            secondsUntilReset = (secondsInDay - currentSecondsInEST) + targetSecondsInEST;
+        }
+        
+        return secondsUntilReset;
     }, []);
     
     // Update shop reset timer every minute
     useEffect(() => {
-        const updateTimer = () => setShopTimeUntilReset(getTimeUntilMidnightEST());
+        const updateTimer = () => setShopTimeUntilReset(getTimeUntilShopReset());
         updateTimer();
         const interval = setInterval(updateTimer, 60000);
         return () => clearInterval(interval);
-    }, [getTimeUntilMidnightEST]);
+    }, [getTimeUntilShopReset]);
     const [shopSupply, setShopSupply] = useState<Record<number, {remaining: number, total: number}>>({
         1: { remaining: 20, total: 20 },
         2: { remaining: 25, total: 25 },
@@ -710,10 +720,21 @@ export default function FCWeedApp()
         try {
             const itemShopAbi = [
                 "function getDailyStock(uint256 itemId) view returns (uint256 remaining, uint256 total)",
+                "function getTimeUntilReset() view returns (uint256)",
             ];
             const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
             const supplyData: Record<number, {remaining: number, total: number}> = {};
             const itemIds = [1, 2, 3, 4, 5, 6];
+            
+            // Debug: Get time until reset from contract
+            try {
+                const timeUntilReset = await itemShop.getTimeUntilReset();
+                const hours = Math.floor(timeUntilReset.toNumber() / 3600);
+                const minutes = Math.floor((timeUntilReset.toNumber() % 3600) / 60);
+                console.log(`[Shop] Contract says time until UTC reset: ${hours}h ${minutes}m`);
+            } catch (e) {
+                console.log("[Shop] Could not get time until reset from contract");
+            }
             
             // Fetch all in parallel for speed
             const promises = itemIds.map(async (id) => {
@@ -722,8 +743,10 @@ export default function FCWeedApp()
                     // getDailyStock returns max uint256 for remaining if dailySupply is 0 (unlimited)
                     const remainingNum = remaining.gt(ethers.BigNumber.from(1000000)) ? 999 : remaining.toNumber();
                     const totalNum = total.toNumber();
+                    console.log(`[Shop] Item ${id}: remaining=${remainingNum}, total=${totalNum}`);
                     return { id, remaining: totalNum > 0 ? remainingNum : 999, total: totalNum > 0 ? totalNum : 999 };
-                } catch {
+                } catch (err) {
+                    console.log(`[Shop] Item ${id} fetch error:`, err);
                     return { id, remaining: 0, total: 0 };
                 }
             });
@@ -733,6 +756,7 @@ export default function FCWeedApp()
                 supplyData[r.id] = { remaining: r.remaining, total: r.total };
             });
             
+            console.log("[Shop] Final supplyData:", supplyData);
             setShopSupply(supplyData);
         } catch (e) {
             console.error("Failed to refresh shop supply:", e);
@@ -5236,14 +5260,14 @@ export default function FCWeedApp()
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Active <b>Saturday 11PM - Sunday 11PM EST</b></li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>250K FCWEED</b> to target ANY wallet directly</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>20 min cooldown</b> | <b style={{ color: "#ef4444" }}>All shields BYPASSED</b></li>
-                                <li style={{ color: "#10b981", marginTop: 8 }}><b>Item Shop</b> — Power-ups for your farm!</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> — Restores plant health to 100% (Shop open 12PM-6PM EST)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant, 2K Dust or 2M FCWEED (20/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection, Purge Bypasses Shields, 2.5K Dust only (25/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% power for 6h, 200 Dust or 200K FCWEED</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% power for 6h, 1K Dust or 1M FCWEED (15/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% power for 1h, 4K Dust or 4M FCWEED (3/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 50% | STEAL: 50%</b></li>
+                                <li style={{ color: "#10b981", marginTop: 8 }}><b>Item Shop</b> — Power-ups for your Farm!</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> — Restores Plant Health (Shop open 12PM-6PM EST)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h Protection, Purge Bypasses Shields</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% Power for 6h</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% Power for 6h</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% Power for 1h</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% Power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 50% | STEAL: 50%</b></li>
                             </ul>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
                             <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
@@ -6824,7 +6848,7 @@ export default function FCWeedApp()
                             </div>
                         </div>
                         <div style={{ fontSize: 10, color: "#9ca3af", textAlign: "center", marginBottom: 12 }}>
-                            ⏰ Daily supply resets at 12:00 AM EST
+                            ⏰ Daily supply resets at 7:00 PM EST
                         </div>
                         <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 12 }}>🔫 WEAPONS</div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
