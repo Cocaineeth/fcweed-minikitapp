@@ -481,7 +481,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             const response = await fetch(`${WARS_BACKEND_URL}/api/dea/request-flag`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ targetAddress: selectedTarget.address })
+                const addressToFlag = selectedJeet?.address || selectedTarget.address;
+                body: JSON.stringify({ targetAddress: addressToFlag })
             });
             
             const data = await response.json();
