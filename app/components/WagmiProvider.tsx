@@ -3,6 +3,7 @@
 
 import { WagmiProvider as WagmiProviderBase } from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MiniKitProvider } from '@coinbase/onchainkit/minikit';
 import { wagmiConfig } from '../lib/wagmiConfig';
 import { ReactNode, useState } from 'react';
 
@@ -11,9 +12,7 @@ export function WagmiProvider({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: {
       queries: {
-        // Don't refetch on window focus for better UX
         refetchOnWindowFocus: false,
-        // Retry failed requests once
         retry: 1,
       },
     },
@@ -22,7 +21,9 @@ export function WagmiProvider({ children }: { children: ReactNode }) {
   return (
     <WagmiProviderBase config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <MiniKitProvider>
+          {children}
+        </MiniKitProvider>
       </QueryClientProvider>
     </WagmiProviderBase>
   );
