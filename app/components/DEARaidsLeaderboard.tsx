@@ -389,8 +389,21 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     canBeRaided = battlesInterface.decodeFunctionResult("canBeRaided", results[baseIdx + 4].returnData)[0];
                 }
                 
-                // A farm can be attacked if: has plants, no shield, health > 0, and canBeRaided (not on immunity)
-                const canAttack = plants > 0 && !hasShield && avgHealth > 0 && canBeRaided;
+                // IMPORTANT: For backend-only tracked jeets (needsFlagging=true), canBeRaided will be false
+                // because they're not on-chain yet. They CAN be attacked - they'll be flagged during raid.
+                const isBackendOnly = jeet.needsFlagging;
+                
+                // Determine why farm can't be attacked:
+                // - hasShield = shielded
+                // - plants === 0 = no plants  
+                // - avgHealth === 0 = dead plants
+                // - canBeRaided === false AND already on-chain = on immunity
+                const hasImmunity = !canBeRaided && !isBackendOnly && plants > 0 && avgHealth > 0 && !hasShield;
+                
+                // A farm can be attacked if: has plants, no shield, health > 0, and either:
+                // - canBeRaided is true (on-chain and not on immunity), OR
+                // - it's backend-only (will be flagged during raid)
+                const canAttack = plants > 0 && !hasShield && avgHealth > 0 && (canBeRaided || isBackendOnly);
                 
                 const farm: FarmInfo = {
                     address: addr,
@@ -400,8 +413,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     hasShield,
                     canAttack,
                     battlePower: power || Math.floor(plants * 3 * avgHealth / 100),
-                    targetImmunityEnds: canBeRaided ? 0 : now + TARGET_IMMUNITY, // Estimate
-                    myAttackCooldownEnds: 0 // Would need per-attacker-target tracking
+                    targetImmunityEnds: hasImmunity ? 1 : 0, // Flag for immunity, not fake countdown
+                    myAttackCooldownEnds: 0
                 };
                 
                 updatedFarms.push(farm);
@@ -797,8 +810,6 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                         .filter(farm => farm.plants > 0) // Don't show 0-plant farms
                                         .map((farm) => {
                                             const isSelected = selectedTarget.address === farm.address;
-                                            const onCooldown = !farm.canAttack && !farm.hasShield;
-                                            const cooldownLeft = farm.targetImmunityEnds > now ? farm.targetImmunityEnds - now : 0;
                                             
                                             return (
                                                 <button
@@ -816,8 +827,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                                         overflow: "hidden"
                                                     }}
                                                 >
-                                                    {/* Cooldown Overlay */}
-                                                    {onCooldown && (
+                                                    {/* Cooldown/Status Overlay - show when can't attack */}
+                                                    {!farm.canAttack && farm.plants > 0 && (
                                                         <div style={{ 
                                                             position: "absolute", 
                                                             top: 0, left: 0, right: 0, bottom: 0, 
@@ -829,10 +840,26 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                                             flexDirection: "column",
                                                             backdropFilter: "blur(2px)"
                                                         }}>
-                                                            <div style={{ fontSize: 10, color: "#fbbf24", fontWeight: 600 }}>⏳ IMMUNITY</div>
-                                                            <div style={{ fontSize: 14, color: "#fbbf24", fontWeight: 700 }}>
-                                                                {cooldownLeft > 0 ? formatCooldown(cooldownLeft) : "Protected"}
-                                                            </div>
+                                                            {farm.hasShield ? (
+                                                                <>
+                                                                    <div style={{ fontSize: 20, marginBottom: 4 }}>🛡️</div>
+                                                                    <div style={{ fontSize: 11, color: "#3b82f6", fontWeight: 600 }}>SHIELDED</div>
+                                                                </>
+                                                            ) : farm.avgHealth === 0 ? (
+                                                                <>
+                                                                    <div style={{ fontSize: 10, color: "#ef4444", fontWeight: 600 }}>💀 DEAD</div>
+                                                                    <div style={{ fontSize: 10, color: "#ef4444" }}>0% Health</div>
+                                                                </>
+                                                            ) : farm.targetImmunityEnds > 0 ? (
+                                                                <>
+                                                                    <div style={{ fontSize: 10, color: "#fbbf24", fontWeight: 600 }}>⏳ IMMUNITY</div>
+                                                                    <div style={{ fontSize: 11, color: "#fbbf24" }}>Recently Raided</div>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <div style={{ fontSize: 10, color: "#ef4444", fontWeight: 600 }}>❌ UNAVAILABLE</div>
+                                                                </>
+                                                            )}
                                                         </div>
                                                     )}
                                                     
