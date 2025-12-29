@@ -692,13 +692,27 @@ export default function FCWeedApp()
         }
     }
 
+    // Refresh shop supply when modal is open (faster refresh)
     useEffect(() => {
         if (itemsModalOpen || waterModalOpen) {
             refreshShopSupply();
-            const interval = setInterval(refreshShopSupply, 10000);
+            const interval = setInterval(refreshShopSupply, 5000); // 5 seconds when modal open
             return () => clearInterval(interval);
         }
     }, [itemsModalOpen, waterModalOpen, readProvider]);
+    
+    // Global shop supply refresh for live updates across all users
+    useEffect(() => {
+        if (!readProvider) return;
+        
+        // Initial load
+        refreshShopSupply();
+        
+        // Refresh every 30 seconds for all users (even when modal closed)
+        const globalInterval = setInterval(refreshShopSupply, 30000);
+        
+        return () => clearInterval(globalInterval);
+    }, [readProvider]);
 
     async function handleActivateShield() {
         if (!userAddress || inventoryShields === 0) return;
@@ -988,11 +1002,23 @@ export default function FCWeedApp()
                         console.log("[Init] Initializing...");
                         // SDK ready is called in useSafeMiniKit hook
                         if (cancelled) return;
+                        
+                        // Don't auto-connect if user explicitly disconnected
+                        if (userDisconnected.current) {
+                            console.log("[Init] Skipping auto-connect - user disconnected");
+                            return;
+                        }
 
-                        const { isMiniApp, isBaseApp } = detectMiniAppEnvironment();
-                        if ((isMiniApp || isBaseApp) && !userAddress)
+                        const { isMiniApp, isBaseApp, isMobile } = detectMiniAppEnvironment();
+                        
+                        // Only auto-connect on actual mobile devices or confirmed mini apps
+                        // Don't auto-connect on desktop Farcaster web (let user choose wallet)
+                        const shouldAutoConnect = (isMobile && (isMiniApp || isBaseApp)) || 
+                                                   (isBaseApp && !isMobile); // Base App on any device
+                        
+                        if (shouldAutoConnect && !userAddress)
                         {
-                            console.log("[Init] Auto-connecting wallet in mini app / Base app...", { isMiniApp, isBaseApp });
+                            console.log("[Init] Auto-connecting wallet in mini app / Base app...", { isMiniApp, isBaseApp, isMobile });
                             t = setTimeout(() =>
                                 {
                                     void ensureWallet().catch((err) =>
@@ -1013,7 +1039,7 @@ export default function FCWeedApp()
                     cancelled = true;
                     if (t) clearTimeout(t);
                 };
-        }, [userAddress]);
+        }, []);
 
     // Paymaster URL for sponsored transactions (Coinbase Developer Platform)
     const PAYMASTER_URL = "https://api.developer.coinbase.com/rpc/v1/base/LBqFJaxfsfmt8cL44zkpJ3BHgill7Sw4";
@@ -1115,6 +1141,7 @@ export default function FCWeedApp()
     const [showWalletSelection, setShowWalletSelection] = useState(false);
     const [walletPreference, setWalletPreference] = useState<'farcaster' | 'external' | null>(null);
     const walletSelectionResolve = useRef<((choice: 'farcaster' | 'external' | null) => void) | null>(null);
+    const userDisconnected = useRef(false); // Flag to prevent auto-reconnect after explicit disconnect
     
     // Load wallet preference on mount
     useEffect(() => {
@@ -1222,6 +1249,7 @@ export default function FCWeedApp()
     
     // Disconnect wallet function
     const disconnectWallet = () => {
+        userDisconnected.current = true; // Prevent auto-reconnect
         setProvider(null);
         setSigner(null);
         setUserAddress(null);
@@ -1237,6 +1265,7 @@ export default function FCWeedApp()
     
     // Connect with wallet selection (for switching wallets)
     const connectWithSelection = async () => {
+        userDisconnected.current = true; // Prevent auto-reconnect during selection
         setShowDisconnectModal(false);
         // Clear current connection
         setProvider(null);
@@ -1246,8 +1275,14 @@ export default function FCWeedApp()
         setUserAvatar(null);
         setUsingMiniApp(false);
         setMiniAppEthProvider(null);
-        // Force wallet selection
-        await ensureWallet(true);
+        // Clear preference
+        setWalletPreference(null);
+        localStorage.removeItem('fcweed_wallet_preference');
+        // Small delay then force wallet selection
+        setTimeout(() => {
+            userDisconnected.current = false;
+            ensureWallet(true);
+        }, 100);
     };
     
     // Get display name or shortened address
@@ -1337,6 +1372,9 @@ export default function FCWeedApp()
         if (signer && provider && userAddress && !forceSelection) {
             return { signer, provider, userAddress, isMini: usingMiniApp };
         }
+        
+        // Clear the disconnect flag when user explicitly connects
+        userDisconnected.current = false;
 
         try {
             setConnecting(true);
@@ -1352,22 +1390,25 @@ export default function FCWeedApp()
 
             console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, isBaseApp, userAgent: navigator.userAgent });
 
-            // On desktop (not mobile, not in mini app), allow wallet selection
-            const isDesktop = !isMobile && !detectedMiniApp && !isBaseApp;
+            // Desktop = not mobile (even if in iframe/farcaster context on desktop browser)
+            const isDesktop = !isMobile;
             let selectedWallet: 'farcaster' | 'external' | null = walletPreference;
             
-            // If desktop and no preference OR forceSelection, show wallet picker
+            // If desktop and (no preference OR forceSelection), show wallet picker
             if (isDesktop && (!selectedWallet || forceSelection)) {
-                // Check if Farcaster SDK is available
+                // Check if Farcaster SDK wallet is available
                 let hasFarcasterWallet = false;
                 try {
                     const testProvider = await sdk.wallet.getEthereumProvider();
                     hasFarcasterWallet = !!testProvider;
-                } catch {
+                    console.log("[Wallet] Farcaster wallet available:", hasFarcasterWallet);
+                } catch (e) {
+                    console.log("[Wallet] Farcaster wallet check failed:", e);
                     hasFarcasterWallet = false;
                 }
                 
                 const hasExternalWallet = !!(window as any).ethereum;
+                console.log("[Wallet] External wallet available:", hasExternalWallet);
                 
                 // If only one option available, use it
                 if (hasFarcasterWallet && !hasExternalWallet) {
@@ -1376,6 +1417,7 @@ export default function FCWeedApp()
                     selectedWallet = 'external';
                 } else if (hasFarcasterWallet && hasExternalWallet) {
                     // Show selection modal
+                    console.log("[Wallet] Both wallets available, showing selection modal");
                     selectedWallet = await new Promise<'farcaster' | 'external' | null>((resolve) => {
                         walletSelectionResolve.current = resolve;
                         setShowWalletSelection(true);
@@ -1389,11 +1431,20 @@ export default function FCWeedApp()
                     // Save preference
                     setWalletPreference(selectedWallet);
                     localStorage.setItem('fcweed_wallet_preference', selectedWallet);
+                } else {
+                    // Neither available
+                    setMintStatus("No wallet found. Please install MetaMask or use Farcaster.");
+                    setConnecting(false);
+                    return null;
                 }
             }
+            
+            console.log("[Wallet] Selected wallet type:", selectedWallet || 'auto (mobile/miniapp)');
 
-            // Use Farcaster/SDK wallet
-            if ((detectedMiniApp || isMobile || isBaseApp || selectedWallet === 'farcaster') && selectedWallet !== 'external') {
+            // Use Farcaster/SDK wallet for mobile OR if explicitly selected
+            const useFarcasterWallet = (isMobile && (detectedMiniApp || isBaseApp)) || selectedWallet === 'farcaster';
+            
+            if (useFarcasterWallet && selectedWallet !== 'external') {
                 try {
                     console.log("[Wallet] Attempting SDK wallet connection...");
 
@@ -3944,6 +3995,23 @@ export default function FCWeedApp()
                 setLoadingVault(false);
             }
         })();
+        
+        // Refresh global stats every 15 seconds for live updates
+        const refreshGlobalStats = async () => {
+            try {
+                const vaultContract = new ethers.Contract(CRATE_VAULT_ADDRESS, CRATE_VAULT_ABI, readProvider);
+                const [totalOpened, totalBurned, , , , , uniqueUsers] = await vaultContract.getGlobalStats();
+                const burnedFormatted = parseFloat(ethers.utils.formatUnits(totalBurned, 18));
+                setCrateGlobalStats({
+                    totalOpened: totalOpened.toNumber(),
+                    totalBurned: burnedFormatted >= 1e6 ? (burnedFormatted / 1e6).toFixed(1) + "M" : burnedFormatted >= 1e3 ? (burnedFormatted / 1e3).toFixed(0) + "K" : burnedFormatted.toFixed(0),
+                    uniqueUsers: uniqueUsers.toNumber(),
+                });
+            } catch {}
+        };
+        
+        const globalStatsInterval = setInterval(refreshGlobalStats, 15000);
+        return () => clearInterval(globalStatsInterval);
     }, [activeTab, readProvider, userAddress]);
 
     const crateIcon = (t: string) => t === 'DUST' ? '💨' : t === 'FCWEED' ? '🌿' : t === 'USDC' ? '💵' : '🏆';
