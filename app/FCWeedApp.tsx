@@ -3240,7 +3240,7 @@ export default function FCWeedApp()
             const searchTx = await txAction().sendContractTx(
                 V5_BATTLES_ADDRESS,
                 v4BattlesInterface.encodeFunctionData("searchForTarget", [target, deadline, signature]),
-                "0x1E8480"
+                "0x4C4B40"
             );
 
             if (!searchTx) {
@@ -3401,7 +3401,7 @@ export default function FCWeedApp()
                 const removeShieldTx = await txAction().sendContractTx(
                     V5_ITEMSHOP_ADDRESS, 
                     v5ItemShopInterface.encodeFunctionData("removeShieldSelf", []), 
-                    "0x1E8480"
+                    "0x4C4B40"
                 );
                 if (!removeShieldTx) {
                     setWarsStatus("Shield removal rejected");
@@ -3415,7 +3415,7 @@ export default function FCWeedApp()
                 setWarsStatus("Attacking...");
             }
 
-            const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cartelAttack", []), "0x1E8480");
+            const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cartelAttack", []), "0x4C4B40");
             if (!tx) {
                 setWarsStatus("Transaction rejected");
                 setWarsAttacking(false);
@@ -3555,7 +3555,7 @@ export default function FCWeedApp()
             const now = Math.floor(Date.now() / 1000);
             if (searchTarget !== ethers.constants.AddressZero && searchExpiry.toNumber() > now) {
                 setWarsStatus("Cancelling locked target...");
-                const cancelTx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cancelSearch", []), "0x1E8480");
+                const cancelTx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cancelSearch", []), "0x4C4B40");
                 if (cancelTx) await waitForTx(cancelTx, readProvider);
             }
         }
@@ -3975,7 +3975,7 @@ export default function FCWeedApp()
                     ctx.userAddress,
                     CRATE_VAULT_ADDRESS,
                     openCrateData,
-                    "0x1E8480"
+                    "0x4C4B40" // 5,000,000 gas for crate opening
                 );
             } else {
 
@@ -3986,7 +3986,7 @@ export default function FCWeedApp()
                         to: CRATE_VAULT_ADDRESS,
                         data: openCrateData,
                         value: 0,
-                        gasLimit: 2000000,
+                        gasLimit: 5000000, // 5M gas for crate opening
                     });
                 } catch (openErr: any) {
                     clearTimeout(timeoutId);
@@ -4922,12 +4922,12 @@ export default function FCWeedApp()
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>20 min cooldown</b> | <b style={{ color: "#ef4444" }}>All shields BYPASSED</b></li>
                                 <li style={{ color: "#10b981", marginTop: 8 }}><b>Item Shop</b> — Power-ups for your farm!</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> — Restores plant health to 100% (Shop open 12PM-6PM EST)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals to 80%, 2.5K Dust or 2.5M FCWEED (20/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection, 2.5K Dust only (25/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% power for 6h, 400 Dust or 400K FCWEED</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% power for 6h, 2K Dust or 2M FCWEED (15/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% power for 1h, 5K Dust or 5M FCWEED (3/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 100% | STEAL: 100%</b></li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant, 2K Dust or 2M FCWEED (20/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection, Purge Bypasses Shields, 2.5K Dust only (25/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% power for 6h, 200 Dust or 200K FCWEED</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% power for 6h, 1K Dust or 1M FCWEED (15/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% power for 1h, 4K Dust or 4M FCWEED (3/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 50% | STEAL: 50%</b></li>
                             </ul>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
                             <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
@@ -6135,11 +6135,11 @@ export default function FCWeedApp()
                             </div>
                             <div style={{ background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.4)", borderRadius: 8, padding: 10, textAlign: "center" }}>
                                 <div style={{ fontSize: 9, color: "#fbbf24", marginBottom: 4 }}>STEAL</div>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: "#fbbf24" }}>100%</div>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: "#fbbf24" }}>50%</div>
                             </div>
                             <div style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 8, padding: 10, textAlign: "center" }}>
                                 <div style={{ fontSize: 9, color: "#ef4444", marginBottom: 4 }}>DAMAGE</div>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: "#ef4444" }}>100%</div>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: "#ef4444" }}>50%</div>
                             </div>
                         </div>
                         <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 14, marginBottom: 20 }}>
@@ -6462,14 +6462,19 @@ export default function FCWeedApp()
                                 <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+100% Combat</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 6 hours</div>
                                 {(shopSupply[4]?.remaining ?? 15) > 0 ? (
-                                    <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[4]?.remaining ?? 15}/{shopSupply[4]?.total ?? 15}</span></div>
+                                    <>
+                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[4]?.remaining ?? 15}/{shopSupply[4]?.total ?? 15}</span></div>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                            <button onClick={() => handleBuyItem(4, "dust")} disabled={shopLoading || crateUserStats.dust < 1000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 1000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 1000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 1000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 1K DUST</button>
+                                            <button onClick={() => handleBuyItem(4, "fcweed")} disabled={shopLoading} style={{ padding: "6px", borderRadius: 5, border: "none", background: "linear-gradient(135deg, #ef4444, #dc2626)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 8 }}>🌿 1M FCWEED</button>
+                                        </div>
+                                    </>
                                 ) : (
-                                    <div style={{ fontSize: 7, color: "#ef4444", marginBottom: 4, fontWeight: 600 }}>SOLD OUT • {Math.floor(shopTimeUntilReset / 3600)}h</div>
+                                    <div style={{ padding: "8px 0" }}>
+                                        <div style={{ fontSize: 10, color: "#ef4444", fontWeight: 700, marginBottom: 4 }}>SOLD OUT</div>
+                                        <div style={{ fontSize: 8, color: "#9ca3af" }}>Restock in {Math.floor(shopTimeUntilReset / 3600)}h {Math.floor((shopTimeUntilReset % 3600) / 60)}m</div>
+                                    </div>
                                 )}
-                                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                                    <button onClick={() => handleBuyItem(4, "dust")} disabled={shopLoading || crateUserStats.dust < 2000 || (shopSupply[4]?.remaining ?? 15) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2000 && (shopSupply[4]?.remaining ?? 15) > 0 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2000 && (shopSupply[4]?.remaining ?? 15) > 0 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2000 && (shopSupply[4]?.remaining ?? 15) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 2K DUST</button>
-                                    <button onClick={() => handleBuyItem(4, "fcweed")} disabled={shopLoading || (shopSupply[4]?.remaining ?? 15) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: (shopSupply[4]?.remaining ?? 15) > 0 ? "linear-gradient(135deg, #ef4444, #dc2626)" : "#374151", color: (shopSupply[4]?.remaining ?? 15) > 0 ? "#fff" : "#9ca3af", fontWeight: 600, cursor: (shopSupply[4]?.remaining ?? 15) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 2M FCWEED</button>
-                                </div>
                             </div>
                             <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.25), rgba(185,28,28,0.2))", border: "2px solid rgba(239,68,68,0.6)", borderRadius: 12, padding: 10, textAlign: "center", boxShadow: "0 0 20px rgba(239,68,68,0.25)" }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
@@ -6479,14 +6484,19 @@ export default function FCWeedApp()
                                 <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+10,000% Combat</div>
                                 <div style={{ fontSize: 7, color: "#fca5a5", marginBottom: 3 }}>10 min (1 attack)</div>
                                 {(shopSupply[6]?.remaining ?? 1) > 0 ? (
-                                    <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[6]?.remaining ?? 1}/{shopSupply[6]?.total ?? 1}</span></div>
+                                    <>
+                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[6]?.remaining ?? 1}/{shopSupply[6]?.total ?? 1}</span></div>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                            <button onClick={() => handleBuyItem(6, "dust")} disabled={shopLoading || crateUserStats.dust < 10000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 10000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 10000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 10000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 10K DUST</button>
+                                            <button onClick={() => handleBuyItem(6, "fcweed")} disabled={shopLoading} style={{ padding: "6px", borderRadius: 5, border: "none", background: "linear-gradient(135deg, #dc2626, #b91c1c)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 8 }}>🌿 10M FCWEED</button>
+                                        </div>
+                                    </>
                                 ) : (
-                                    <div style={{ fontSize: 7, color: "#ef4444", marginBottom: 4, fontWeight: 600 }}>SOLD OUT • {Math.floor(shopTimeUntilReset / 3600)}h</div>
+                                    <div style={{ padding: "8px 0" }}>
+                                        <div style={{ fontSize: 10, color: "#ef4444", fontWeight: 700, marginBottom: 4 }}>SOLD OUT</div>
+                                        <div style={{ fontSize: 8, color: "#9ca3af" }}>Restock in {Math.floor(shopTimeUntilReset / 3600)}h {Math.floor((shopTimeUntilReset % 3600) / 60)}m</div>
+                                    </div>
                                 )}
-                                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                                    <button onClick={() => handleBuyItem(6, "dust")} disabled={shopLoading || crateUserStats.dust < 20000 || (shopSupply[6]?.remaining ?? 1) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 20000 && (shopSupply[6]?.remaining ?? 1) > 0 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 20000 && (shopSupply[6]?.remaining ?? 1) > 0 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 20000 && (shopSupply[6]?.remaining ?? 1) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 20K DUST</button>
-                                    <button onClick={() => handleBuyItem(6, "fcweed")} disabled={shopLoading || (shopSupply[6]?.remaining ?? 1) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: (shopSupply[6]?.remaining ?? 1) > 0 ? "linear-gradient(135deg, #dc2626, #b91c1c)" : "#374151", color: (shopSupply[6]?.remaining ?? 1) > 0 ? "#fff" : "#9ca3af", fontWeight: 600, cursor: (shopSupply[6]?.remaining ?? 1) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 20M FCWEED</button>
-                                </div>
                             </div>
                             <div style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.15), rgba(139,92,246,0.1))", border: "1px solid rgba(168,85,247,0.4)", borderRadius: 12, padding: 10, textAlign: "center" }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
@@ -6496,14 +6506,19 @@ export default function FCWeedApp()
                                 <div style={{ fontSize: 8, color: "#c4b5fd", marginBottom: 2 }}>+500% Combat</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 1 hour</div>
                                 {(shopSupply[5]?.remaining ?? 3) > 0 ? (
-                                    <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#a855f7", fontWeight: 600 }}>{shopSupply[5]?.remaining ?? 3}/{shopSupply[5]?.total ?? 3}</span></div>
+                                    <>
+                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#a855f7", fontWeight: 600 }}>{shopSupply[5]?.remaining ?? 3}/{shopSupply[5]?.total ?? 3}</span></div>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                            <button onClick={() => handleBuyItem(5, "dust")} disabled={shopLoading || crateUserStats.dust < 4000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 4000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 4000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 4000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 4K DUST</button>
+                                            <button onClick={() => handleBuyItem(5, "fcweed")} disabled={shopLoading} style={{ padding: "6px", borderRadius: 5, border: "none", background: "linear-gradient(135deg, #a855f7, #8b5cf6)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 8 }}>🌿 4M FCWEED</button>
+                                        </div>
+                                    </>
                                 ) : (
-                                    <div style={{ fontSize: 7, color: "#a855f7", marginBottom: 4, fontWeight: 600 }}>SOLD OUT • {Math.floor(shopTimeUntilReset / 3600)}h</div>
+                                    <div style={{ padding: "8px 0" }}>
+                                        <div style={{ fontSize: 10, color: "#a855f7", fontWeight: 700, marginBottom: 4 }}>SOLD OUT</div>
+                                        <div style={{ fontSize: 8, color: "#9ca3af" }}>Restock in {Math.floor(shopTimeUntilReset / 3600)}h {Math.floor((shopTimeUntilReset % 3600) / 60)}m</div>
+                                    </div>
                                 )}
-                                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                                    <button onClick={() => handleBuyItem(5, "dust")} disabled={shopLoading || crateUserStats.dust < 5000 || (shopSupply[5]?.remaining ?? 3) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 5000 && (shopSupply[5]?.remaining ?? 3) > 0 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 5000 && (shopSupply[5]?.remaining ?? 3) > 0 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 5000 && (shopSupply[5]?.remaining ?? 3) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 5K DUST</button>
-                                    <button onClick={() => handleBuyItem(5, "fcweed")} disabled={shopLoading || (shopSupply[5]?.remaining ?? 3) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: (shopSupply[5]?.remaining ?? 3) > 0 ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: (shopSupply[5]?.remaining ?? 3) > 0 ? "#fff" : "#9ca3af", fontWeight: 600, cursor: (shopSupply[5]?.remaining ?? 3) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 5M FCWEED</button>
-                                </div>
                             </div>
                         </div>
                         <div style={{ fontSize: 12, color: "#10b981", fontWeight: 700, textAlign: "center", marginBottom: 12 }}>🛡️ CONSUMABLES</div>
@@ -6515,14 +6530,19 @@ export default function FCWeedApp()
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#10b981", marginBottom: 2 }}>HEALTH PACK</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>Heals one Plant Max to 80%<br/>Usage: 1 Per Plant</div>
                                 {(shopSupply[1]?.remaining ?? 20) > 0 ? (
-                                    <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#10b981", fontWeight: 600 }}>{shopSupply[1]?.remaining ?? 20}/{shopSupply[1]?.total ?? 20}</span></div>
+                                    <>
+                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#10b981", fontWeight: 600 }}>{shopSupply[1]?.remaining ?? 20}/{shopSupply[1]?.total ?? 20}</span></div>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                            <button onClick={() => handleBuyItem(1, "dust")} disabled={shopLoading || crateUserStats.dust < 2000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 2K DUST</button>
+                                            <button onClick={() => handleBuyItem(1, "fcweed")} disabled={shopLoading} style={{ padding: "6px", borderRadius: 5, border: "none", background: "linear-gradient(135deg, #10b981, #34d399)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 8 }}>🌿 2M FCWEED</button>
+                                        </div>
+                                    </>
                                 ) : (
-                                    <div style={{ fontSize: 7, color: "#10b981", marginBottom: 4, fontWeight: 600 }}>SOLD OUT • {Math.floor(shopTimeUntilReset / 3600)}h</div>
+                                    <div style={{ padding: "8px 0" }}>
+                                        <div style={{ fontSize: 10, color: "#10b981", fontWeight: 700, marginBottom: 4 }}>SOLD OUT</div>
+                                        <div style={{ fontSize: 8, color: "#9ca3af" }}>Restock in {Math.floor(shopTimeUntilReset / 3600)}h {Math.floor((shopTimeUntilReset % 3600) / 60)}m</div>
+                                    </div>
                                 )}
-                                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                                    <button onClick={() => handleBuyItem(1, "dust")} disabled={shopLoading || crateUserStats.dust < 2500 || (shopSupply[1]?.remaining ?? 20) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2500 && (shopSupply[1]?.remaining ?? 20) > 0 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2500 && (shopSupply[1]?.remaining ?? 20) > 0 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2500 && (shopSupply[1]?.remaining ?? 20) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 2.5K DUST</button>
-                                    <button onClick={() => handleBuyItem(1, "fcweed")} disabled={shopLoading || (shopSupply[1]?.remaining ?? 20) <= 0} style={{ padding: "6px", borderRadius: 5, border: "none", background: (shopSupply[1]?.remaining ?? 20) > 0 ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: (shopSupply[1]?.remaining ?? 20) > 0 ? "#fff" : "#9ca3af", fontWeight: 600, cursor: (shopSupply[1]?.remaining ?? 20) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 2.5M FCWEED</button>
-                                </div>
                             </div>
                             <div style={{ background: "linear-gradient(135deg, rgba(59,130,246,0.15), rgba(96,165,250,0.1))", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 12, padding: 10, textAlign: "center" }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
@@ -6531,11 +6551,16 @@ export default function FCWeedApp()
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#3b82f6", marginBottom: 2 }}>RAID SHIELD</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>24h Protection<br/>Purge Bypasses Shields</div>
                                 {(shopSupply[2]?.remaining ?? 25) > 0 ? (
-                                    <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#3b82f6", fontWeight: 600 }}>{shopSupply[2]?.remaining ?? 25}/{shopSupply[2]?.total ?? 25}</span></div>
+                                    <>
+                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#3b82f6", fontWeight: 600 }}>{shopSupply[2]?.remaining ?? 25}/{shopSupply[2]?.total ?? 25}</span></div>
+                                        <button onClick={() => handleBuyItem(2, "dust")} disabled={shopLoading || crateUserStats.dust < 2500} style={{ width: "100%", padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2500 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2500 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2500 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 2.5K DUST</button>
+                                    </>
                                 ) : (
-                                    <div style={{ fontSize: 7, color: "#3b82f6", marginBottom: 4, fontWeight: 600 }}>SOLD OUT • {Math.floor(shopTimeUntilReset / 3600)}h</div>
+                                    <div style={{ padding: "8px 0" }}>
+                                        <div style={{ fontSize: 10, color: "#3b82f6", fontWeight: 700, marginBottom: 4 }}>SOLD OUT</div>
+                                        <div style={{ fontSize: 8, color: "#9ca3af" }}>Restock in {Math.floor(shopTimeUntilReset / 3600)}h {Math.floor((shopTimeUntilReset % 3600) / 60)}m</div>
+                                    </div>
                                 )}
-                                <button onClick={() => handleBuyItem(2, "dust")} disabled={shopLoading || crateUserStats.dust < 2500 || (shopSupply[2]?.remaining ?? 25) <= 0} style={{ width: "100%", padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2500 && (shopSupply[2]?.remaining ?? 25) > 0 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2500 && (shopSupply[2]?.remaining ?? 25) > 0 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2500 && (shopSupply[2]?.remaining ?? 25) > 0 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 2.5K DUST</button>
                             </div>
                             <div style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.1))", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 12, padding: 10, textAlign: "center" }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
@@ -6545,8 +6570,8 @@ export default function FCWeedApp()
                                 <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>+20% Combat<br/>Lasts 6 hours</div>
                                 <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#f59e0b", fontWeight: 600 }}>∞</span></div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                                    <button onClick={() => handleBuyItem(3, "dust")} disabled={shopLoading || crateUserStats.dust < 400} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 400 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 400 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 400 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 400 DUST</button>
-                                    <button onClick={() => handleBuyItem(3, "fcweed")} disabled={shopLoading} style={{ padding: "6px", borderRadius: 5, border: "none", background: "linear-gradient(135deg, #f59e0b, #fbbf24)", color: "#000", fontWeight: 600, cursor: "pointer", fontSize: 8 }}>🌿 400K FCWEED</button>
+                                    <button onClick={() => handleBuyItem(3, "dust")} disabled={shopLoading || crateUserStats.dust < 200} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 200 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 200 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 200 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 200 DUST</button>
+                                    <button onClick={() => handleBuyItem(3, "fcweed")} disabled={shopLoading} style={{ padding: "6px", borderRadius: 5, border: "none", background: "linear-gradient(135deg, #f59e0b, #fbbf24)", color: "#000", fontWeight: 600, cursor: "pointer", fontSize: 8 }}>🌿 200K FCWEED</button>
                                 </div>
                             </div>
                         </div>
