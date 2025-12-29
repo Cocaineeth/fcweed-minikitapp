@@ -6857,7 +6857,7 @@ export default function FCWeedApp()
                                 </div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>AK-47</div>
                                 <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+100% Combat</div>
-                                <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 6 hours</div>
+                                <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 12 hours</div>
                                 <div style={{ marginTop: "auto" }}>
                                 {(shopSupply[4]?.remaining ?? 15) > 0 ? (
                                     <>
@@ -6905,7 +6905,7 @@ export default function FCWeedApp()
                                 </div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#a855f7", marginBottom: 2 }}>RPG</div>
                                 <div style={{ fontSize: 8, color: "#c4b5fd", marginBottom: 2 }}>+500% Combat</div>
-                                <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 1 hour</div>
+                                <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 3 hours</div>
                                 <div style={{ marginTop: "auto" }}>
                                 {(shopSupply[5]?.remaining ?? 3) > 0 ? (
                                     <>
