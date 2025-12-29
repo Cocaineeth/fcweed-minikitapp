@@ -113,7 +113,6 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     const [showFarmDropdown, setShowFarmDropdown] = useState(false);
     
     const [raiding, setRaiding] = useState(false);
-    const [flagging, setFlagging] = useState(false);
     const [loadingTarget, setLoadingTarget] = useState(false);
     const [status, setStatus] = useState("");
     const [raidResult, setRaidResult] = useState<{ won: boolean; amount: string; damage: number } | null>(null);
@@ -464,52 +463,20 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         setShowFarmDropdown(false);
     };
 
-    const requestBackendFlag = async (): Promise<boolean> => {
-        if (!selectedTarget || !selectedJeet) return false;
-        
-        setFlagging(true);
-        setStatus("Flagging suspect...");
-        
-        try {
-            const response = await fetch(`${WARS_BACKEND_URL}/api/dea/request-flag`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ targetAddress: selectedTarget.address })
-            });
-            
-            const data = await response.json();
-            
-            if (!response.ok || !data.success) {
-                setStatus(`❌ ${data.error || "Failed to flag"}`);
-                setFlagging(false);
-                return false;
-            }
-            
-            setStatus("✓ Flagged!");
-            setFlagging(false);
-            return true;
-        } catch (e) {
-            setStatus("❌ Network error");
-            setFlagging(false);
-            return false;
-        }
-    };
-
     const handleRaid = async () => {
         if (!selectedTarget || !userAddress || !readProvider) return;
         if (selectedTarget.hasShield) { setStatus("Target has shield!"); return; }
         if (selectedTarget.plants === 0) { setStatus("Target has no plants!"); return; }
         
+        if (selectedTarget.needsFlagging) {
+            setStatus("⏳ Target pending verification - try again in a few minutes");
+            return;
+        }
+        
         setRaiding(true);
         setRaidResult(null);
         
         try {
-            if (selectedTarget.needsFlagging) {
-                const flagged = await requestBackendFlag();
-                if (!flagged) { setRaiding(false); return; }
-                await new Promise(r => setTimeout(r, 2000));
-            }
-            
             setStatus("Checking allowance...");
             const hasAllowance = await ensureAllowance(V5_BATTLES_ADDRESS, raidFeeRaw);
             if (!hasAllowance) { setStatus("Approval failed"); setRaiding(false); return; }
@@ -897,14 +864,14 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                 <div style={{ display: "flex", gap: 10 }}>
                                     <button 
                                         onClick={closeAttackModal} 
-                                        disabled={raiding || flagging} 
+                                        disabled={raiding } 
                                         style={{ flex: 1, padding: "12px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${borderColor}`, background: "transparent", color: textMuted, cursor: "pointer" }}
                                     >
                                         Cancel
                                     </button>
                                     <button 
                                         onClick={handleRaid} 
-                                        disabled={raiding || flagging || selectedTarget.hasShield || selectedTarget.plants === 0 || cooldownRemaining > 0} 
+                                        disabled={raiding || selectedTarget.hasShield || selectedTarget.plants === 0 || cooldownRemaining > 0} 
                                         style={{ 
                                             flex: 2, 
                                             padding: "12px", 
@@ -912,12 +879,12 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                             fontWeight: 700, 
                                             borderRadius: 8, 
                                             border: "none", 
-                                            background: (raiding || flagging || selectedTarget.hasShield || cooldownRemaining > 0) ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)", 
+                                            background: (raiding || selectedTarget.hasShield || cooldownRemaining > 0) ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)", 
                                             color: "#fff", 
-                                            cursor: (raiding || flagging || selectedTarget.hasShield || cooldownRemaining > 0) ? "not-allowed" : "pointer" 
+                                            cursor: (raiding || selectedTarget.hasShield || cooldownRemaining > 0) ? "not-allowed" : "pointer" 
                                         }}
                                     >
-                                        {flagging ? "Flagging..." : raiding ? "Raiding..." : selectedTarget.hasShield ? "🛡️ Shielded" : cooldownRemaining > 0 ? `⏳ ${formatCooldown(cooldownRemaining)}` : "🚔 RAID"}
+                                        {raiding ? "Raiding..." : selectedTarget.hasShield ? "🛡️ Shielded" : cooldownRemaining > 0 ? `⏳ ${formatCooldown(cooldownRemaining)}` : "🚔 RAID"}
                                     </button>
                                 </div>
 
