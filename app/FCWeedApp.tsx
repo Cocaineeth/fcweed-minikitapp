@@ -304,6 +304,7 @@ export default function FCWeedApp()
     const [mintModalOpen, setMintModalOpen] = useState(false);
     const [stakeModalOpen, setStakeModalOpen] = useState(false);
     const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+    const [showShieldWarning, setShowShieldWarning] = useState(false);
 
     // Close all modals/popups when switching tabs
     useEffect(() => {
@@ -841,7 +842,7 @@ export default function FCWeedApp()
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
             if (tx) {
                 await tx.wait();
-                setInventoryStatus("AK-47 activated! +100% combat power for 12h");
+                setInventoryStatus("AK-47 activated! +100% combat power for 6h");
                 fetchInventory();
                 refreshAllData();
             } else {
@@ -864,7 +865,7 @@ export default function FCWeedApp()
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
             if (tx) {
                 await tx.wait();
-                setInventoryStatus("RPG activated! +500% combat power for 3h");
+                setInventoryStatus("RPG activated! +500% combat power for 1h");
                 fetchInventory();
                 refreshAllData();
             } else {
@@ -3349,13 +3350,11 @@ export default function FCWeedApp()
             const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
             const hasShield = await v5Contract.hasRaidShield(ctx.userAddress).catch(() => false);
             if (hasShield) {
-                const confirmAttack = window.confirm("⚠️ WARNING: You have an active Raid Shield!\n\nAttacking another player will REMOVE your shield protection.\n\nDo you want to continue?");
-                if (!confirmAttack) {
-                    setWarsStatus("Attack cancelled - shield preserved");
-                    setWarsSearching(false);
-                    warsTransactionInProgress.current = false;
-                    return;
-                }
+                // Show in-app modal instead of browser confirm
+                setShowShieldWarning(true);
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
             }
 
             setWarsStatus("Finding target...");
@@ -3574,6 +3573,63 @@ export default function FCWeedApp()
             } else {
                 setWarsStatus("Lock failed: " + (err.reason || err.message || err).toString().slice(0, 60));
             }
+        } finally {
+            setWarsSearching(false);
+            warsTransactionInProgress.current = false;
+        }
+    }
+
+    // Continue search after user confirms they want to proceed despite having shield
+    async function continueSearchWithShield() {
+        setShowShieldWarning(false);
+        if (warsTransactionInProgress.current) return;
+        warsTransactionInProgress.current = true;
+        setWarsSearching(true);
+        setWarsStatus("Finding target...");
+
+        try {
+            const ctx = await ensureWallet();
+            if (!ctx) {
+                setWarsStatus("Wallet connection failed");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+            const response = await fetch(`${BACKEND_API_URL}/api/search`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ attacker: ctx.userAddress }),
+                signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+
+            const data = await response.json();
+
+            if (!response.ok || !data.success) {
+                setWarsStatus(data.error || "Failed to find target");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
+            if (!data.target) {
+                setWarsStatus("No valid targets found");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
+            setWarsTarget(data.target);
+            setWarsTargetLocked(false);
+            setWarsPreviewData(data);
+            setWarsStatus("Target found! Pay fee to lock.");
+        } catch (err: any) {
+            console.error("[Wars] Search error:", err);
+            setWarsStatus(err.name === 'AbortError' ? "Search timed out" : "Search failed");
         } finally {
             setWarsSearching(false);
             warsTransactionInProgress.current = false;
@@ -5093,6 +5149,98 @@ export default function FCWeedApp()
                     </div>
                 </div>
             )}
+
+            {/* Shield Warning Modal for Cartel Wars */}
+            {showShieldWarning && (
+                <div style={{
+                    position: "fixed",
+                    inset: 0,
+                    background: "rgba(0,0,0,0.9)",
+                    backdropFilter: "blur(10px)",
+                    zIndex: 1001,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: 16
+                }} onClick={() => setShowShieldWarning(false)}>
+                    <div 
+                        style={{
+                            background: theme === "light" ? "#ffffff" : "linear-gradient(135deg, #1e1e2f, #0f172a)",
+                            borderRadius: 20,
+                            border: "2px solid rgba(239,68,68,0.5)",
+                            maxWidth: 340,
+                            width: "100%",
+                            padding: 24,
+                            textAlign: "center"
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div style={{ fontSize: 48, marginBottom: 12 }}>🛡️⚠️</div>
+                        <h3 style={{ 
+                            fontSize: 20, 
+                            fontWeight: 700, 
+                            marginBottom: 8,
+                            color: "#ef4444"
+                        }}>
+                            Shield Active!
+                        </h3>
+                        <p style={{ 
+                            fontSize: 13, 
+                            color: theme === "light" ? "#64748b" : "#94a3b8",
+                            marginBottom: 8,
+                            lineHeight: 1.5
+                        }}>
+                            You have an active <strong style={{ color: "#3b82f6" }}>Raid Shield</strong> protecting your farm.
+                        </p>
+                        <p style={{ 
+                            fontSize: 13, 
+                            color: "#ef4444",
+                            marginBottom: 20,
+                            fontWeight: 600
+                        }}>
+                            Attacking will REMOVE your shield protection!
+                        </p>
+                        
+                        <div style={{ display: "flex", gap: 10 }}>
+                            <button
+                                onClick={() => {
+                                    setShowShieldWarning(false);
+                                    setWarsStatus("");
+                                }}
+                                style={{
+                                    flex: 1,
+                                    padding: "14px 16px",
+                                    borderRadius: 12,
+                                    border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`,
+                                    background: "transparent",
+                                    color: theme === "light" ? "#1e293b" : "#fff",
+                                    fontWeight: 600,
+                                    fontSize: 14,
+                                    cursor: "pointer"
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={continueSearchWithShield}
+                                style={{
+                                    flex: 1,
+                                    padding: "14px 16px",
+                                    borderRadius: 12,
+                                    border: "none",
+                                    background: "linear-gradient(135deg, #dc2626, #ef4444)",
+                                    color: "#fff",
+                                    fontWeight: 700,
+                                    fontSize: 14,
+                                    cursor: "pointer"
+                                }}
+                            >
+                                ⚔️ Attack Anyway
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             
             
             <header className={styles.headerWrapper} style={{
@@ -5265,8 +5413,8 @@ export default function FCWeedApp()
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h Protection, Purge Bypasses Shields</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% Power for 6h</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% Power for 12h</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% Power for 3h</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% Power for 6h</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% Power for 1h</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% Power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 50% | STEAL: 50%</b></li>
                             </ul>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
@@ -5610,79 +5758,6 @@ export default function FCWeedApp()
                             Backend: {warsBackendStatus === "online" ? "Online" : warsBackendStatus === "offline" ? "Offline" : "Checking..."}
                         </div>
 
-                        {/* SHIELD WARNING - PROMINENT AT TOP */}
-                        {connected && warsPlayerStats?.hasShield && (
-                            <div style={{ 
-                                background: "linear-gradient(135deg, rgba(59,130,246,0.2), rgba(96,165,250,0.15))", 
-                                border: "2px solid rgba(59,130,246,0.5)", 
-                                borderRadius: 12, 
-                                padding: 16, 
-                                marginBottom: 16,
-                                boxShadow: "0 0 20px rgba(59,130,246,0.2)"
-                            }}>
-                                <div style={{ fontSize: 28, marginBottom: 8, textAlign: "center" }}>🛡️</div>
-                                <div style={{ fontSize: 14, color: "#3b82f6", fontWeight: 700, textAlign: "center" }}>Raid Shield ACTIVE</div>
-                                <div style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#94a3b8", marginTop: 4, textAlign: "center" }}>
-                                    You're protected from attacks!
-                                </div>
-                                <div style={{ 
-                                    fontSize: 10, 
-                                    color: "#fbbf24", 
-                                    marginTop: 8,
-                                    background: "rgba(251,191,36,0.15)",
-                                    padding: "6px 10px",
-                                    borderRadius: 6,
-                                    border: "1px solid rgba(251,191,36,0.3)",
-                                    textAlign: "center"
-                                }}>
-                                    ⚠️ Attacking others will remove your shield!
-                                </div>
-                            </div>
-                        )}
-
-                        {/* YOUR CARTEL WARS STATS - Defense & Attack */}
-                        {connected && warsPlayerStats && (
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-                                {/* Defense Box */}
-                                <div style={{ background: theme === "light" ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 10, padding: 10, overflow: "hidden" }}>
-                                    <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>🛡️ Defense</div>
-                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 }}>
-                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>WINS</div>
-                                            <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.defWins || 0}</div>
-                                        </div>
-                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>LOSSES</div>
-                                            <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.defLosses || 0}</div>
-                                        </div>
-                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>LOST</div>
-                                            <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.rewardsLost ? formatLargeNumber(warsPlayerStats.rewardsLost) : "0"}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                {/* Attack Box */}
-                                <div style={{ background: theme === "light" ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 10, overflow: "hidden" }}>
-                                    <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>⚔️ Attack</div>
-                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 }}>
-                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>WINS</div>
-                                            <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
-                                        </div>
-                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>LOSSES</div>
-                                            <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
-                                        </div>
-                                        <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                            <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>STOLEN</div>
-                                            <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.rewardsStolen ? formatLargeNumber(warsPlayerStats.rewardsStolen) : "0"}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
                         
                         <div style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.08))", border: "1px solid rgba(139,92,246,0.3)", borderRadius: 12, padding: 14, marginBottom: 16, textAlign: "left" }}>
                             <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700, marginBottom: 12, textAlign: "center" }}>📖 HOW IT ALL WORKS</div>
@@ -5758,7 +5833,7 @@ export default function FCWeedApp()
                                         <div style={{ fontSize: 12, fontWeight: 700, color: "#a855f7", marginBottom: 4 }}>{inventoryRPG}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
                                             {rpgExpiry > Math.floor(Date.now() / 1000) ? (
-                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((rpgExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((rpgExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
+                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((rpgExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(rpgExpiry - Math.floor(Date.now() / 1000)) % 60}s</div>
                                             ) : (
                                                 <button onClick={handleActivateRPG} disabled={inventoryRPG === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryRPG > 0 ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: "#fff", cursor: inventoryRPG > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
                                             )}
@@ -5812,6 +5887,59 @@ export default function FCWeedApp()
 
 
                         
+                        {connected && warsPlayerStats && (
+                            <>
+                                {warsPlayerStats.hasShield && (
+                                    <div style={{ background: theme === "light" ? "rgba(59,130,246,0.1)" : "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
+                                        <div style={{ fontSize: 11, color: "#3b82f6", fontWeight: 600 }}>🛡️ Raid Shield ACTIVE</div>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>Protected from attacks. Attacking others will remove your shield!</div>
+                                    </div>
+                                )}
+                                
+                                
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                                    {/* Defense Box */}
+                                    <div style={{ background: theme === "light" ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 10, padding: 10, overflow: "hidden" }}>
+                                        <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>🛡️ Defense</div>
+                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 }}>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>WINS</div>
+                                                <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.defWins || 0}</div>
+                                            </div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>LOSSES</div>
+                                                <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.defLosses || 0}</div>
+                                            </div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>LOST</div>
+                                                <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.rewardsLost ? formatLargeNumber(warsPlayerStats.rewardsLost) : "0"}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Attack Box */}
+                                    <div style={{ background: theme === "light" ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 10, overflow: "hidden" }}>
+                                        <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>⚔️ Attack</div>
+                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 }}>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>WINS</div>
+                                                <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
+                                            </div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>LOSSES</div>
+                                                <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
+                                            </div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>STOLEN</div>
+                                                <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.rewardsStolen ? formatLargeNumber(warsPlayerStats.rewardsStolen) : "0"}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        
                         {connected && v5StakingStats && (
                             <div style={{ background: theme === "light" ? "rgba(139,92,246,0.08)" : "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)", borderRadius: 10, padding: 12, marginBottom: 12 }}>
                                 <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700, textAlign: "center", marginBottom: 10 }}>🌿 FCWEED FARM COMBAT POWER</div>
@@ -5850,7 +5978,7 @@ export default function FCWeedApp()
                                                 <span style={{ background: "rgba(239,68,68,0.2)", padding: "2px 6px", borderRadius: 4, fontSize: 8, color: "#ef4444", fontWeight: 600 }}>🔫 AK-47 +100% ({Math.floor((ak47Expiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((ak47Expiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m)</span>
                                             )}
                                             {rpgExpiry > Math.floor(Date.now() / 1000) && (
-                                                <span style={{ background: "rgba(168,85,247,0.2)", padding: "2px 6px", borderRadius: 4, fontSize: 8, color: "#a855f7", fontWeight: 600 }}>🚀 RPG +500% ({Math.floor((rpgExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((rpgExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m)</span>
+                                                <span style={{ background: "rgba(168,85,247,0.2)", padding: "2px 6px", borderRadius: 4, fontSize: 8, color: "#a855f7", fontWeight: 600 }}>🚀 RPG +500% ({Math.floor((rpgExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(rpgExpiry - Math.floor(Date.now() / 1000)) % 60}s)</span>
                                             )}
                                             {nukeExpiry > Math.floor(Date.now() / 1000) && (
                                                 <span style={{ background: "rgba(239,68,68,0.3)", padding: "2px 6px", borderRadius: 4, fontSize: 8, color: "#ef4444", fontWeight: 700 }}>☢️ NUKE +10000% ({Math.floor((nukeExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(nukeExpiry - Math.floor(Date.now() / 1000)) % 60}s)</span>
@@ -6096,6 +6224,27 @@ export default function FCWeedApp()
                             ensureAllowance={ensureFcweedAllowance}
                             refreshData={refreshAllData}
                         />
+
+                        
+                        {connected && warsPlayerStats && (warsPlayerStats.deaRaidsWon > 0 || warsPlayerStats.deaRaidsLost > 0) && (
+                            <div style={{ background: theme === "light" ? "rgba(220,38,38,0.08)" : "rgba(220,38,38,0.1)", border: "1px solid rgba(220,38,38,0.3)", borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                                <div style={{ fontSize: 12, color: "#dc2626", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>🚔 Your DEA Raids Stats</div>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>WINS</div>
+                                        <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.deaRaidsWon || 0}</div>
+                                    </div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOSSES</div>
+                                        <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.deaRaidsLost || 0}</div>
+                                    </div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>STOLEN</div>
+                                        <div style={{ fontSize: 14, color: "#10b981", fontWeight: 600 }}>{warsPlayerStats.deaRewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.deaRewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         <DEARaidsLeaderboard
                             connected={connected}
@@ -6857,7 +7006,7 @@ export default function FCWeedApp()
                                 </div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>AK-47</div>
                                 <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+100% Combat</div>
-                                <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 12 hours</div>
+                                <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 6 hours</div>
                                 <div style={{ marginTop: "auto" }}>
                                 {(shopSupply[4]?.remaining ?? 15) > 0 ? (
                                     <>
@@ -6905,7 +7054,7 @@ export default function FCWeedApp()
                                 </div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#a855f7", marginBottom: 2 }}>RPG</div>
                                 <div style={{ fontSize: 8, color: "#c4b5fd", marginBottom: 2 }}>+500% Combat</div>
-                                <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 3 hours</div>
+                                <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 1 hour</div>
                                 <div style={{ marginTop: "auto" }}>
                                 {(shopSupply[5]?.remaining ?? 3) > 0 ? (
                                     <>
