@@ -1,6 +1,5 @@
 // lib/tx.ts
 // Improved transaction handling for Farcaster miniapps
-// No Wagmi dependency - works with existing setup
 
 import { ethers } from "ethers";
 

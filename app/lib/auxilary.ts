@@ -1,128 +1,115 @@
-import { sdk } from "@farcaster/miniapp-sdk";
+// lib/auxilary.ts
+
 import { ethers } from "ethers";
 
+/**
+ * Detect if running in a Farcaster mini app environment
+ */
 export function detectMiniAppEnvironment(): { isMiniApp: boolean; isMobile: boolean } {
-    if (typeof window === "undefined") return { isMiniApp: false, isMobile: false };
+  if (typeof window === "undefined") {
+    return { isMiniApp: false, isMobile: false };
+  }
 
-    const userAgent = navigator.userAgent || "";
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(userAgent);
+  const ua = navigator.userAgent.toLowerCase();
+  
+  // Check for mobile
+  const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(ua);
+  
+  // Check for Farcaster/Warpcast indicators
+  const inIframe = window !== window.parent;
+  const urlHasFrame = window.location.href.includes('miniApp') || 
+                      window.location.href.includes('fc-') ||
+                      window.location.search.includes('miniApp');
+  const hasFarcasterContext = !!(window as any).__FARCASTER__;
+  const asWarpcastUA = ua.includes('warpcast');
+  const urlHasFrameParam = new URLSearchParams(window.location.search).has('frame');
+  
+  const isMiniApp = inIframe || urlHasFrame || hasFarcasterContext || asWarpcastUA || urlHasFrameParam;
 
-    const inIframe = window.parent !== window;
-    const hasFarcasterContext = !!(window as any).farcaster || !!(window as any).__FARCASTER__;
-    const hasWarpcastUA = userAgent.toLowerCase().includes("warpcast");
-    const urlHasFrame = window.location.href.includes("fc-frame") ||
-                        window.location.href.includes("farcaster") ||
-                        document.referrer.includes("warpcast") ||
-                        document.referrer.includes("farcaster");
-
-    let sdkAvailable = false;
-    try {
-        sdkAvailable = !!(sdk && sdk.wallet);
-    } catch {
-        sdkAvailable = false;
-    }
-
-    const isMiniApp = inIframe || hasFarcasterContext || hasWarpcastUA || urlHasFrame || (isMobile && sdkAvailable);
-
-    console.log("[Detect] Environment check:", {
-        isMobile,
-        inIframe,
-        hasFarcasterContext,
-        hasWarpcastUA,
-        urlHasFrame,
-        sdkAvailable,
-        isMiniApp
-    });
-
-    return { isMiniApp, isMobile };
+  return { isMiniApp, isMobile };
 }
 
+/**
+ * Wait for transaction confirmation with improved reliability
+ */
 export async function waitForTx(
-    tx: ethers.providers.TransactionResponse | undefined | null,
-    readProvider?: ethers.providers.Provider,
-    maxWaitMs = 60000
-): Promise<ethers.providers.TransactionReceipt | null | undefined>
-{
-    if (!tx) {
-        console.log("[waitForTx] No transaction provided");
-        return undefined;
-    }
+  tx: ethers.providers.TransactionResponse | { hash: string } | null,
+  provider?: ethers.providers.Provider
+): Promise<ethers.providers.TransactionReceipt | null> {
+  if (!tx || !tx.hash) {
+    console.warn("[waitForTx] No transaction or hash provided");
+    return null;
+  }
 
-    // Check if tx.hash is a placeholder (all zeros)
-    if (tx.hash === "0x" + "0".repeat(64)) {
-        console.log("[waitForTx] Placeholder hash, skipping wait");
-        return undefined;
-    }
+  const txHash = tx.hash;
+  
+  // Skip placeholder hashes
+  if (txHash === "0x0000000000000000000000000000000000000000000000000000000000000000") {
+    console.warn("[waitForTx] Skipping placeholder hash");
+    return null;
+  }
 
-    console.log("[waitForTx] Waiting for tx:", tx.hash);
+  console.log("[waitForTx] Waiting for:", txHash);
 
-    // If we have a readProvider, use it to poll for the receipt
-    if (readProvider && tx.hash) {
-        const startTime = Date.now();
-        let attempts = 0;
-        
-        while (Date.now() - startTime < maxWaitMs) {
-            attempts++;
-            try {
-                const receipt = await readProvider.getTransactionReceipt(tx.hash);
-                if (receipt) {
-                    console.log("[waitForTx] Got receipt after", attempts, "attempts, confirmations:", receipt.confirmations);
-                    if (receipt.confirmations > 0) {
-                        return receipt;
-                    }
-                    // If receipt exists but 0 confirmations, it's pending - wait a bit more
-                    if (receipt.blockNumber) {
-                        // Transaction is mined but maybe not confirmed yet, shorter wait
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                        continue;
-                    }
-                }
-            } catch (e) {
-                // Ignore errors, just retry
-                console.warn("[waitForTx] Receipt check error:", e);
-            }
-            
-            // Wait 2 seconds between checks
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-        
-        console.warn("[waitForTx] Timeout after", attempts, "attempts, proceeding anyway");
-        
-        // One final check before giving up
-        try {
-            const finalReceipt = await readProvider.getTransactionReceipt(tx.hash);
-            if (finalReceipt && finalReceipt.confirmations > 0) {
-                return finalReceipt;
-            }
-        } catch { }
-        
-        return undefined;
-    }
-
-    // Fallback: try using tx.wait() if available
+  // If tx has a wait function, try it first
+  if ('wait' in tx && typeof tx.wait === 'function') {
     try {
-        if (typeof tx.wait === "function") {
-            console.log("[waitForTx] Using tx.wait()");
-            const receipt = await tx.wait();
-            console.log("[waitForTx] tx.wait() completed");
-            return receipt;
-        }
-    } catch (e: any) {
-        const msg = e?.reason || e?.error?.message || e?.data?.message || e?.message || "";
-        
-        // Ignore known non-errors
-        if (
-            msg.includes("does not support the requested method") ||
-            msg.includes("unsupported method") ||
-            msg.includes("wait is not a function")
-        ) {
-            console.warn("[waitForTx] Ignoring provider wait() error:", msg);
-            return undefined;
-        }
-        
-        console.error("[waitForTx] tx.wait() error:", e);
-        throw e;
+      const receipt = await Promise.race([
+        tx.wait(),
+        new Promise<null>((_, reject) => 
+          setTimeout(() => reject(new Error("wait() timeout")), 45000)
+        )
+      ]);
+      
+      if (receipt) {
+        console.log("[waitForTx] Got receipt from wait()");
+        return receipt as ethers.providers.TransactionReceipt;
+      }
+    } catch (err) {
+      console.warn("[waitForTx] wait() failed, falling back to polling");
     }
-    
-    return undefined;
+  }
+
+  // Fall back to polling with provider
+  if (!provider) {
+    console.warn("[waitForTx] No provider for polling");
+    return null;
+  }
+
+  const maxAttempts = 30;
+  const baseDelay = 2000;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const receipt = await provider.getTransactionReceipt(txHash);
+      
+      if (receipt) {
+        if (receipt.confirmations > 0) {
+          console.log("[waitForTx] Confirmed at attempt", i + 1);
+          return receipt;
+        }
+        // Receipt exists but not confirmed yet - poll faster
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue;
+      }
+    } catch (err) {
+      // Ignore and retry
+    }
+
+    await new Promise(resolve => setTimeout(resolve, baseDelay));
+  }
+
+  // Final check before giving up
+  try {
+    const finalReceipt = await provider.getTransactionReceipt(txHash);
+    if (finalReceipt && finalReceipt.confirmations > 0) {
+      console.log("[waitForTx] Got receipt on final check");
+      return finalReceipt;
+    }
+  } catch (err) {
+    // Ignore
+  }
+
+  console.warn("[waitForTx] Timeout waiting for:", txHash);
+  return null;
 }
