@@ -609,7 +609,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 <div style={{ textAlign: "center", marginBottom: 12 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 8 }}>
                         <span style={{ fontSize: 20 }}>🚔</span>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: "#dc2626" }}>DEA WATCHLIST (Testing - Not Activated)</span>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: "#dc2626" }}>DEA WATCHLIST</span>
                         {!deaEnabled && <span style={{ fontSize: 9, background: "#374151", color: "#fbbf24", padding: "2px 6px", borderRadius: 4 }}>PAUSED</span>}
                     </div>
                     <div style={{ fontSize: 11, color: "#fbbf24", marginBottom: 6 }}>Suspects: <b>{jeets.length}</b></div>
@@ -649,7 +649,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                     <tr key={jeet.address} style={{ borderBottom: `1px solid ${theme === "light" ? "#f1f5f9" : "rgba(255,255,255,0.05)"}`, opacity: hasNoPlants ? 0.6 : 1 }}>
                                         <td style={{ padding: "8px 4px", color: textMuted }}>{(currentPage - 1) * ITEMS_PER_PAGE + idx + 1}</td>
                                         <td style={{ padding: "8px 4px", fontFamily: "monospace", fontSize: 10, color: textMain }}>
-                                            {jeet.address.slice(0, 6)}...{jeet.address.slice(-4)}
+                                            {jeet.address.slice(0, 4)}..{jeet.address.slice(-4)}
                                             {hasNoPlants && <span style={{ marginLeft: 4, fontSize: 8, color: "#ef4444" }} title="No plants staked - cannot raid">⚠️</span>}
                                         </td>
                                         <td style={{ padding: "8px 4px", textAlign: "center", color: jeet.isCluster ? "#fbbf24" : textMuted, fontWeight: 600 }}>
@@ -717,7 +717,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             {showAttackModal && selectedJeet && (
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20 }}>
                     <div style={{ background: modalBg, borderRadius: 16, padding: 24, maxWidth: 420, width: "100%", border: "2px solid rgba(220,38,38,0.5)", boxShadow: "0 0 40px rgba(220,38,38,0.3)", maxHeight: "90vh", overflowY: "auto" }}>
-                        <div style={{ textAlign: "center", marginBottom: 16 }}><div style={{ fontSize: 36, marginBottom: 8 }}>🚔</div><div style={{ fontSize: 18, fontWeight: 800, color: "#dc2626" }}>DEA RAID (Testing - Not Activated)</div></div>
+                        <div style={{ textAlign: "center", marginBottom: 16 }}><div style={{ fontSize: 36, marginBottom: 8 }}>🚔</div><div style={{ fontSize: 18, fontWeight: 800, color: "#dc2626" }}>DEA RAID</div></div>
                         
                         <div style={{ background: "rgba(220,38,38,0.1)", borderRadius: 10, padding: 12, marginBottom: 16 }}>
                             <div style={{ fontSize: 10, color: textMuted, marginBottom: 4 }}>SUSPECT {selectedJeet.isCluster && <span style={{ color: "#fbbf24" }}>({selectedJeet.farms?.length || 1} linked farms)</span>}</div>
@@ -772,7 +772,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                                 >
                                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                                         <div>
-                                                            <div style={{ fontSize: 10, fontFamily: "monospace", color: textMain }}>{farm.address.slice(0, 8)}...{farm.address.slice(-6)}</div>
+                                                            <div style={{ fontSize: 10, fontFamily: "monospace", color: textMain }}>{farm.address.slice(0, 4)}..{farm.address.slice(-4)}</div>
                                                             <div style={{ fontSize: 9, color: textMuted, marginTop: 2 }}>
                                                                 🌱 {farm.plants} • ❤️ {farm.avgHealth}% • ⚔️ {farm.battlePower || Math.floor(farm.plants * 3 * farm.avgHealth / 100)}
                                                                 {farm.hasShield && " • 🛡️"}

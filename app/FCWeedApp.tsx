@@ -4980,21 +4980,15 @@ export default function FCWeedApp()
                 borderBottom: theme === "light" ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
                 padding: "8px 12px",
                 display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8
+                flexDirection: "column",
+                gap: 6
             }}>
-                {/* Left: Brand + Wallet */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: "0 1 auto" }}>
-                    <div className={styles.brand} style={{ color: theme === "light" ? "#1e293b" : undefined, flexShrink: 0 }}>
+                {/* Row 1: Brand + Theme */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div className={styles.brand} style={{ color: theme === "light" ? "#1e293b" : undefined }}>
                         <span className={styles.liveDot} />
-                        <span className={styles.brandText} style={{ color: theme === "light" ? "#1e293b" : undefined, fontSize: 14 }}>FCWEED</span>
+                        <span className={styles.brandText} style={{ color: theme === "light" ? "#1e293b" : undefined, fontSize: 16, fontWeight: 700 }}>FCWEED</span>
                     </div>
-                    <ConnectWalletButton />
-                </div>
-                
-                {/* Right: Theme + Radio */}
-                <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                     <button 
                         type="button" 
                         onClick={toggleTheme}
@@ -5015,36 +5009,45 @@ export default function FCWeedApp()
                     >
                         {theme === "dark" ? "☀️" : "🌙"}
                     </button>
+                </div>
+                
+                {/* Row 2: Wallet + Radio */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <ConnectWalletButton />
                     
-                    {/* Compact Radio Pill */}
+                    {/* Radio Pill */}
                     <div style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: 4,
+                        gap: 6,
                         background: theme === "light" ? "#f1f5f9" : "rgba(255,255,255,0.1)",
                         border: `1px solid ${theme === "light" ? "#cbd5e1" : "rgba(255,255,255,0.2)"}`,
                         borderRadius: 8,
-                        padding: "4px 8px",
+                        padding: "4px 10px",
                         height: 32
                     }}>
-                        <span style={{ fontSize: 10, color: theme === "light" ? "#64748b" : "#9ca3af", whiteSpace: "nowrap" }}>📻</span>
-                        <div style={{ overflow: "hidden", maxWidth: 70, height: 14 }}>
+                        <span style={{ fontSize: 12 }}>📻</span>
+                        <div style={{ 
+                            overflow: "hidden", 
+                            width: 80, 
+                            height: 16,
+                            position: "relative"
+                        }}>
                             <span style={{ 
                                 color: theme === "light" ? "#1e293b" : "#fff",
-                                display: "inline-block",
+                                position: "absolute",
                                 whiteSpace: "nowrap",
-                                fontSize: 10,
+                                fontSize: 11,
                                 fontWeight: 500,
-                                animation: "scrollText 8s linear infinite",
-                                paddingLeft: "100%"
+                                animation: "scrollText 10s linear infinite"
                             }}>
                                 {currentTrackMeta.title}
                             </span>
                         </div>
-                        <div style={{ display: "flex", gap: 2 }}>
-                            <button type="button" onClick={handlePrevTrack} style={{ width: 20, height: 20, border: "none", background: "transparent", color: theme === "light" ? "#64748b" : "#9ca3af", cursor: "pointer", fontSize: 12, padding: 0 }}>‹</button>
-                            <button type="button" onClick={handlePlayPause} style={{ width: 20, height: 20, border: "none", background: "transparent", color: theme === "light" ? "#1e293b" : "#fff", cursor: "pointer", fontSize: 10, padding: 0 }}>{isPlaying ? "❚❚" : "▶"}</button>
-                            <button type="button" onClick={handleNextTrack} style={{ width: 20, height: 20, border: "none", background: "transparent", color: theme === "light" ? "#64748b" : "#9ca3af", cursor: "pointer", fontSize: 12, padding: 0 }}>›</button>
+                        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                            <button type="button" onClick={handlePrevTrack} style={{ width: 22, height: 22, border: "none", background: "transparent", color: theme === "light" ? "#64748b" : "#9ca3af", cursor: "pointer", fontSize: 14, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>‹</button>
+                            <button type="button" onClick={handlePlayPause} style={{ width: 22, height: 22, border: "none", background: "transparent", color: theme === "light" ? "#1e293b" : "#fff", cursor: "pointer", fontSize: 12, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>{isPlaying ? "❚❚" : "▶"}</button>
+                            <button type="button" onClick={handleNextTrack} style={{ width: 22, height: 22, border: "none", background: "transparent", color: theme === "light" ? "#64748b" : "#9ca3af", cursor: "pointer", fontSize: 14, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>›</button>
                         </div>
                     </div>
                     <audio ref={audioRef} src={currentTrackMeta.src} onEnded={handleNextTrack} autoPlay style={{ display: "none" }} />
