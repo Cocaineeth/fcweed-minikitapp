@@ -18,6 +18,9 @@ const BATTLES_ABI = [
     "function canBeRaided(address) view returns (bool)",
     "function getDeaAttackerStats(address) view returns (uint256 raidsWon, uint256 raidsLost, uint256 rewardsStolen, uint256 rewardsLostAttacking, uint256 cooldownRemaining, bool canAttack)",
     "function getGlobalStats() view returns (uint256,uint256,uint256,uint256,uint256,uint256,uint256)",
+    "function deaTargetImmunity() view returns (uint256)",
+    "function deaPerTargetCooldown() view returns (uint256)",
+    "function deaLastAttackOnTarget(address,address) view returns (uint256)",
     "event DeaRaidResult(address indexed attacker, address indexed defender, bool attackerWon, uint256 stolenAmount, uint256 damagePct)"
 ];
 
@@ -36,12 +39,16 @@ type FarmInfo = {
     plants: number;
     avgHealth: number;
     pendingRewards: string;
+    pendingRewardsRaw?: ethers.BigNumber;
     hasShield: boolean;
     totalSold: string;
     canAttack: boolean;
     battlePower?: number;
     lastSellTime?: number;
     expiresAt?: number;
+    // Cooldown tracking
+    targetImmunityEnds?: number;
+    myAttackCooldownEnds?: number;
 };
 
 type JeetEntry = { 
@@ -59,14 +66,15 @@ type JeetEntry = {
     plants: number;
     avgHealth?: number;
     battlePower?: number;
-    // Multi-farm support
     isCluster?: boolean;
     clusterId?: string;
     farms?: FarmInfo[];
     totalPlants?: number;
     bestFarm?: FarmInfo;
-    // Warning message (e.g., "no plants staked")
     warning?: string;
+    // For single-farm cooldown display on main list
+    targetImmunityEnds?: number;
+    myAttackCooldownEnds?: number;
 };
 
 type TargetInfo = { 
@@ -80,7 +88,6 @@ type TargetInfo = {
     attackerPower: number; 
     winChance: number; 
     needsFlagging: boolean;
-    // Multi-farm
     isCluster?: boolean;
     farms?: FarmInfo[];
     selectedFarm?: FarmInfo;
@@ -98,13 +105,15 @@ type Props = {
 
 const ITEMS_PER_PAGE = 10;
 const SUSPECT_EXPIRY = 24 * 60 * 60;
+const TARGET_IMMUNITY = 2 * 60 * 60; // 2 hours
+const PER_TARGET_COOLDOWN = 6 * 60 * 60; // 6 hours
 
 export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvider, sendContractTx, ensureAllowance, refreshData }: Props) {
     const [jeets, setJeets] = useState<JeetEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalRaids, setTotalRaids] = useState(0);
-    const [totalRedistributed, setTotalRedistributed] = useState("0");
+    const [totalSeized, setTotalSeized] = useState("0");
     const [raidFee, setRaidFee] = useState("100K");
     const [raidFeeRaw, setRaidFeeRaw] = useState<ethers.BigNumber>(ethers.utils.parseUnits("100000", 18));
     const [deaEnabled, setDeaEnabled] = useState(true);
@@ -120,8 +129,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     const [status, setStatus] = useState("");
     const [raidResult, setRaidResult] = useState<{ won: boolean; amount: string; damage: number } | null>(null);
     const [cooldownRemaining, setCooldownRemaining] = useState(0);
-    const [debugInfo, setDebugInfo] = useState("");
     const [currentTime, setCurrentTime] = useState(Math.floor(Date.now() / 1000));
+    const [myBattlePower, setMyBattlePower] = useState(0);
     
     const fetchingRef = useRef(false);
 
@@ -167,7 +176,18 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         if (seconds <= 0) return "";
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
-        return `${h}h ${m}m`;
+        const s = seconds % 60;
+        if (h > 0) return `${h}h ${m}m`;
+        if (m > 0) return `${m}m ${s}s`;
+        return `${s}s`;
+    };
+
+    // Get health color based on percentage
+    const getHealthColor = (health: number): string => {
+        if (health >= 70) return "#22c55e"; // green
+        if (health >= 40) return "#fbbf24"; // yellow
+        if (health >= 20) return "#f97316"; // orange
+        return "#ef4444"; // red
     };
 
     // Fetch data from BOTH backend (tracked) and on-chain (flagged)
@@ -176,13 +196,11 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         fetchingRef.current = true;
         setLoading(true);
         
-        let debug = "";
-        
         try {
             const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, BATTLES_ABI, readProvider);
             const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
             
-            // STEP 1: Get global stats
+            // STEP 1: Get global stats - DEA specific
             try {
                 const [enabled, fee, globalStats] = await Promise.all([
                     battlesContract.deaRaidsEnabled(),
@@ -192,20 +210,26 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 setDeaEnabled(enabled);
                 setRaidFeeRaw(fee);
                 setRaidFee(formatLargeNumber(fee));
+                // globalStats[1] = totalDeaRaids
                 setTotalRaids(globalStats[1].toNumber());
-                setTotalRedistributed(formatLargeNumber(globalStats[4]));
-                debug += `DEA enabled: ${enabled}, Fee: ${formatLargeNumber(fee)}\n`;
+                // For DEA-specific seized, we need to track it separately
+                // Using index 4 (totalRewardsRedistributed) for now but this is shared
+                setTotalSeized(formatLargeNumber(globalStats[4]));
             } catch (e) {
-                debug += `Error getting global stats: ${e}\n`;
+                console.error("[DEA] Error getting global stats:", e);
             }
             
-            // STEP 2: Get user's cooldown
+            // STEP 2: Get user's general cooldown and battle power
             if (userAddress) {
                 try {
-                    const stats = await battlesContract.getDeaAttackerStats(userAddress);
+                    const [stats, power] = await Promise.all([
+                        battlesContract.getDeaAttackerStats(userAddress),
+                        new ethers.Contract(V5_STAKING_ADDRESS, STAKING_ABI, readProvider).calculateBattlePower(userAddress)
+                    ]);
                     setCooldownRemaining(stats.cooldownRemaining.toNumber());
+                    setMyBattlePower(power.toNumber());
                 } catch (e) {
-                    debug += `Error getting user stats: ${e}\n`;
+                    console.error("[DEA] Error getting user stats:", e);
                 }
             }
             
@@ -213,7 +237,6 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             let onChainSuspects: Map<string, JeetEntry> = new Map();
             try {
                 const suspectList = await battlesContract.getSuspectList();
-                debug += `On-chain suspects: ${suspectList.length}\n`;
                 
                 if (suspectList.length > 0) {
                     const infoCalls = suspectList.map((addr: string) => ({
@@ -251,16 +274,17 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                         canBeRaidedNow: info.canCurrentlyBeRaided && !hasShield,
                                         hasShield,
                                         source: "onchain",
-                                        needsFlagging: false
+                                        needsFlagging: false,
+                                        plants: 0,
+                                        avgHealth: 0
                                     });
                                 }
                             }
                         } catch (e) {}
                     }
-                    debug += `Valid on-chain: ${onChainSuspects.size}\n`;
                 }
             } catch (e) {
-                debug += `Error getting on-chain: ${e}\n`;
+                console.error("[DEA] Error getting on-chain suspects:", e);
             }
             
             // STEP 4: Get BACKEND tracked jeets (not yet on-chain)
@@ -270,16 +294,13 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 
                 if (leaderboardRes) {
                     const data = await leaderboardRes.json();
-                    debug += `Backend jeets: ${data.jeets?.length || 0}\n`;
                     
                     if (data.success && Array.isArray(data.jeets)) {
                         for (const j of data.jeets) {
                             const addr = j.address.toLowerCase();
-                            // Backend returns lastSellTime, not lastSellTimestamp
                             const lastSell = j.lastSellTime || j.lastSellTimestamp || 0;
                             const expiresAt = j.expiresAt || (lastSell > 0 ? lastSell + SUSPECT_EXPIRY : 0);
                             
-                            // Skip if no valid sell time or expired
                             if (lastSell === 0 || expiresAt <= now) continue;
                             
                             backendJeets.set(addr, {
@@ -294,7 +315,6 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                 plants: j.plants || j.totalPlants || 0,
                                 avgHealth: j.avgHealth || 0,
                                 hasShield: j.hasShield || false,
-                                // Multi-farm support
                                 isCluster: j.isCluster || false,
                                 clusterId: j.clusterId,
                                 farms: j.farms,
@@ -305,7 +325,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     }
                 }
             } catch (e) {
-                debug += `Backend error: ${e}\n`;
+                console.error("[DEA] Backend error:", e);
             }
             
             // STEP 5: Merge both sources
@@ -336,7 +356,6 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 const backend = backendJeets.get(addr);
                 
                 if (onChain && backend) {
-                    // Both - use on-chain data, already flagged
                     mergedJeets.push({
                         ...onChain,
                         totalSold: onChain.totalSold || backend.totalSold,
@@ -351,14 +370,12 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         bestFarm: backend.bestFarm
                     });
                 } else if (onChain) {
-                    // On-chain only - need to get plants from somewhere
                     mergedJeets.push({
                         ...onChain,
                         plants: 0,
                         avgHealth: 0
                     });
                 } else if (backend) {
-                    // Backend only - NEEDS FLAGGING before raid
                     const hasShield = backendShields.get(addr) || backend.hasShield || false;
                     mergedJeets.push({
                         address: backend.address,
@@ -389,20 +406,17 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 return bVal - aVal;
             });
             
-            debug += `Total merged: ${mergedJeets.length}\n`;
             setJeets(mergedJeets);
-            setDebugInfo(debug);
             
         } catch (e) {
             console.error("[DEA] Fetch error:", e);
-            setDebugInfo(`Fatal error: ${e}`);
         }
         
         setLoading(false);
         fetchingRef.current = false;
     }, [readProvider, userAddress, now]);
 
-    // Load target stats
+    // Load target stats with cooldown info for each farm
     const handleSelectTarget = async (jeet: JeetEntry) => {
         if (!userAddress || !readProvider) return;
         
@@ -413,10 +427,11 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         setSelectedTarget(null);
         
         try {
-            // Use bestFarm address if available (for clusters), otherwise jeet address
             const targetAddress = jeet.bestFarm?.address || jeet.address;
             
             const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+            
+            // Get stats for selected target AND refresh attacker power
             const calls = [
                 { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("pending", [targetAddress]) },
                 { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("getUserBattleStats", [targetAddress]) },
@@ -427,7 +442,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             
             const results = await mc.tryAggregate(false, calls);
             
-            let pendingRewards = "0", plants = 0, avgHealth = 0, battlePower = 0, attackerPower = 0, hasShield = false;
+            let pendingRewards = "0", plants = 0, avgHealth = 0, battlePower = 0, attackerPower = myBattlePower, hasShield = false;
             
             if (results[0].success) pendingRewards = formatLargeNumber(stakingInterface.decodeFunctionResult("pending", results[0].returnData)[0]);
             if (results[1].success) {
@@ -436,8 +451,90 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 avgHealth = stats[3].toNumber();
             }
             if (results[2].success) battlePower = stakingInterface.decodeFunctionResult("calculateBattlePower", results[2].returnData)[0].toNumber();
-            if (results[3].success) attackerPower = stakingInterface.decodeFunctionResult("calculateBattlePower", results[3].returnData)[0].toNumber();
+            if (results[3].success) {
+                attackerPower = stakingInterface.decodeFunctionResult("calculateBattlePower", results[3].returnData)[0].toNumber();
+                setMyBattlePower(attackerPower); // Update stored value
+            }
             if (results[4].success) hasShield = stakingInterface.decodeFunctionResult("hasRaidShield", results[4].returnData)[0];
+            
+            // Get cooldowns and fresh stats for each farm if cluster
+            let farmsWithCooldowns: FarmInfo[] = [];
+            if (jeet.farms && jeet.farms.length > 0) {
+                // Build calls for all farms: cooldown + pending + stats + shield
+                const farmCalls: any[] = [];
+                jeet.farms.forEach((farm: FarmInfo) => {
+                    farmCalls.push(
+                        { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("deaLastAttackOnTarget", [userAddress, farm.address]) },
+                        { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("pending", [farm.address]) },
+                        { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("getUserBattleStats", [farm.address]) },
+                        { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("hasRaidShield", [farm.address]) },
+                        { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("calculateBattlePower", [farm.address]) }
+                    );
+                });
+                
+                try {
+                    const farmResults = await mc.tryAggregate(false, farmCalls);
+                    
+                    farmsWithCooldowns = jeet.farms.map((farm: FarmInfo, idx: number) => {
+                        const baseIdx = idx * 5;
+                        let myAttackCooldownEnds = 0;
+                        let farmPending = "0";
+                        let farmPlants = farm.plants || 0;
+                        let farmHealth = farm.avgHealth || 0;
+                        let farmShield = farm.hasShield || false;
+                        let farmPower = 0;
+                        
+                        // Cooldown
+                        if (farmResults[baseIdx]?.success) {
+                            const lastAttack = battlesInterface.decodeFunctionResult("deaLastAttackOnTarget", farmResults[baseIdx].returnData)[0].toNumber();
+                            if (lastAttack > 0) {
+                                myAttackCooldownEnds = lastAttack + PER_TARGET_COOLDOWN;
+                            }
+                        }
+                        
+                        // Pending rewards
+                        if (farmResults[baseIdx + 1]?.success) {
+                            const raw = stakingInterface.decodeFunctionResult("pending", farmResults[baseIdx + 1].returnData)[0];
+                            farmPending = formatLargeNumber(raw);
+                        }
+                        
+                        // Battle stats (plants, health)
+                        if (farmResults[baseIdx + 2]?.success) {
+                            const stats = stakingInterface.decodeFunctionResult("getUserBattleStats", farmResults[baseIdx + 2].returnData);
+                            farmPlants = stats[0].toNumber();
+                            farmHealth = stats[3].toNumber();
+                        }
+                        
+                        // Shield
+                        if (farmResults[baseIdx + 3]?.success) {
+                            farmShield = stakingInterface.decodeFunctionResult("hasRaidShield", farmResults[baseIdx + 3].returnData)[0];
+                        }
+                        
+                        // Battle power
+                        if (farmResults[baseIdx + 4]?.success) {
+                            farmPower = stakingInterface.decodeFunctionResult("calculateBattlePower", farmResults[baseIdx + 4].returnData)[0].toNumber();
+                        }
+                        
+                        return {
+                            ...farm,
+                            plants: farmPlants,
+                            avgHealth: farmHealth,
+                            pendingRewards: farmPending,
+                            hasShield: farmShield,
+                            battlePower: farmPower || Math.floor(farmPlants * 3 * farmHealth / 100),
+                            myAttackCooldownEnds,
+                            canAttack: farmPlants > 0 && !farmShield && farmHealth > 0
+                        };
+                    });
+                } catch (e) {
+                    console.error("[DEA] Error getting farm details:", e);
+                    // Fallback to original farms with formatted pending
+                    farmsWithCooldowns = jeet.farms.map((farm: FarmInfo) => ({
+                        ...farm,
+                        pendingRewards: formatLargeNumber(farm.pendingRewards || "0")
+                    }));
+                }
+            }
             
             const winChance = attackerPower > 0 && battlePower > 0 ? Math.min(95, Math.max(5, Math.round((attackerPower / (attackerPower + battlePower)) * 100))) : 50;
             
@@ -452,9 +549,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 attackerPower, 
                 winChance,
                 needsFlagging: jeet.needsFlagging,
-                // Multi-farm support
                 isCluster: jeet.isCluster,
-                farms: jeet.farms,
+                farms: farmsWithCooldowns,
                 selectedFarm: jeet.bestFarm
             });
         } catch (e: any) {
@@ -464,13 +560,12 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         setLoadingTarget(false);
     };
 
-    // Request backend to flag the suspect (BACKEND PAYS GAS)
+    // Request backend to flag the suspect
     const requestBackendFlag = async (): Promise<boolean> => {
         if (!selectedTarget) return false;
         
-        // Check if target has plants before even trying
         if (selectedTarget.plants === 0) {
-            setStatus("❌ Cannot raid: Target has no plants staked. They may have unstaked after selling.");
+            setStatus("❌ Cannot raid: Target has no plants staked.");
             return false;
         }
         
@@ -478,10 +573,10 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         setStatus("Requesting flag from backend...");
         
         try {
+            const addressToFlag = selectedJeet?.address || selectedTarget.address;
             const response = await fetch(`${WARS_BACKEND_URL}/api/dea/request-flag`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                const addressToFlag = selectedJeet?.address || selectedTarget.address;
                 body: JSON.stringify({ targetAddress: addressToFlag })
             });
             
@@ -489,11 +584,11 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             
             if (!response.ok) {
                 if (response.status === 429) {
-                    setStatus("⏳ Rate limited - too many flags. Try again in a few minutes.");
+                    setStatus("⏳ Rate limited - try again in a few minutes.");
                 } else if (response.status === 404) {
                     setStatus("❌ This address is not tracked as a seller.");
                 } else if (data.reason === "NO_PLANTS") {
-                    setStatus("❌ Cannot raid: Target has no plants staked. They unstaked after selling.");
+                    setStatus("❌ Cannot raid: Target has no plants staked.");
                 } else {
                     setStatus(`❌ ${data.error || "Failed to flag suspect"}`);
                 }
@@ -502,7 +597,6 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             }
             
             if (data.success) {
-                // Update local state
                 if (selectedJeet) {
                     selectedJeet.needsFlagging = false;
                     selectedJeet.source = "onchain";
@@ -510,7 +604,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 if (selectedTarget) {
                     selectedTarget.needsFlagging = false;
                 }
-                setStatus(data.alreadyFlagged ? "✓ Already flagged! Proceeding to raid..." : "✓ Flagged successfully! Proceeding to raid...");
+                setStatus(data.alreadyFlagged ? "✓ Already flagged! Proceeding..." : "✓ Flagged! Proceeding...");
                 setFlagging(false);
                 return true;
             } else {
@@ -526,7 +620,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         }
     };
 
-    // Execute raid (with auto-flag if needed)
+    // Execute raid
     const handleRaid = async () => {
         if (!selectedTarget || !userAddress || !readProvider) return;
         if (selectedTarget.hasShield) { setStatus("Target has raid shield!"); return; }
@@ -535,34 +629,43 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         setRaidResult(null);
         
         try {
-            // STEP 1: Request backend to flag if needed (BACKEND PAYS GAS)
+            // Flag if needed
             if (selectedTarget.needsFlagging) {
                 const flagged = await requestBackendFlag();
                 if (!flagged) {
                     setRaiding(false);
                     return;
                 }
-                // Small delay to let chain confirm
                 await new Promise(r => setTimeout(r, 2000));
             }
             
-            // STEP 2: Check allowance
+            // Check allowance
             setStatus("Checking allowance...");
-            const approved = await ensureAllowance(V5_BATTLES_ADDRESS, raidFeeRaw);
-            if (!approved) { setStatus("Approval failed"); setRaiding(false); return; }
+            const hasAllowance = await ensureAllowance(V5_BATTLES_ADDRESS, raidFeeRaw);
+            if (!hasAllowance) {
+                setStatus("Approval rejected or failed");
+                setRaiding(false);
+                return;
+            }
             
-            // STEP 3: Execute raid (USER PAYS FCWEED FEE)
-            setStatus("Executing DEA raid...");
+            // Execute raid
+            setStatus("Executing raid...");
             const data = battlesInterface.encodeFunctionData("deaRaid", [selectedTarget.address]);
-            const tx = await sendContractTx(V5_BATTLES_ADDRESS, data);
-            if (!tx) { setStatus("Transaction rejected"); setRaiding(false); return; }
+            const tx = await sendContractTx(V5_BATTLES_ADDRESS, data, "0x4C4B40");
             
-            setStatus("Confirming...");
+            if (!tx) {
+                setStatus("Transaction rejected");
+                setRaiding(false);
+                return;
+            }
+            
+            setStatus("Waiting for confirmation...");
             const receipt = await tx.wait();
             
+            // Parse result
             let resultFound = false;
-            if (receipt) {
-                for (const log of receipt.logs || []) {
+            if (receipt && receipt.logs) {
+                for (const log of receipt.logs) {
                     try {
                         const parsed = battlesInterface.parseLog(log);
                         if (parsed.name === "DeaRaidResult") {
@@ -606,23 +709,23 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     return (
         <>
             <div style={{ background: cardBg, borderRadius: 12, padding: 16, border: `1px solid ${borderColor}`, marginTop: 16 }}>
-                {/* Header - Centered */}
+                {/* Header */}
                 <div style={{ textAlign: "center", marginBottom: 12 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 8 }}>
                         <span style={{ fontSize: 20 }}>🚔</span>
                         <span style={{ fontSize: 14, fontWeight: 700, color: "#dc2626" }}>DEA WATCHLIST</span>
                         {!deaEnabled && <span style={{ fontSize: 9, background: "#374151", color: "#fbbf24", padding: "2px 6px", borderRadius: 4 }}>PAUSED</span>}
                     </div>
-                    <div style={{ fontSize: 11, color: "#fbbf24", marginBottom: 6 }}>Suspects: <b>{jeets.length}</b></div>
+                    <div style={{ fontSize: 11, color: "#fbbf24", marginBottom: 6 }}>Suspects: <b>{activeJeets.length}</b></div>
                     <div style={{ display: "flex", justifyContent: "center", gap: 16, fontSize: 10 }}>
                         <span style={{ color: textMuted }}>Total Raids: <b style={{ color: "#ef4444" }}>{totalRaids}</b></span>
-                        <span style={{ color: textMuted }}>Total Seized: <b style={{ color: "#10b981" }}>{totalRedistributed}</b></span>
+                        <span style={{ color: textMuted }}>Total Seized: <b style={{ color: "#10b981" }}>{totalSeized}</b></span>
                     </div>
                 </div>
                 
                 {cooldownRemaining > 0 && (
                     <div style={{ background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 8, padding: 8, marginBottom: 12, textAlign: "center" }}>
-                        <span style={{ fontSize: 11, color: "#fbbf24" }}>⏳ Cooldown: <b>{formatCooldown(cooldownRemaining)}</b></span>
+                        <span style={{ fontSize: 11, color: "#fbbf24" }}>⏳ General Cooldown: <b>{formatCooldown(cooldownRemaining)}</b></span>
                     </div>
                 )}
 
@@ -645,19 +748,20 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                 <tbody>{paginatedJeets.map((jeet, idx) => {
                                     const hasNoPlants = (jeet.totalPlants || jeet.plants || 0) === 0;
                                     const canRaid = !hasNoPlants && (jeet.canBeRaidedNow || jeet.needsFlagging) && !jeet.hasShield;
+                                    const health = jeet.avgHealth || 0;
                                     
                                     return (
                                     <tr key={jeet.address} style={{ borderBottom: `1px solid ${theme === "light" ? "#f1f5f9" : "rgba(255,255,255,0.05)"}`, opacity: hasNoPlants ? 0.6 : 1 }}>
                                         <td style={{ padding: "8px 4px", color: textMuted }}>{(currentPage - 1) * ITEMS_PER_PAGE + idx + 1}</td>
                                         <td style={{ padding: "8px 4px", fontFamily: "monospace", fontSize: 10, color: textMain }}>
                                             {jeet.address.slice(0, 4)}..{jeet.address.slice(-4)}
-                                            {hasNoPlants && <span style={{ marginLeft: 4, fontSize: 8, color: "#ef4444" }} title="No plants staked - cannot raid">⚠️</span>}
+                                            {hasNoPlants && <span style={{ marginLeft: 4, fontSize: 8, color: "#ef4444" }} title="No plants staked">⚠️</span>}
                                         </td>
                                         <td style={{ padding: "8px 4px", textAlign: "center", color: jeet.isCluster ? "#fbbf24" : textMuted, fontWeight: 600 }}>
                                             {jeet.isCluster ? `🔗${jeet.farms?.length || 2}` : "1"}
                                         </td>
                                         <td style={{ padding: "8px 4px", textAlign: "center", color: hasNoPlants ? "#ef4444" : "#10b981", fontWeight: 600 }}>{jeet.totalPlants || jeet.plants || "0"}</td>
-                                        <td style={{ padding: "8px 4px", textAlign: "center", color: "#f472b6", fontWeight: 600 }}>{jeet.avgHealth ? `${jeet.avgHealth}%` : "?"}</td>
+                                        <td style={{ padding: "8px 4px", textAlign: "center", color: getHealthColor(health), fontWeight: 600 }}>{health ? `${health}%` : "?"}</td>
                                         <td style={{ padding: "8px 4px", textAlign: "right", color: "#ef4444", fontWeight: 600 }}>{formatLargeNumber(jeet.totalSold)}</td>
                                         <td style={{ padding: "8px 4px", textAlign: "center", color: textMuted, fontSize: 9 }}>{formatTimeRemaining(jeet.expiresAt)}</td>
                                         <td style={{ padding: "8px 4px", textAlign: "center" }}>
@@ -727,27 +831,28 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                             {selectedJeet.isCluster && <div style={{ fontSize: 10, color: "#10b981", marginTop: 4 }}>Combined: <b>{selectedJeet.totalPlants}</b> plants across {selectedJeet.farms?.length || 2} farms</div>}
                         </div>
 
-                        {/* Farm Selector - Shows for ALL jeets to display farm details */}
+                        {/* Farm Selector - Improved UI */}
                         {selectedJeet.farms && selectedJeet.farms.length > 0 && (
                             <div style={{ background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: 10, padding: 12, marginBottom: 16 }}>
                                 <div style={{ fontSize: 11, color: "#10b981", marginBottom: 8, fontWeight: 600 }}>
                                     {selectedJeet.farms.length > 1 
-                                        ? `🎯 SELECT FARM TO RAID (${selectedJeet.farms.filter((f: FarmInfo) => f.canAttack).length} of ${selectedJeet.farms.length} available):`
+                                        ? `🎯 SELECT FARM TO RAID (${selectedTarget?.farms?.filter((f: FarmInfo) => f.canAttack && (!f.myAttackCooldownEnds || f.myAttackCooldownEnds <= now)).length || 0} of ${selectedJeet.farms.length} available):`
                                         : "🎯 TARGET FARM:"
                                     }
                                 </div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 200, overflowY: "auto" }}>
-                                    {selectedJeet.farms
+                                    {(selectedTarget?.farms || selectedJeet.farms)
                                         .filter((farm: FarmInfo) => farm.plants > 0)
-                                        .map((farm: FarmInfo, idx: number) => {
-                                            const farmExpired = farm.expiresAt && farm.expiresAt <= now;
-                                            const farmTimeLeft = farm.expiresAt ? formatTimeRemaining(farm.expiresAt) : "?";
+                                        .map((farm: FarmInfo) => {
+                                            const hasMyCooldown = farm.myAttackCooldownEnds && farm.myAttackCooldownEnds > now;
+                                            const myCooldownLeft = hasMyCooldown ? farm.myAttackCooldownEnds! - now : 0;
+                                            const isDisabled = !farm.canAttack || hasMyCooldown || farm.hasShield;
                                             
                                             return (
                                                 <button
                                                     key={farm.address}
                                                     onClick={() => {
-                                                        if (farm.canAttack && selectedTarget) {
+                                                        if (!isDisabled && selectedTarget) {
                                                             setSelectedTarget({
                                                                 ...selectedTarget,
                                                                 address: farm.address,
@@ -760,38 +865,70 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                                             });
                                                         }
                                                     }}
-                                                    disabled={!farm.canAttack || farmExpired}
+                                                    disabled={isDisabled}
                                                     style={{
-                                                        padding: "10px 12px",
-                                                        borderRadius: 8,
+                                                        padding: "12px",
+                                                        borderRadius: 10,
                                                         border: selectedTarget?.address === farm.address ? "2px solid #10b981" : "1px solid rgba(107,114,128,0.3)",
                                                         background: selectedTarget?.address === farm.address ? "rgba(16,185,129,0.2)" : "rgba(5,8,20,0.5)",
-                                                        cursor: farm.canAttack && !farmExpired ? "pointer" : "not-allowed",
-                                                        opacity: farm.canAttack && !farmExpired ? 1 : 0.5,
-                                                        textAlign: "left"
+                                                        cursor: isDisabled ? "not-allowed" : "pointer",
+                                                        opacity: isDisabled ? 0.5 : 1,
+                                                        textAlign: "left",
+                                                        filter: hasMyCooldown ? "blur(0.5px)" : "none",
+                                                        position: "relative"
                                                     }}
                                                 >
-                                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                                        <div>
-                                                            <div style={{ fontSize: 10, fontFamily: "monospace", color: textMain }}>{farm.address.slice(0, 4)}..{farm.address.slice(-4)}</div>
-                                                            <div style={{ fontSize: 9, color: textMuted, marginTop: 2 }}>
-                                                                🌱 {farm.plants} • ❤️ {farm.avgHealth}% • ⚔️ {farm.battlePower || Math.floor(farm.plants * 3 * farm.avgHealth / 100)}
-                                                                {farm.hasShield && " • 🛡️"}
-                                                            </div>
-                                                            <div style={{ fontSize: 8, color: farmExpired ? "#ef4444" : "#fbbf24", marginTop: 2 }}>
-                                                                ⏱️ {farmExpired ? "Expired" : farmTimeLeft}
-                                                            </div>
-                                                        </div>
-                                                        <div style={{ textAlign: "right" }}>
-                                                            <div style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>{farm.pendingRewards}K</div>
-                                                            <div style={{ fontSize: 8, color: textMuted }}>loot</div>
-                                                        </div>
-                                                    </div>
-                                                    {(!farm.canAttack || farmExpired) && (
-                                                        <div style={{ fontSize: 8, color: "#ef4444", marginTop: 4 }}>
-                                                            {farmExpired ? "Expired - no recent sells" : farm.hasShield ? "Cannot attack - shielded" : farm.avgHealth === 0 ? "Cannot attack - 0% health" : "Cannot attack"}
+                                                    {/* Cooldown overlay */}
+                                                    {hasMyCooldown && (
+                                                        <div style={{ 
+                                                            position: "absolute", 
+                                                            top: 0, 
+                                                            left: 0, 
+                                                            right: 0, 
+                                                            bottom: 0, 
+                                                            background: "rgba(0,0,0,0.6)", 
+                                                            borderRadius: 10,
+                                                            display: "flex",
+                                                            alignItems: "center",
+                                                            justifyContent: "center",
+                                                            flexDirection: "column"
+                                                        }}>
+                                                            <div style={{ fontSize: 10, color: "#fbbf24", fontWeight: 600 }}>⏳ YOUR COOLDOWN</div>
+                                                            <div style={{ fontSize: 14, color: "#fbbf24", fontWeight: 700 }}>{formatCooldown(myCooldownLeft)}</div>
                                                         </div>
                                                     )}
+                                                    
+                                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                                                        <div>
+                                                            <div style={{ fontSize: 11, fontFamily: "monospace", color: textMain, fontWeight: 600 }}>{farm.address.slice(0, 6)}..{farm.address.slice(-4)}</div>
+                                                            <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+                                                                <div>
+                                                                    <div style={{ fontSize: 8, color: textMuted }}>PLANTS</div>
+                                                                    <div style={{ fontSize: 16, color: "#22c55e", fontWeight: 700 }}>{farm.plants}</div>
+                                                                </div>
+                                                                <div>
+                                                                    <div style={{ fontSize: 8, color: textMuted }}>HEALTH</div>
+                                                                    <div style={{ fontSize: 16, color: getHealthColor(farm.avgHealth || 0), fontWeight: 700 }}>{farm.avgHealth || 0}%</div>
+                                                                </div>
+                                                                <div>
+                                                                    <div style={{ fontSize: 8, color: textMuted }}>POWER</div>
+                                                                    <div style={{ fontSize: 16, color: "#a78bfa", fontWeight: 700 }}>{farm.battlePower || Math.floor((farm.plants || 0) * 3 * (farm.avgHealth || 0) / 100)}</div>
+                                                                </div>
+                                                            </div>
+                                                            {farm.hasShield && (
+                                                                <div style={{ fontSize: 9, color: "#3b82f6", marginTop: 4 }}>🛡️ Shielded</div>
+                                                            )}
+                                                            {!farm.canAttack && !hasMyCooldown && !farm.hasShield && (
+                                                                <div style={{ fontSize: 9, color: "#ef4444", marginTop: 4 }}>
+                                                                    {farm.plants === 0 ? "❌ No plants" : farm.avgHealth === 0 ? "❌ 0% health" : "❌ Cannot attack"}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <div style={{ textAlign: "right" }}>
+                                                            <div style={{ fontSize: 8, color: textMuted }}>LOOT</div>
+                                                            <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{farm.pendingRewards || "0"}</div>
+                                                        </div>
+                                                    </div>
                                                 </button>
                                             );
                                         })}
@@ -802,12 +939,13 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         {loadingTarget ? <div style={{ textAlign: "center", padding: 20, color: textMuted }}>Loading target stats...</div> : selectedTarget ? (
                             <>
                                 {selectedTarget.hasShield && (
-                                    <div style={{ background: "rgba(59,130,246,0.2)", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 8, padding: 10, marginBottom: 12, textAlign: "center" }}>
-                                        <span style={{ color: "#3b82f6", fontWeight: 600, fontSize: 12 }}>🛡️ Target has Raid Shield!</span>
+                                    <div style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 12, padding: 16, marginBottom: 16, textAlign: "center" }}>
+                                        <div style={{ fontSize: 32, marginBottom: 8 }}>🛡️</div>
+                                        <div style={{ fontSize: 14, color: "#3b82f6", fontWeight: 700 }}>Target Protected!</div>
+                                        <div style={{ fontSize: 11, color: textMuted, marginTop: 4 }}>This farm has an active Raid Shield</div>
                                     </div>
                                 )}
                                 
-                                {/* Info notice for tracked jeets */}
                                 {selectedTarget.needsFlagging && (
                                     <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 8, padding: 8, marginBottom: 12, textAlign: "center" }}>
                                         <span style={{ color: "#fbbf24", fontSize: 10 }}>📡 Tracked off-chain • Will be flagged when you raid</span>
@@ -821,7 +959,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                 <div style={{ background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 10, padding: 12, marginBottom: 16, textAlign: "center" }}>
                                     <div style={{ fontSize: 11, color: "#60a5fa", marginBottom: 6 }}>⚔️ BATTLE ANALYSIS</div>
                                     <div style={{ display: "flex", justifyContent: "space-around" }}>
-                                        <div><div style={{ fontSize: 9, color: textMuted }}>YOUR POWER</div><div style={{ fontSize: 16, fontWeight: 700, color: "#10b981" }}>{selectedTarget.attackerPower}</div></div>
+                                        <div><div style={{ fontSize: 9, color: textMuted }}>YOUR POWER</div><div style={{ fontSize: 16, fontWeight: 700, color: "#10b981" }}>{selectedTarget.attackerPower || myBattlePower || 0}</div></div>
                                         <div><div style={{ fontSize: 9, color: textMuted }}>WIN CHANCE</div><div style={{ fontSize: 16, fontWeight: 700, color: selectedTarget.winChance >= 50 ? "#10b981" : "#ef4444" }}>{selectedTarget.winChance}%</div></div>
                                     </div>
                                 </div>

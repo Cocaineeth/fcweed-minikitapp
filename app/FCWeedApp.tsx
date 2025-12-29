@@ -5610,6 +5610,36 @@ export default function FCWeedApp()
                             Backend: {warsBackendStatus === "online" ? "Online" : warsBackendStatus === "offline" ? "Offline" : "Checking..."}
                         </div>
 
+                        {/* SHIELD WARNING - PROMINENT AT TOP */}
+                        {connected && warsPlayerStats?.hasShield && (
+                            <div style={{ 
+                                background: "linear-gradient(135deg, rgba(59,130,246,0.2), rgba(96,165,250,0.15))", 
+                                border: "2px solid rgba(59,130,246,0.5)", 
+                                borderRadius: 12, 
+                                padding: 16, 
+                                marginBottom: 16,
+                                boxShadow: "0 0 20px rgba(59,130,246,0.2)"
+                            }}>
+                                <div style={{ fontSize: 28, marginBottom: 8, textAlign: "center" }}>🛡️</div>
+                                <div style={{ fontSize: 14, color: "#3b82f6", fontWeight: 700, textAlign: "center" }}>Raid Shield ACTIVE</div>
+                                <div style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#94a3b8", marginTop: 4, textAlign: "center" }}>
+                                    You're protected from attacks!
+                                </div>
+                                <div style={{ 
+                                    fontSize: 10, 
+                                    color: "#fbbf24", 
+                                    marginTop: 8,
+                                    background: "rgba(251,191,36,0.15)",
+                                    padding: "6px 10px",
+                                    borderRadius: 6,
+                                    border: "1px solid rgba(251,191,36,0.3)",
+                                    textAlign: "center"
+                                }}>
+                                    ⚠️ Attacking others will remove your shield!
+                                </div>
+                            </div>
+                        )}
+
                         
                         <div style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.08))", border: "1px solid rgba(139,92,246,0.3)", borderRadius: 12, padding: 14, marginBottom: 16, textAlign: "left" }}>
                             <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700, marginBottom: 12, textAlign: "center" }}>📖 HOW IT ALL WORKS</div>
@@ -5741,13 +5771,6 @@ export default function FCWeedApp()
                         
                         {connected && warsPlayerStats && (
                             <>
-                                {warsPlayerStats.hasShield && (
-                                    <div style={{ background: theme === "light" ? "rgba(59,130,246,0.1)" : "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
-                                        <div style={{ fontSize: 11, color: "#3b82f6", fontWeight: 600 }}>🛡️ Raid Shield ACTIVE</div>
-                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>Protected from attacks. Attacking others will remove your shield!</div>
-                                    </div>
-                                )}
-                                
                                 
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                                     {/* Defense Box */}

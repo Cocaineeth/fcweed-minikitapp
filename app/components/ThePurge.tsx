@@ -128,7 +128,13 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             }
             if (results[2].success) {
                 const stats = battlesInterface.decodeFunctionResult("getGlobalStats", results[2].returnData);
-                setGlobalStats({ totalPurgeAttacks: stats[2].toNumber(), totalRewardsRedistributed: formatLargeNumber(stats[4]), totalPurgeFeesBurned: formatLargeNumber(stats[6]) });
+                // Note: stats[4] (totalRewardsRedistributed) is shared across ALL battle types
+                // Only stats[2] (totalPurgeAttacks) and stats[6] (totalPurgeFeesBurned) are Purge-specific
+                setGlobalStats({ 
+                    totalPurgeAttacks: stats[2].toNumber(), 
+                    totalRewardsRedistributed: "—", // No Purge-specific counter exists in contract
+                    totalPurgeFeesBurned: formatLargeNumber(stats[6]) 
+                });
             }
             if (userAddress && results[3]?.success) {
                 const aStats = battlesInterface.decodeFunctionResult("getPurgeAttackerStats", results[3].returnData);
