@@ -4985,10 +4985,7 @@ export default function FCWeedApp()
             }}>
                 {/* Row 1: Brand + Theme */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div className={styles.brand} style={{ color: theme === "light" ? "#1e293b" : undefined }}>
-                        <span className={styles.liveDot} />
-                        <span className={styles.brandText} style={{ color: theme === "light" ? "#1e293b" : undefined, fontSize: 16, fontWeight: 700 }}>FCWEED</span>
-                    </div>
+                    <span style={{ color: theme === "light" ? "#1e293b" : "#fff", fontSize: 16, fontWeight: 700 }}>FCWEED</span>
                     <button 
                         type="button" 
                         onClick={toggleTheme}
@@ -5132,12 +5129,12 @@ export default function FCWeedApp()
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>250K FCWEED</b> to target ANY wallet directly</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>20 min cooldown</b> | <b style={{ color: "#ef4444" }}>All shields BYPASSED</b></li>
                                 <li style={{ color: "#10b981", marginTop: 8 }}><b>Item Shop</b> — Power-ups for your farm!</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> — Restores plant health to 100% (Shop open 12PM-6PM EST)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant, 2K Dust or 2M FCWEED (20/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection, Purge Bypasses Shields, 2.5K Dust only (25/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% power for 6h, 200 Dust or 200K FCWEED</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% power for 6h, 1K Dust or 1M FCWEED (15/day supply)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% power for 1h, 4K Dust or 4M FCWEED (3/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> — Restores plant health (Shop open 12PM-6PM EST)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection, Purge Day Bypasses Shields</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% Combat power for 6h</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% Combat power for 6h</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% Combat power for 1h</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 50% | STEAL: 50%</b></li>
                             </ul>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
@@ -6701,13 +6698,14 @@ export default function FCWeedApp()
                         </div>
                         <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 12 }}>🔫 WEAPONS</div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
-                            <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1))", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 12, padding: 10, textAlign: "center" }}>
+                            <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1))", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 180 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
                                     <img src="/images/items/ak47.png" alt="AK-47" style={{ width: 40, height: 40, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>AK-47</div>
                                 <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+100% Combat</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 6 hours</div>
+                                <div style={{ marginTop: "auto" }}>
                                 {(shopSupply[4]?.remaining ?? 15) > 0 ? (
                                     <>
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[4]?.remaining ?? 15}/{shopSupply[4]?.total ?? 15}</span></div>
@@ -6722,14 +6720,16 @@ export default function FCWeedApp()
                                         <div style={{ fontSize: 8, color: "#9ca3af" }}>Restock in {Math.floor(shopTimeUntilReset / 3600)}h {Math.floor((shopTimeUntilReset % 3600) / 60)}m</div>
                                     </div>
                                 )}
+                                </div>
                             </div>
-                            <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.25), rgba(185,28,28,0.2))", border: "2px solid rgba(239,68,68,0.6)", borderRadius: 12, padding: 10, textAlign: "center", boxShadow: "0 0 20px rgba(239,68,68,0.25)" }}>
+                            <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.25), rgba(185,28,28,0.2))", border: "2px solid rgba(239,68,68,0.6)", borderRadius: 12, padding: 10, textAlign: "center", boxShadow: "0 0 20px rgba(239,68,68,0.25)", display: "flex", flexDirection: "column", minHeight: 180 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
                                     <img src="/images/items/nuke.png" alt="Nuke" style={{ width: 40, height: 40, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>TACTICAL NUKE</div>
                                 <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+10,000% Combat</div>
                                 <div style={{ fontSize: 7, color: "#fca5a5", marginBottom: 3 }}>10 min (1 attack)</div>
+                                <div style={{ marginTop: "auto" }}>
                                 {(shopSupply[6]?.remaining ?? 1) > 0 ? (
                                     <>
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[6]?.remaining ?? 1}/{shopSupply[6]?.total ?? 1}</span></div>
@@ -6744,14 +6744,16 @@ export default function FCWeedApp()
                                         <div style={{ fontSize: 8, color: "#9ca3af" }}>Restock in {Math.floor(shopTimeUntilReset / 3600)}h {Math.floor((shopTimeUntilReset % 3600) / 60)}m</div>
                                     </div>
                                 )}
+                                </div>
                             </div>
-                            <div style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.15), rgba(139,92,246,0.1))", border: "1px solid rgba(168,85,247,0.4)", borderRadius: 12, padding: 10, textAlign: "center" }}>
+                            <div style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.15), rgba(139,92,246,0.1))", border: "1px solid rgba(168,85,247,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 180 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
                                     <img src="/images/items/rpg.png" alt="RPG" style={{ width: 40, height: 40, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#a855f7", marginBottom: 2 }}>RPG</div>
                                 <div style={{ fontSize: 8, color: "#c4b5fd", marginBottom: 2 }}>+500% Combat</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 1 hour</div>
+                                <div style={{ marginTop: "auto" }}>
                                 {(shopSupply[5]?.remaining ?? 3) > 0 ? (
                                     <>
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#a855f7", fontWeight: 600 }}>{shopSupply[5]?.remaining ?? 3}/{shopSupply[5]?.total ?? 3}</span></div>
@@ -6766,16 +6768,18 @@ export default function FCWeedApp()
                                         <div style={{ fontSize: 8, color: "#9ca3af" }}>Restock in {Math.floor(shopTimeUntilReset / 3600)}h {Math.floor((shopTimeUntilReset % 3600) / 60)}m</div>
                                     </div>
                                 )}
+                                </div>
                             </div>
                         </div>
                         <div style={{ fontSize: 12, color: "#10b981", fontWeight: 700, textAlign: "center", marginBottom: 12 }}>🛡️ CONSUMABLES</div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
-                            <div style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.15), rgba(34,197,94,0.1))", border: "1px solid rgba(16,185,129,0.4)", borderRadius: 12, padding: 10, textAlign: "center" }}>
+                            <div style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.15), rgba(34,197,94,0.1))", border: "1px solid rgba(16,185,129,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 170 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
                                     <img src="/images/items/healthpack.png" alt="Health Pack" style={{ width: 36, height: 36, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#10b981", marginBottom: 2 }}>HEALTH PACK</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>Heals one Plant Max to 80%<br/>Usage: 1 Per Plant</div>
+                                <div style={{ marginTop: "auto" }}>
                                 {(shopSupply[1]?.remaining ?? 20) > 0 ? (
                                     <>
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#10b981", fontWeight: 600 }}>{shopSupply[1]?.remaining ?? 20}/{shopSupply[1]?.total ?? 20}</span></div>
@@ -6790,13 +6794,15 @@ export default function FCWeedApp()
                                         <div style={{ fontSize: 8, color: "#9ca3af" }}>Restock in {Math.floor(shopTimeUntilReset / 3600)}h {Math.floor((shopTimeUntilReset % 3600) / 60)}m</div>
                                     </div>
                                 )}
+                                </div>
                             </div>
-                            <div style={{ background: "linear-gradient(135deg, rgba(59,130,246,0.15), rgba(96,165,250,0.1))", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 12, padding: 10, textAlign: "center" }}>
+                            <div style={{ background: "linear-gradient(135deg, rgba(59,130,246,0.15), rgba(96,165,250,0.1))", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 170 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
                                     <span style={{ fontSize: 28 }}>🛡️</span>
                                 </div>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#3b82f6", marginBottom: 2 }}>RAID SHIELD</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>24h Protection<br/>Purge Bypasses Shields</div>
+                                <div style={{ marginTop: "auto" }}>
                                 {(shopSupply[2]?.remaining ?? 25) > 0 ? (
                                     <>
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#3b82f6", fontWeight: 600 }}>{shopSupply[2]?.remaining ?? 25}/{shopSupply[2]?.total ?? 25}</span></div>
@@ -6808,17 +6814,20 @@ export default function FCWeedApp()
                                         <div style={{ fontSize: 8, color: "#9ca3af" }}>Restock in {Math.floor(shopTimeUntilReset / 3600)}h {Math.floor((shopTimeUntilReset % 3600) / 60)}m</div>
                                     </div>
                                 )}
+                                </div>
                             </div>
-                            <div style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.1))", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 12, padding: 10, textAlign: "center" }}>
+                            <div style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.1))", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 170 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
                                     <span style={{ fontSize: 28 }}>⚡</span>
                                 </div>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", marginBottom: 2 }}>ATTACK BOOST</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>+20% Combat<br/>Lasts 6 hours</div>
+                                <div style={{ marginTop: "auto" }}>
                                 <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#f59e0b", fontWeight: 600 }}>∞</span></div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                     <button onClick={() => handleBuyItem(3, "dust")} disabled={shopLoading || crateUserStats.dust < 200} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 200 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 200 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 200 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 200 DUST</button>
                                     <button onClick={() => handleBuyItem(3, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.attackBoost)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "#000" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 200K FCWEED</button>
+                                </div>
                                 </div>
                             </div>
                         </div>
