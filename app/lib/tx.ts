@@ -59,7 +59,7 @@ export function makeTxActions(deps: TxDeps) {
     from: string,
     to: string,
     data: string,
-    gasLimit: string = "0x1E8480"
+    gasLimit: string = "0x4C4B40" // 5,000,000 - increased for complex operations
   ): Promise<ethers.providers.TransactionResponse> {
     if (!miniAppEthProvider) {
       throw new Error("Mini app provider not available");
@@ -78,13 +78,22 @@ export function makeTxActions(deps: TxDeps) {
     console.log("[TX] Sending transaction...");
     console.log("[TX] From:", from);
     console.log("[TX] To:", to);
+    console.log("[TX] Gas limit:", gasLimit);
 
-    // Method 1: eth_sendTransaction
+    // Method 1: eth_sendTransaction with gas limit
     try {
       console.log("[TX] Method 1: eth_sendTransaction...");
       const result = await req({
         method: "eth_sendTransaction",
-        params: [{ from, to, data, value: "0x0", chainId: chainIdHex }],
+        params: [{ 
+          from, 
+          to, 
+          data, 
+          value: "0x0", 
+          gas: gasLimit,
+          gasLimit: gasLimit,
+          chainId: chainIdHex 
+        }],
       });
       console.log("[TX] eth_sendTransaction result:", result);
       if (typeof result === "string" && result.startsWith("0x") && result.length >= 66) {
@@ -100,7 +109,7 @@ export function makeTxActions(deps: TxDeps) {
       }
     }
 
-    // Method 2: wallet_sendCalls
+    // Method 2: wallet_sendCalls with gas limit
     if (!txHash) {
       try {
         console.log("[TX] Method 2: wallet_sendCalls...");
@@ -110,7 +119,12 @@ export function makeTxActions(deps: TxDeps) {
             version: "1.0",
             chainId: chainIdHex,
             from,
-            calls: [{ to, data, value: "0x0" }],
+            calls: [{ 
+              to, 
+              data, 
+              value: "0x0",
+              gas: gasLimit,
+            }],
           }],
         });
         console.log("[TX] wallet_sendCalls result:", result);
@@ -139,13 +153,13 @@ export function makeTxActions(deps: TxDeps) {
       }
     }
 
-    // Method 3: minimal eth_sendTransaction
+    // Method 3: minimal eth_sendTransaction with gas
     if (!txHash) {
       try {
         console.log("[TX] Method 3: eth_sendTransaction (minimal)...");
         const result = await req({
           method: "eth_sendTransaction",
-          params: [{ from, to, data }],
+          params: [{ from, to, data, gas: gasLimit }],
         });
         if (typeof result === "string" && result.startsWith("0x") && result.length >= 66) {
           txHash = result;
@@ -170,7 +184,7 @@ export function makeTxActions(deps: TxDeps) {
   async function sendContractTx(
     to: string,
     data: string,
-    gasLimit: string = "0x1E8480"
+    gasLimit: string = "0x4C4B40" // 5,000,000 - increased for complex operations
   ): Promise<ethers.providers.TransactionResponse | null> {
     const ctx = await ensureWallet();
     if (!ctx) return null;
