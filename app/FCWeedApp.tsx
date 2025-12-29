@@ -305,10 +305,15 @@ export default function FCWeedApp()
     const [stakeModalOpen, setStakeModalOpen] = useState(false);
     const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
 
-    // Close staking modal when switching tabs
+    // Close all modals/popups when switching tabs
     useEffect(() => {
         setV5StakingOpen(false);
         setV4StakingOpen(false);
+        setItemsModalOpen(false);
+        setWaterModalOpen(false);
+        setHealthPackModalOpen(false);
+        setNukeConfirmOpen(false);
+        setCrateConfirmOpen(false);
     }, [activeTab]);
 
     const [selectedPlantsToWater, setSelectedPlantsToWater] = useState<number[]>([]);
@@ -506,6 +511,24 @@ export default function FCWeedApp()
     const [realTimePending, setRealTimePending] = useState<string>("0.00");
     const [oldRealTimePending, setOldRealTimePending] = useState<string>("0.00");
 
+    // Helper to format large numbers (K for thousands, M for millions)
+    const formatLargeNumber = useCallback((value: ethers.BigNumber | number | string, decimals: number = 18): string => {
+        let num: number;
+        if (typeof value === 'number') {
+            num = value;
+        } else if (typeof value === 'string') {
+            num = parseFloat(value);
+        } else {
+            num = parseFloat(ethers.utils.formatUnits(value, decimals));
+        }
+        if (num >= 1000000) {
+            return (num / 1000000).toFixed(1).replace(/\.0$/, '') + "M";
+        } else if (num >= 1000) {
+            return (num / 1000).toFixed(0) + "K";
+        }
+        return num.toFixed(0);
+    }, []);
+
     // Token supply stats
     const [tokenStats, setTokenStats] = useState<{ burned: string; treasury: string; controlledPct: string; circulatingPct: string; loading: boolean }>({ burned: "0", treasury: "0", controlledPct: "0", circulatingPct: "0", loading: true });
 
@@ -588,13 +611,12 @@ export default function FCWeedApp()
                 "function inventory(address user, uint256 itemId) view returns (uint256)",
                 "function getActiveItems() view returns (tuple(uint256 id, string name, uint256 fcweedPrice, uint256 dustPrice, uint256 itemType, uint256 effectValue, uint256 duration, uint256 maxPerWallet, uint256 dailySupply, uint256 soldToday, uint256 lastResetDay, bool active, bool burnFcweed, uint256 startTime, uint256 endTime, bool requiresTarget)[])",
                 "function getRemainingDailySupply(uint256 itemId) view returns (uint256)",
-                "function getTimeUntilReset() view returns (uint256)",
                 "function getItem(uint256 itemId) view returns (tuple(uint256 id, string name, uint256 fcweedPrice, uint256 dustPrice, uint256 itemType, uint256 effectValue, uint256 duration, uint256 maxPerWallet, uint256 dailySupply, uint256 soldToday, uint256 lastResetDay, bool active, bool burnFcweed, uint256 startTime, uint256 endTime, bool requiresTarget))",
                 "function userPurchases(address user, uint256 itemId) view returns (uint256)",
                 "function userActiveEffects(address user, uint256 itemId) view returns (uint256)",
             ];
             const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
-            const [healthPacks, shields, boosts, ak47s, rpgs, nukes, activeItems, timeUntilReset, shieldExp, boostExp, ak47Exp, rpgExp, nukeExp] = await Promise.all([
+            const [healthPacks, shields, boosts, ak47s, rpgs, nukes, activeItems, shieldExp, boostExp, ak47Exp, rpgExp, nukeExp] = await Promise.all([
                 itemShop.userPurchases(userAddress, 1).catch(() => ethers.BigNumber.from(0)),
                 itemShop.userPurchases(userAddress, 2).catch(() => ethers.BigNumber.from(0)),
                 itemShop.userPurchases(userAddress, 3).catch(() => ethers.BigNumber.from(0)),
@@ -602,7 +624,6 @@ export default function FCWeedApp()
                 itemShop.userPurchases(userAddress, 5).catch(() => ethers.BigNumber.from(0)),
                 itemShop.userPurchases(userAddress, 6).catch(() => ethers.BigNumber.from(0)),
                 itemShop.getActiveItems().catch(() => []),
-                itemShop.getTimeUntilReset().catch(() => ethers.BigNumber.from(0)),
                 itemShop.userActiveEffects(userAddress, 2).catch(() => ethers.BigNumber.from(0)),
                 itemShop.userActiveEffects(userAddress, 3).catch(() => ethers.BigNumber.from(0)),
                 itemShop.userActiveEffects(userAddress, 4).catch(() => ethers.BigNumber.from(0)),
@@ -616,7 +637,6 @@ export default function FCWeedApp()
             setInventoryRPG(rpgs.toNumber());
             setInventoryNuke(nukes.toNumber());
             setShopItems(activeItems);
-            setShopTimeUntilReset(timeUntilReset.toNumber());
             setShieldExpiry(shieldExp.toNumber());
             setBoostExpiry(boostExp.toNumber());
             setAk47Expiry(ak47Exp.toNumber());
@@ -643,13 +663,10 @@ export default function FCWeedApp()
         try {
             const itemShopAbi = [
                 "function getItem(uint256 itemId) view returns (tuple(uint256 id, string name, uint256 fcweedPrice, uint256 dustPrice, uint256 itemType, uint256 effectValue, uint256 duration, uint256 maxPerWallet, uint256 dailySupply, uint256 soldToday, uint256 lastResetDay, bool active, bool burnFcweed, uint256 startTime, uint256 endTime, bool requiresTarget))",
-                "function getTimeUntilReset() view returns (uint256)",
             ];
             const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
             const supplyData: Record<number, {remaining: number, total: number}> = {};
             const itemIds = [1, 2, 3, 4, 5, 6];
-            const timeUntilReset = await itemShop.getTimeUntilReset().catch(() => ethers.BigNumber.from(0));
-            setShopTimeUntilReset(timeUntilReset.toNumber());
             for (const id of itemIds) {
                 try {
                     const item = await itemShop.getItem(id);
@@ -961,10 +978,10 @@ export default function FCWeedApp()
                         // SDK ready is called in useSafeMiniKit hook
                         if (cancelled) return;
 
-                        const { isMiniApp } = detectMiniAppEnvironment();
-                        if (isMiniApp && !userAddress)
+                        const { isMiniApp, isBaseApp } = detectMiniAppEnvironment();
+                        if ((isMiniApp || isBaseApp) && !userAddress)
                         {
-                            console.log("[Init] Auto-connecting wallet in mini app...");
+                            console.log("[Init] Auto-connecting wallet in mini app / Base app...", { isMiniApp, isBaseApp });
                             t = setTimeout(() =>
                                 {
                                     void ensureWallet().catch((err) =>
@@ -1287,14 +1304,14 @@ export default function FCWeedApp()
             let isMini = false;
             let ethProv: any | null = null;
 
-            const { isMiniApp: detectedMiniApp, isMobile } = detectMiniAppEnvironment();
+            const { isMiniApp: detectedMiniApp, isMobile, isBaseApp } = detectMiniAppEnvironment();
 
-            console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, userAgent: navigator.userAgent });
+            console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, isBaseApp, userAgent: navigator.userAgent });
 
 
-            if (detectedMiniApp || isMobile) {
+            if (detectedMiniApp || isMobile || isBaseApp) {
                 try {
-                    console.log("[Wallet] Attempting Farcaster SDK wallet connection...");
+                    console.log("[Wallet] Attempting SDK wallet connection...");
 
 
                     try {
@@ -1304,27 +1321,36 @@ export default function FCWeedApp()
                         console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
                     }
 
+                    // Try Base App / Coinbase Wallet first if detected
+                    if (isBaseApp && (window as any).ethereum?.isBase) {
+                        ethProv = (window as any).ethereum;
+                        console.log("[Wallet] Got provider via Base App window.ethereum");
+                        isMini = true;
+                    }
 
-                    try {
+                    // Try Farcaster SDK wallet
+                    if (!ethProv) {
+                        try {
 
-                        ethProv = await sdk.wallet.getEthereumProvider();
-                        console.log("[Wallet] Got provider via getEthereumProvider()");
-                    } catch (err1) {
-                        console.warn("[Wallet] getEthereumProvider failed:", err1);
+                            ethProv = await sdk.wallet.getEthereumProvider();
+                            console.log("[Wallet] Got provider via getEthereumProvider()");
+                        } catch (err1) {
+                            console.warn("[Wallet] getEthereumProvider failed:", err1);
 
 
-                        if ((sdk.wallet as any).ethProvider) {
-                            ethProv = (sdk.wallet as any).ethProvider;
-                            console.log("[Wallet] Got provider via ethProvider property");
+                            if ((sdk.wallet as any).ethProvider) {
+                                ethProv = (sdk.wallet as any).ethProvider;
+                                console.log("[Wallet] Got provider via ethProvider property");
+                            }
                         }
                     }
 
                     if (ethProv) {
-                        console.log("[Wallet] Got Farcaster ethereum provider:", typeof ethProv);
+                        console.log("[Wallet] Got ethereum provider:", typeof ethProv);
                         isMini = true;
                     }
                 } catch (err) {
-                    console.warn("[Wallet] Farcaster SDK wallet failed:", err);
+                    console.warn("[Wallet] SDK wallet failed:", err);
                     ethProv = null;
                 }
             }
@@ -3879,13 +3905,14 @@ export default function FCWeedApp()
             const vaultInterface = new ethers.utils.Interface(CRATE_VAULT_ABI);
 
 
-            const isFarcasterWallet = ctx.isMini || usingMiniApp;
-            const farcasterProvider = miniAppEthProvider;
+            // Use mini app wallet for both Farcaster and Base App
+            const isMiniAppWallet = ctx.isMini || usingMiniApp;
+            const miniAppProvider = miniAppEthProvider;
 
             console.log("[Crate] Wallet context:", {
                 isMini: ctx.isMini,
                 usingMiniApp,
-                hasFarcasterProvider: !!farcasterProvider,
+                hasMiniAppProvider: !!miniAppProvider,
                 userAddress: ctx.userAddress
             });
 
@@ -3928,9 +3955,9 @@ export default function FCWeedApp()
 
                 let approveTx: ethers.providers.TransactionResponse | null = null;
 
-                if (isFarcasterWallet && farcasterProvider) {
+                if (isMiniAppWallet && miniAppProvider) {
 
-                    console.log("[Crate] Using Farcaster wallet for approval");
+                    console.log("[Crate] Using mini app wallet for approval");
                     approveTx = await txAction().sendWalletCalls(
                         ctx.userAddress,
                         FCWEED_ADDRESS,
@@ -4010,9 +4037,9 @@ export default function FCWeedApp()
 
             setCrateStatus("Confirm in wallet...");
 
-            if (isFarcasterWallet && farcasterProvider) {
+            if (isMiniAppWallet && miniAppProvider) {
 
-                console.log("[Crate] Using Farcaster wallet for openCrate");
+                console.log("[Crate] Using mini app wallet for openCrate");
                 tx = await txAction().sendWalletCalls(
                     ctx.userAddress,
                     CRATE_VAULT_ADDRESS,
@@ -5429,45 +5456,41 @@ export default function FCWeedApp()
                                 )}
                                 
                                 
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                                     {/* Defense Box */}
-                                    <div style={{ background: theme === "light" ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 12, padding: 12 }}>
-                                        <div style={{ fontSize: 13, color: "#60a5fa", fontWeight: 700, textAlign: "center", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                                            <span>🛡️</span> Defense
-                                        </div>
-                                        <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}>
-                                            <div style={{ flex: 1, background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center" }}>
-                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 4 }}>WINS</div>
-                                                <div style={{ fontSize: 20, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.defWins || 0}</div>
+                                    <div style={{ background: theme === "light" ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 10, padding: 10, overflow: "hidden" }}>
+                                        <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>🛡️ Defense</div>
+                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 }}>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>WINS</div>
+                                                <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.defWins || 0}</div>
                                             </div>
-                                            <div style={{ flex: 1, background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center" }}>
-                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 4 }}>LOSSES</div>
-                                                <div style={{ fontSize: 20, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.defLosses || 0}</div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>LOSSES</div>
+                                                <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.defLosses || 0}</div>
                                             </div>
-                                            <div style={{ flex: 1, background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center" }}>
-                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 4 }}>LOST</div>
-                                                <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.rewardsLost ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsLost, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>LOST</div>
+                                                <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.rewardsLost ? formatLargeNumber(warsPlayerStats.rewardsLost) : "0"}</div>
                                             </div>
                                         </div>
                                     </div>
                                     
                                     {/* Attack Box */}
-                                    <div style={{ background: theme === "light" ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, padding: 12 }}>
-                                        <div style={{ fontSize: 13, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                                            <span>⚔️</span> Attack
-                                        </div>
-                                        <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}>
-                                            <div style={{ flex: 1, background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center" }}>
-                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 4 }}>WINS</div>
-                                                <div style={{ fontSize: 20, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
+                                    <div style={{ background: theme === "light" ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 10, overflow: "hidden" }}>
+                                        <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>⚔️ Attack</div>
+                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 }}>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>WINS</div>
+                                                <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
                                             </div>
-                                            <div style={{ flex: 1, background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center" }}>
-                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 4 }}>LOSSES</div>
-                                                <div style={{ fontSize: 20, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>LOSSES</div>
+                                                <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
                                             </div>
-                                            <div style={{ flex: 1, background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center" }}>
-                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 4 }}>STOLEN</div>
-                                                <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.rewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.rewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>STOLEN</div>
+                                                <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.rewardsStolen ? formatLargeNumber(warsPlayerStats.rewardsStolen) : "0"}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -6185,7 +6208,7 @@ export default function FCWeedApp()
 
             
             {nukeConfirmOpen && (
-                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 16 }}>
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 56, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }}>
                     <div style={{ background: "linear-gradient(135deg, #1a0000, #2d0a0a)", borderRadius: 16, padding: 24, maxWidth: 380, width: "100%", border: "2px solid #ef4444", boxShadow: "0 0 40px rgba(239,68,68,0.3)" }}>
                         <div style={{ textAlign: "center", marginBottom: 20 }}>
                             <div style={{ fontSize: 48, marginBottom: 12 }}>☢️</div>
@@ -6255,8 +6278,8 @@ export default function FCWeedApp()
 
             
             {healthPackModalOpen && (
-                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-                    <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 520, width: "100%", maxHeight: "85vh", overflow: "auto", border: "1px solid rgba(16,185,129,0.3)" }}>
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 56, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+                    <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 520, width: "100%", maxHeight: "calc(100vh - 100px)", overflow: "auto", border: "1px solid rgba(16,185,129,0.3)" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                             <h3 style={{ margin: 0, fontSize: 18, color: "#10b981", display: "flex", alignItems: "center", gap: 8 }}>
                                 <img src="/images/items/healthpack.png" alt="Health Pack" style={{ width: 28, height: 28, objectFit: "contain" }} />
@@ -6434,8 +6457,8 @@ export default function FCWeedApp()
             )}
 
             {waterModalOpen && (
-                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-                    <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 420, width: "100%", maxHeight: "85vh", overflow: "auto", border: "1px solid rgba(96,165,250,0.3)" }}>
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 56, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+                    <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 420, width: "100%", maxHeight: "calc(100vh - 100px)", overflow: "auto", border: "1px solid rgba(96,165,250,0.3)" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                             <h3 style={{ margin: 0, fontSize: 18, color: "#60a5fa" }}>💧 Water Shop</h3>
                             <button onClick={() => setWaterModalOpen(false)} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
@@ -6514,8 +6537,8 @@ export default function FCWeedApp()
             )}
 
             {itemsModalOpen && (
-                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-                    <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 480, width: "100%", maxHeight: "90vh", overflow: "auto", border: "1px solid rgba(245,158,11,0.3)" }}>
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 56, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+                    <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 480, width: "100%", maxHeight: "calc(100vh - 100px)", overflow: "auto", border: "1px solid rgba(245,158,11,0.3)" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                             <h3 style={{ margin: 0, fontSize: 18, color: "#f59e0b" }}>🏪 Item Shop</h3>
                             <button onClick={() => setItemsModalOpen(false)} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>

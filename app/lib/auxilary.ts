@@ -1,9 +1,9 @@
 // lib/auxilary.ts
 import { ethers } from "ethers";
 
-export function detectMiniAppEnvironment(): { isMiniApp: boolean; isMobile: boolean } {
+export function detectMiniAppEnvironment(): { isMiniApp: boolean; isMobile: boolean; isBaseApp: boolean } {
   if (typeof window === "undefined") {
-    return { isMiniApp: false, isMobile: false };
+    return { isMiniApp: false, isMobile: false, isBaseApp: false };
   }
 
   const ua = navigator.userAgent.toLowerCase();
@@ -17,9 +17,17 @@ export function detectMiniAppEnvironment(): { isMiniApp: boolean; isMobile: bool
   const asWarpcastUA = ua.includes('warpcast');
   const urlHasFrameParam = new URLSearchParams(window.location.search).has('frame');
   
-  const isMiniApp = inIframe || urlHasFrame || hasFarcasterContext || asWarpcastUA || urlHasFrameParam;
+  // Base App detection
+  const isBaseAppUA = ua.includes('base') || ua.includes('coinbase');
+  const hasBaseWindow = !!(window as any).__BASE__ || !!(window as any).ethereum?.isBase;
+  const urlHasBase = window.location.href.includes('base.org') || 
+                     window.location.href.includes('/base') ||
+                     window.location.search.includes('baseApp');
+  const isBaseApp = isBaseAppUA || hasBaseWindow || urlHasBase;
+  
+  const isMiniApp = inIframe || urlHasFrame || hasFarcasterContext || asWarpcastUA || urlHasFrameParam || isBaseApp;
 
-  return { isMiniApp, isMobile };
+  return { isMiniApp, isMobile, isBaseApp };
 }
 
 export async function waitForTx(
