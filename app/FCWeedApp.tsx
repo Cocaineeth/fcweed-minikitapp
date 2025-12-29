@@ -4657,8 +4657,22 @@ export default function FCWeedApp()
     const NftCard = ({ id, img, name, checked, onChange, health }: { id: number; img: string; name: string; checked: boolean; onChange: () => void; health?: number }) => (
         <label style={{ minWidth: 80, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer", position: "relative" }}>
             <input type="checkbox" checked={checked} onChange={onChange} style={{ marginBottom: 3 }} />
-            <div style={{ padding: 2, borderRadius: 8, border: checked ? "2px solid #3b82f6" : "1px solid rgba(255,255,255,0.18)", background: "#050814", position: "relative" }}>
-                <img src={img} alt={name + " #" + id} style={{ width: 55, height: 55, borderRadius: 6, objectFit: "contain" }} loading="lazy" />
+            <div style={{ padding: 2, borderRadius: 8, border: checked ? "2px solid #3b82f6" : "1px solid rgba(255,255,255,0.18)", background: "#050814", position: "relative", width: 59, height: 59 }}>
+                <img 
+                    src={img} 
+                    alt={name + " #" + id} 
+                    style={{ 
+                        width: 55, 
+                        height: 55, 
+                        borderRadius: 6, 
+                        objectFit: "contain",
+                        backfaceVisibility: "hidden",
+                        transform: "translateZ(0)",
+                        WebkitBackfaceVisibility: "hidden"
+                    }} 
+                    loading="eager"
+                    decoding="async"
+                />
                 {health !== undefined && (
                     <div style={{ position: "absolute", bottom: 2, left: 2, right: 2, height: 4, background: "rgba(0,0,0,0.6)", borderRadius: 2 }}>
                         <div style={{ height: "100%", width: `${health}%`, background: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444", borderRadius: 2, transition: "width 0.3s" }} />
@@ -5213,11 +5227,11 @@ export default function FCWeedApp()
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>20 min cooldown</b> | <b style={{ color: "#ef4444" }}>All shields BYPASSED</b></li>
                                 <li style={{ color: "#10b981", marginTop: 8 }}><b>Item Shop</b> — Power-ups for your farm!</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> — Restores plant health to 100% (Shop open 12PM-6PM EST)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection, Purge Day Bypasses Shields</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% Combat power for 6h</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% Combat power for 6h</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% Combat power for 1h</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant, 2K Dust or 2M FCWEED (20/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h protection, Purge Bypasses Shields, 2.5K Dust only (25/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% power for 6h, 200 Dust or 200K FCWEED</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% power for 6h, 1K Dust or 1M FCWEED (15/day supply)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% power for 1h, 4K Dust or 4M FCWEED (3/day supply)</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 50% | STEAL: 50%</b></li>
                             </ul>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
