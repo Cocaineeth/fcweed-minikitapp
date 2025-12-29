@@ -17,15 +17,34 @@ export function detectMiniAppEnvironment(): { isMiniApp: boolean; isMobile: bool
   const asWarpcastUA = ua.includes('warpcast');
   const urlHasFrameParam = new URLSearchParams(window.location.search).has('frame');
   
-  // Base App detection
-  const isBaseAppUA = ua.includes('base') || ua.includes('coinbase');
-  const hasBaseWindow = !!(window as any).__BASE__ || !!(window as any).ethereum?.isBase;
+  // Base App detection - multiple signals
+  const isBaseAppUA = ua.includes('base/') || ua.includes('coinbase');
+  const hasBaseWindow = !!(window as any).__BASE__ || 
+                        !!(window as any).ethereum?.isBase ||
+                        !!(window as any).ethereum?.isCoinbaseWallet ||
+                        !!(window as any).coinbaseWalletExtension;
   const urlHasBase = window.location.href.includes('base.org') || 
-                     window.location.href.includes('/base') ||
-                     window.location.search.includes('baseApp');
-  const isBaseApp = isBaseAppUA || hasBaseWindow || urlHasBase;
+                     window.location.href.includes('onchainkit') ||
+                     window.location.search.includes('baseApp') ||
+                     window.location.search.includes('source=base');
+  // Check referrer for Base App
+  const referrerIsBase = typeof document !== 'undefined' && 
+                         (document.referrer.includes('base.org') || document.referrer.includes('coinbase'));
+  
+  const isBaseApp = isBaseAppUA || hasBaseWindow || urlHasBase || referrerIsBase || inIframe;
   
   const isMiniApp = inIframe || urlHasFrame || hasFarcasterContext || asWarpcastUA || urlHasFrameParam || isBaseApp;
+
+  // Debug log for troubleshooting
+  if (typeof console !== 'undefined') {
+    console.log('[MiniApp Detection]', { 
+      isMiniApp, isMobile, isBaseApp, inIframe, 
+      ua: ua.substring(0, 100),
+      hasEthereum: !!(window as any).ethereum,
+      ethereumIsBase: !!(window as any).ethereum?.isBase,
+      ethereumIsCoinbase: !!(window as any).ethereum?.isCoinbaseWallet
+    });
+  }
 
   return { isMiniApp, isMobile, isBaseApp };
 }

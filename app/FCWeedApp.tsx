@@ -403,19 +403,30 @@ export default function FCWeedApp()
     // Calculate time until midnight EST for shop reset
     const getTimeUntilMidnightEST = useCallback(() => {
         const now = new Date();
-        // Create midnight EST for next day
-        const estOffset = -5; // EST is UTC-5
-        const utcNow = now.getTime() + (now.getTimezoneOffset() * 60000);
-        const estNow = new Date(utcNow + (3600000 * estOffset));
         
-        // Get next midnight EST
-        const nextMidnight = new Date(estNow);
-        nextMidnight.setHours(24, 0, 0, 0); // Next midnight
+        // Get current time in EST using Intl API for accuracy
+        const estFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
         
-        // Convert back to local time for comparison
-        const nextMidnightUTC = nextMidnight.getTime() - (3600000 * estOffset);
-        const diffMs = nextMidnightUTC - now.getTime();
-        return Math.max(0, Math.floor(diffMs / 1000));
+        const estParts = estFormatter.formatToParts(now);
+        const estHour = parseInt(estParts.find(p => p.type === 'hour')?.value || '0');
+        const estMinute = parseInt(estParts.find(p => p.type === 'minute')?.value || '0');
+        const estSecond = parseInt(estParts.find(p => p.type === 'second')?.value || '0');
+        
+        // Calculate seconds until midnight EST
+        const secondsInDay = 24 * 60 * 60;
+        const currentSecondsInEST = estHour * 3600 + estMinute * 60 + estSecond;
+        const secondsUntilMidnight = secondsInDay - currentSecondsInEST;
+        
+        return secondsUntilMidnight;
     }, []);
     
     // Update shop reset timer every minute
@@ -1313,7 +1324,7 @@ export default function FCWeedApp()
                 try {
                     console.log("[Wallet] Attempting SDK wallet connection...");
 
-
+                    // Try SDK ready first
                     try {
                         await sdk.actions.ready();
                         console.log("[Wallet] SDK ready confirmed");
@@ -1321,14 +1332,31 @@ export default function FCWeedApp()
                         console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
                     }
 
-                    // Try Base App / Coinbase Wallet first if detected
-                    if (isBaseApp && (window as any).ethereum?.isBase) {
-                        ethProv = (window as any).ethereum;
-                        console.log("[Wallet] Got provider via Base App window.ethereum");
-                        isMini = true;
+                    // Try Base App / Coinbase Wallet providers first
+                    const anyWindow = window as any;
+                    if (isBaseApp || anyWindow.ethereum?.isCoinbaseWallet || anyWindow.ethereum?.isBase) {
+                        // Check for Coinbase Wallet provider
+                        if (anyWindow.ethereum?.isCoinbaseWallet) {
+                            ethProv = anyWindow.ethereum;
+                            console.log("[Wallet] Got provider via Coinbase Wallet");
+                            isMini = true;
+                        } else if (anyWindow.ethereum?.isBase) {
+                            ethProv = anyWindow.ethereum;
+                            console.log("[Wallet] Got provider via Base App window.ethereum");
+                            isMini = true;
+                        } else if (anyWindow.coinbaseWalletExtension) {
+                            ethProv = anyWindow.coinbaseWalletExtension;
+                            console.log("[Wallet] Got provider via coinbaseWalletExtension");
+                            isMini = true;
+                        } else if (anyWindow.ethereum) {
+                            // In Base App iframe, window.ethereum might be the provider
+                            ethProv = anyWindow.ethereum;
+                            console.log("[Wallet] Got provider via window.ethereum (Base App fallback)");
+                            isMini = true;
+                        }
                     }
 
-                    // Try Farcaster SDK wallet
+                    // Try Farcaster SDK wallet if no Base provider found
                     if (!ethProv) {
                         try {
 
@@ -4613,7 +4641,9 @@ export default function FCWeedApp()
                 background: theme === "light" 
                     ? "linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%)" 
                     : undefined,
-                color: theme === "light" ? "#1e293b" : undefined
+                color: theme === "light" ? "#1e293b" : undefined,
+                maxWidth: "100vw",
+                overflowX: "hidden"
             }} 
             data-theme={theme}
             onPointerDown={() => { if (!isPlaying && !manualPause && audioRef.current) audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {}); }}
@@ -4726,11 +4756,30 @@ export default function FCWeedApp()
                         </button>
                         
                         <button
-                            onClick={() => {
+                            onClick={async () => {
                                 // Trigger add to home screen / mini apps
                                 try {
-                                    if ((window as any).ethereum?.request) {
-                                        (window as any).ethereum.request({
+                                    const anyWindow = window as any;
+                                    
+                                    // Try Base App add to favorites/miniapps
+                                    if (anyWindow.ethereum?.isCoinbaseWallet || anyWindow.ethereum?.isBase) {
+                                        try {
+                                            await anyWindow.ethereum.request({
+                                                method: 'wallet_addToMiniApps',
+                                                params: [{
+                                                    url: window.location.origin,
+                                                    name: 'FCWEED',
+                                                    iconUrl: 'https://bafybeickwgk2dnzpg7mx3dgz43v2uotxaueu2b3giz57ppx4yoe6ypnbxq.ipfs.dweb.link'
+                                                }]
+                                            });
+                                        } catch (baseErr) {
+                                            console.log('[Add to Apps] Base wallet method failed:', baseErr);
+                                        }
+                                    }
+                                    
+                                    // Try generic ethereum provider method
+                                    if (anyWindow.ethereum?.request) {
+                                        anyWindow.ethereum.request({
                                             method: 'wallet_addToMiniApps',
                                             params: [{
                                                 url: window.location.origin,
@@ -4739,9 +4788,14 @@ export default function FCWeedApp()
                                             }]
                                         }).catch(() => {});
                                     }
+                                    
                                     // For Farcaster
-                                    sdk.actions.addFrame?.().catch(() => {});
-                                } catch {}
+                                    if (sdk.actions?.addFrame) {
+                                        await sdk.actions.addFrame().catch(() => {});
+                                    }
+                                } catch (err) {
+                                    console.log('[Add to Apps] Error:', err);
+                                }
                                 dismissOnboarding();
                             }}
                             style={{
@@ -5892,7 +5946,7 @@ export default function FCWeedApp()
                 )}
             </main>
 
-            <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "linear-gradient(to top, #050812, #0a1128)", borderTop: "1px solid #1b2340", display: "flex", justifyContent: "space-around", padding: "8px 4px", zIndex: 50 }}>
+            <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "linear-gradient(to top, #050812, #0a1128)", borderTop: "1px solid #1b2340", display: "flex", justifyContent: "space-around", padding: "8px 2px", zIndex: 50, maxWidth: "100vw", boxSizing: "border-box" }}>
                 {[
                     { key: "info", icon: "ℹ️", label: "INFO" },
                     { key: "mint", icon: "🌱", label: "MINT" },
@@ -5902,9 +5956,9 @@ export default function FCWeedApp()
                     { key: "shop", icon: "🛒", label: "SHOP" },
                     { key: "referrals", icon: "📜", label: "QUESTS" },
                 ].map((tab) => (
-                    <button key={tab.key} type="button" onClick={() => setActiveTab(tab.key as any)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 2px", border: "none", background: activeTab === tab.key ? "rgba(59,130,246,0.2)" : "transparent", borderRadius: 8, cursor: "pointer" }}>
-                        <span style={{ fontSize: 18 }}>{tab.icon}</span>
-                        <span style={{ fontSize: 9, fontWeight: 600, color: activeTab === tab.key ? "#3b82f6" : "#9ca3af" }}>{tab.label}</span>
+                    <button key={tab.key} type="button" onClick={() => setActiveTab(tab.key as any)} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 1px", border: "none", background: activeTab === tab.key ? "rgba(59,130,246,0.2)" : "transparent", borderRadius: 8, cursor: "pointer" }}>
+                        <span style={{ fontSize: 16 }}>{tab.icon}</span>
+                        <span style={{ fontSize: 8, fontWeight: 600, color: activeTab === tab.key ? "#3b82f6" : "#9ca3af" }}>{tab.label}</span>
                     </button>
                 ))}
             </nav>
