@@ -16,6 +16,7 @@ import { detectMiniAppEnvironment, waitForTx } from "./lib/auxilary";
 import { ThePurge } from "./components/ThePurge";
 import { DEARaidsLeaderboard } from "./components/DEARaidsLeaderboard";
 import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS, WARS_BACKEND_URL } from "./lib/constants";
+import { useWagmiTransaction } from "./hooks/useWagmiTransaction";
 
 import {
     CHAIN_ID,
@@ -458,6 +459,14 @@ export default function Home()
     const crateSpinInterval = useRef<NodeJS.Timeout | null>(null);
     const txRef = useRef<ReturnType<typeof makeTxActions> | null>(null);
 
+    // Wagmi integration for better Farcaster wallet support
+    const { 
+        address: wagmiAddress, 
+        isConnected: wagmiConnected,
+        sendContractTx: wagmiSendTx,
+        isReady: wagmiReady,
+    } = useWagmiTransaction();
+
     function txAction()
     {
         if (!txRef.current) throw new Error("tx actions not ready yet");
@@ -792,8 +801,11 @@ export default function Home()
                 usdcInterface,
                 waitForTx,
                 setMintStatus,
+                // Wagmi integration for better Farcaster wallet support
+                wagmiSendTx,
+                wagmiConnected,
             });
-        }, [readProvider, miniAppEthProvider, usingMiniApp]);
+        }, [readProvider, miniAppEthProvider, usingMiniApp, wagmiSendTx, wagmiConnected]);
 
     const currentTrackMeta = useMemo(() => PLAYLIST[currentTrack], [currentTrack]);
     useEffect(() => {
