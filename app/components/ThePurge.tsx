@@ -128,11 +128,11 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             }
             if (results[2].success) {
                 const stats = battlesInterface.decodeFunctionResult("getGlobalStats", results[2].returnData);
-                // Note: stats[4] (totalRewardsRedistributed) is shared across ALL battle types
-                // Only stats[2] (totalPurgeAttacks) and stats[6] (totalPurgeFeesBurned) are Purge-specific
+                // Note: Contract only tracks totalPurgeAttacks[2] and totalPurgeFeesBurned[6] specifically for Purge
+                // totalRewardsRedistributed[4] is SHARED across Cartel Wars, DEA, and Purge - don't use it!
                 setGlobalStats({ 
                     totalPurgeAttacks: stats[2].toNumber(), 
-                    totalRewardsRedistributed: "—", // No Purge-specific counter exists in contract
+                    totalRewardsRedistributed: "N/A", // Contract needs update to track Purge-specific stolen
                     totalPurgeFeesBurned: formatLargeNumber(stats[6]) 
                 });
             }
@@ -333,9 +333,8 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                 )}
                 
                 {globalStats && (
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 12 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginTop: 12 }}>
                         <div style={{ background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: 8, textAlign: "center" }}><div style={{ fontSize: 8, color: textMuted }}>TOTAL ATTACKS</div><div style={{ fontSize: 14, fontWeight: 700, color: "#a855f7" }}>{globalStats.totalPurgeAttacks}</div></div>
-                        <div style={{ background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: 8, textAlign: "center" }}><div style={{ fontSize: 8, color: textMuted }}>TOTAL STOLEN</div><div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>{globalStats.totalRewardsRedistributed}</div></div>
                         <div style={{ background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: 8, textAlign: "center" }}><div style={{ fontSize: 8, color: textMuted }}>BURNED FEES</div><div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>{globalStats.totalPurgeFeesBurned}</div></div>
                     </div>
                 )}
@@ -373,7 +372,6 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                 {globalStats && (
                     <div style={{ display: "flex", justifyContent: "center", gap: 12, marginBottom: 12 }}>
                         <div style={{ background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 12px", textAlign: "center" }}><div style={{ fontSize: 8, color: textMuted }}>TOTAL ATTACKS</div><div style={{ fontSize: 14, fontWeight: 700, color: "#a855f7" }}>{globalStats.totalPurgeAttacks}</div></div>
-                        <div style={{ background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 12px", textAlign: "center" }}><div style={{ fontSize: 8, color: textMuted }}>TOTAL STOLEN</div><div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>{globalStats.totalRewardsRedistributed}</div></div>
                         <div style={{ background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 12px", textAlign: "center" }}><div style={{ fontSize: 8, color: textMuted }}>BURNED FEES</div><div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>{globalStats.totalPurgeFeesBurned}</div></div>
                     </div>
                 )}
