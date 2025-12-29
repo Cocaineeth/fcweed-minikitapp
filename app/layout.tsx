@@ -77,7 +77,6 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        {/* Base App verification */}
         <meta name="base:app_id" content="694d066ac63ad876c90812b8" />
       </head>
       <body className={`${inter.variable} ${sourceCodePro.variable}`}>

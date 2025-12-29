@@ -4,8 +4,9 @@ import { ReactNode } from "react";
 import { base } from "wagmi/chains";
 import { MiniKitProvider } from "@coinbase/onchainkit/minikit";
 import "@coinbase/onchainkit/styles.css";
+import FCWeedApp from "./FCWeedApp";
 
-export function Providers({ children }: { children: ReactNode }) {
+function Providers({ children }: { children: ReactNode }) {
   return (
     <MiniKitProvider
       apiKey={process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY}
@@ -22,5 +23,13 @@ export function Providers({ children }: { children: ReactNode }) {
     >
       {children}
     </MiniKitProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <Providers>
+      <FCWeedApp />
+    </Providers>
   );
 }
