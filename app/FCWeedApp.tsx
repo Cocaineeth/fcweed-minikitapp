@@ -1110,6 +1110,21 @@ export default function FCWeedApp()
     
     // Disconnect modal state
     const [showDisconnectModal, setShowDisconnectModal] = useState(false);
+    
+    // Wallet selection state
+    const [showWalletSelection, setShowWalletSelection] = useState(false);
+    const [walletPreference, setWalletPreference] = useState<'farcaster' | 'external' | null>(null);
+    const walletSelectionResolve = useRef<((choice: 'farcaster' | 'external' | null) => void) | null>(null);
+    
+    // Load wallet preference on mount
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('fcweed_wallet_preference') as 'farcaster' | 'external' | null;
+            if (saved) {
+                setWalletPreference(saved);
+            }
+        }
+    }, []);
 
     // Resolve username and avatar from Basenames, ENS, or Farcaster
     async function resolveUserProfile(address: string): Promise<{ name: string | null; avatar: string | null }> {
@@ -1215,6 +1230,24 @@ export default function FCWeedApp()
         setUsingMiniApp(false);
         setMiniAppEthProvider(null);
         setShowDisconnectModal(false);
+        // Clear wallet preference so user can choose again
+        setWalletPreference(null);
+        localStorage.removeItem('fcweed_wallet_preference');
+    };
+    
+    // Connect with wallet selection (for switching wallets)
+    const connectWithSelection = async () => {
+        setShowDisconnectModal(false);
+        // Clear current connection
+        setProvider(null);
+        setSigner(null);
+        setUserAddress(null);
+        setDisplayName(null);
+        setUserAvatar(null);
+        setUsingMiniApp(false);
+        setMiniAppEthProvider(null);
+        // Force wallet selection
+        await ensureWallet(true);
     };
     
     // Get display name or shortened address
@@ -1300,8 +1333,8 @@ export default function FCWeedApp()
         }
     }, [theme]);
 
-    async function ensureWallet() {
-        if (signer && provider && userAddress) {
+    async function ensureWallet(forceSelection: boolean = false) {
+        if (signer && provider && userAddress && !forceSelection) {
             return { signer, provider, userAddress, isMini: usingMiniApp };
         }
 
@@ -1319,8 +1352,48 @@ export default function FCWeedApp()
 
             console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, isBaseApp, userAgent: navigator.userAgent });
 
+            // On desktop (not mobile, not in mini app), allow wallet selection
+            const isDesktop = !isMobile && !detectedMiniApp && !isBaseApp;
+            let selectedWallet: 'farcaster' | 'external' | null = walletPreference;
+            
+            // If desktop and no preference OR forceSelection, show wallet picker
+            if (isDesktop && (!selectedWallet || forceSelection)) {
+                // Check if Farcaster SDK is available
+                let hasFarcasterWallet = false;
+                try {
+                    const testProvider = await sdk.wallet.getEthereumProvider();
+                    hasFarcasterWallet = !!testProvider;
+                } catch {
+                    hasFarcasterWallet = false;
+                }
+                
+                const hasExternalWallet = !!(window as any).ethereum;
+                
+                // If only one option available, use it
+                if (hasFarcasterWallet && !hasExternalWallet) {
+                    selectedWallet = 'farcaster';
+                } else if (!hasFarcasterWallet && hasExternalWallet) {
+                    selectedWallet = 'external';
+                } else if (hasFarcasterWallet && hasExternalWallet) {
+                    // Show selection modal
+                    selectedWallet = await new Promise<'farcaster' | 'external' | null>((resolve) => {
+                        walletSelectionResolve.current = resolve;
+                        setShowWalletSelection(true);
+                    });
+                    
+                    if (!selectedWallet) {
+                        setConnecting(false);
+                        return null;
+                    }
+                    
+                    // Save preference
+                    setWalletPreference(selectedWallet);
+                    localStorage.setItem('fcweed_wallet_preference', selectedWallet);
+                }
+            }
 
-            if (detectedMiniApp || isMobile || isBaseApp) {
+            // Use Farcaster/SDK wallet
+            if ((detectedMiniApp || isMobile || isBaseApp || selectedWallet === 'farcaster') && selectedWallet !== 'external') {
                 try {
                     console.log("[Wallet] Attempting SDK wallet connection...");
 
@@ -4637,7 +4710,7 @@ export default function FCWeedApp()
         <div 
             className={styles.page} 
             style={{ 
-                paddingBottom: 70,
+                paddingBottom: 80,
                 background: theme === "light" 
                     ? "linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%)" 
                     : undefined,
@@ -4907,6 +4980,153 @@ export default function FCWeedApp()
                                 }}
                             >
                                 🔌 Disconnect
+                            </button>
+                            <button
+                                onClick={connectWithSelection}
+                                style={{
+                                    width: "100%",
+                                    padding: "12px 20px",
+                                    borderRadius: 12,
+                                    border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`,
+                                    background: "transparent",
+                                    color: theme === "light" ? "#1e293b" : "#fff",
+                                    fontWeight: 500,
+                                    fontSize: 13,
+                                    cursor: "pointer"
+                                }}
+                            >
+                                🔄 Switch Wallet
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {/* Wallet Selection Modal */}
+            {showWalletSelection && (
+                <div style={{
+                    position: "fixed",
+                    inset: 0,
+                    background: "rgba(0,0,0,0.85)",
+                    backdropFilter: "blur(10px)",
+                    zIndex: 1001,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: 16
+                }} onClick={() => {
+                    setShowWalletSelection(false);
+                    if (walletSelectionResolve.current) {
+                        walletSelectionResolve.current(null);
+                        walletSelectionResolve.current = null;
+                    }
+                }}>
+                    <div 
+                        style={{
+                            background: theme === "light" ? "#ffffff" : "#0f172a",
+                            borderRadius: 20,
+                            border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.1)"}`,
+                            maxWidth: 340,
+                            width: "100%",
+                            padding: 24,
+                            textAlign: "center"
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div style={{ fontSize: 40, marginBottom: 12 }}>🔗</div>
+                        <h3 style={{ 
+                            fontSize: 18, 
+                            fontWeight: 600, 
+                            marginBottom: 8,
+                            color: theme === "light" ? "#1e293b" : "#fff"
+                        }}>
+                            Connect Wallet
+                        </h3>
+                        <p style={{ 
+                            fontSize: 12, 
+                            color: theme === "light" ? "#64748b" : "#94a3b8",
+                            marginBottom: 20
+                        }}>
+                            Choose how you want to connect
+                        </p>
+                        
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                            <button
+                                onClick={() => {
+                                    setShowWalletSelection(false);
+                                    if (walletSelectionResolve.current) {
+                                        walletSelectionResolve.current('farcaster');
+                                        walletSelectionResolve.current = null;
+                                    }
+                                }}
+                                style={{
+                                    width: "100%",
+                                    padding: "14px 20px",
+                                    borderRadius: 12,
+                                    border: "none",
+                                    background: "linear-gradient(135deg, #8b5cf6, #7c3aed)",
+                                    color: "#fff",
+                                    fontWeight: 600,
+                                    fontSize: 14,
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: 10
+                                }}
+                            >
+                                <span style={{ fontSize: 20 }}>🟣</span>
+                                Farcaster Wallet
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowWalletSelection(false);
+                                    if (walletSelectionResolve.current) {
+                                        walletSelectionResolve.current('external');
+                                        walletSelectionResolve.current = null;
+                                    }
+                                }}
+                                style={{
+                                    width: "100%",
+                                    padding: "14px 20px",
+                                    borderRadius: 12,
+                                    border: "none",
+                                    background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                                    color: "#fff",
+                                    fontWeight: 600,
+                                    fontSize: 14,
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: 10
+                                }}
+                            >
+                                <span style={{ fontSize: 20 }}>🦊</span>
+                                External Wallet (MetaMask, etc.)
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowWalletSelection(false);
+                                    if (walletSelectionResolve.current) {
+                                        walletSelectionResolve.current(null);
+                                        walletSelectionResolve.current = null;
+                                    }
+                                }}
+                                style={{
+                                    width: "100%",
+                                    padding: "10px 20px",
+                                    borderRadius: 12,
+                                    border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`,
+                                    background: "transparent",
+                                    color: theme === "light" ? "#64748b" : "#9ca3af",
+                                    fontWeight: 500,
+                                    fontSize: 12,
+                                    cursor: "pointer",
+                                    marginTop: 4
+                                }}
+                            >
+                                Cancel
                             </button>
                         </div>
                     </div>
@@ -5946,7 +6166,7 @@ export default function FCWeedApp()
                 )}
             </main>
 
-            <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "linear-gradient(to top, #050812, #0a1128)", borderTop: "1px solid #1b2340", display: "flex", justifyContent: "space-around", padding: "8px 2px", zIndex: 50, maxWidth: "100vw", boxSizing: "border-box" }}>
+            <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "linear-gradient(to top, #050812, #0a1128)", borderTop: "1px solid #1b2340", display: "flex", justifyContent: "space-around", padding: "10px 4px 14px 4px", zIndex: 50, maxWidth: "100vw", boxSizing: "border-box", paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}>
                 {[
                     { key: "info", icon: "ℹ️", label: "INFO" },
                     { key: "mint", icon: "🌱", label: "MINT" },
@@ -5956,9 +6176,9 @@ export default function FCWeedApp()
                     { key: "shop", icon: "🛒", label: "SHOP" },
                     { key: "referrals", icon: "📜", label: "QUESTS" },
                 ].map((tab) => (
-                    <button key={tab.key} type="button" onClick={() => setActiveTab(tab.key as any)} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 1px", border: "none", background: activeTab === tab.key ? "rgba(59,130,246,0.2)" : "transparent", borderRadius: 8, cursor: "pointer" }}>
-                        <span style={{ fontSize: 16 }}>{tab.icon}</span>
-                        <span style={{ fontSize: 8, fontWeight: 600, color: activeTab === tab.key ? "#3b82f6" : "#9ca3af" }}>{tab.label}</span>
+                    <button key={tab.key} type="button" onClick={() => setActiveTab(tab.key as any)} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "8px 2px", border: "none", background: activeTab === tab.key ? "rgba(59,130,246,0.2)" : "transparent", borderRadius: 10, cursor: "pointer", minHeight: 44 }}>
+                        <span style={{ fontSize: 18 }}>{tab.icon}</span>
+                        <span style={{ fontSize: 9, fontWeight: 600, color: activeTab === tab.key ? "#3b82f6" : "#9ca3af" }}>{tab.label}</span>
                     </button>
                 ))}
             </nav>
@@ -6262,7 +6482,7 @@ export default function FCWeedApp()
 
             
             {nukeConfirmOpen && (
-                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 56, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }}>
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 72, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }}>
                     <div style={{ background: "linear-gradient(135deg, #1a0000, #2d0a0a)", borderRadius: 16, padding: 24, maxWidth: 380, width: "100%", border: "2px solid #ef4444", boxShadow: "0 0 40px rgba(239,68,68,0.3)" }}>
                         <div style={{ textAlign: "center", marginBottom: 20 }}>
                             <div style={{ fontSize: 48, marginBottom: 12 }}>☢️</div>
@@ -6332,7 +6552,7 @@ export default function FCWeedApp()
 
             
             {healthPackModalOpen && (
-                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 56, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 72, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
                     <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 520, width: "100%", maxHeight: "calc(100vh - 100px)", overflow: "auto", border: "1px solid rgba(16,185,129,0.3)" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                             <h3 style={{ margin: 0, fontSize: 18, color: "#10b981", display: "flex", alignItems: "center", gap: 8 }}>
@@ -6511,7 +6731,7 @@ export default function FCWeedApp()
             )}
 
             {waterModalOpen && (
-                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 56, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 72, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
                     <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 420, width: "100%", maxHeight: "calc(100vh - 100px)", overflow: "auto", border: "1px solid rgba(96,165,250,0.3)" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                             <h3 style={{ margin: 0, fontSize: 18, color: "#60a5fa" }}>💧 Water Shop</h3>
@@ -6591,7 +6811,7 @@ export default function FCWeedApp()
             )}
 
             {itemsModalOpen && (
-                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 56, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 72, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
                     <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 480, width: "100%", maxHeight: "calc(100vh - 100px)", overflow: "auto", border: "1px solid rgba(245,158,11,0.3)" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                             <h3 style={{ margin: 0, fontSize: 18, color: "#f59e0b" }}>🏪 Item Shop</h3>
