@@ -815,7 +815,9 @@ export default function FCWeedApp()
             }
             await tx.wait();
             setShopStatus("✅ Purchase successful!");
+            // Refresh all balances and inventory after purchase
             fetchInventory();
+            refreshAllData();
             setTimeout(() => setShopStatus(""), 3000);
         } catch (e: any) {
             setShopStatus(e?.reason || e?.message || "Purchase failed");
@@ -2763,6 +2765,8 @@ export default function FCWeedApp()
             await waitForTx(tx);
             setV5ActionStatus("Claimed!");
             setV5RealTimePending("0.00");
+            // Refresh all balances after claim
+            refreshAllData();
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
         } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
         finally { setActionLoading(false); }
@@ -2841,6 +2845,8 @@ export default function FCWeedApp()
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setWaterStatus("Water purchased!");
+            // Refresh all balances after purchase
+            refreshAllData();
             setTimeout(() => { loadWaterShopInfo(); refreshV5StakingRef.current = false; refreshV5Staking(); setWaterStatus(""); }, 2000);
         } catch (err: any) { setWaterStatus("Error: " + (err.message || err)); }
         finally { setWaterLoading(false); }
@@ -3642,9 +3648,10 @@ export default function FCWeedApp()
                 setFcweedBalanceRaw(b);
                 const f = parseFloat(ethers.utils.formatUnits(b, 18));
                 setFcweedBalance(f >= 1e6 ? (f / 1e6).toFixed(2) + "M" : f >= 1e3 ? (f / 1e3).toFixed(0) + "K" : f.toFixed(0));
+                console.log("[Balance] FCWEED refreshed:", f);
             } catch {}
         })();
-    }, [connected, userAddress, readProvider]);
+    }, [connected, userAddress, readProvider, refreshTrigger]);
 
     // Auto-load user data on wallet connect (crate stats, inventory, V5 staking)
     useEffect(() => {
@@ -3689,7 +3696,7 @@ export default function FCWeedApp()
         // Load V5 staking data in background WITHOUT opening modal
         refreshV5StakingRef.current = false;
         refreshV5Staking();
-    }, [connected, userAddress, readProvider]);
+    }, [connected, userAddress, readProvider, refreshTrigger]);
 
 
     useEffect(() => {
@@ -4359,17 +4366,8 @@ export default function FCWeedApp()
             });
         }
 
-        if (userAddress) {
-            try {
-                const c = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-                const b = await c.balanceOf(userAddress);
-                setFcweedBalanceRaw(b);
-                const f = parseFloat(ethers.utils.formatUnits(b, 18));
-                setFcweedBalance(f >= 1e6 ? (f / 1e6).toFixed(2) + "M" : f >= 1e3 ? (f / 1e3).toFixed(0) + "K" : f.toFixed(0));
-            } catch (err) {
-                console.error("[Crate] Failed to refresh balance:", err);
-            }
-        }
+        // Refresh all balances after crate open
+        refreshAllData();
     };
 
     const onCrateClose = () => {
