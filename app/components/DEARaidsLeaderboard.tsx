@@ -4,94 +4,18 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { ethers } from "ethers";
 import { V5_BATTLES_ADDRESS, WARS_BACKEND_URL, MULTICALL3_ADDRESS, V5_STAKING_ADDRESS } from "../lib/constants";
 
-const MULTICALL3_ABI = [
-    "function tryAggregate(bool requireSuccess, tuple(address target, bytes callData)[] calls) view returns (tuple(bool success, bytes returnData)[])"
-];
-
-const BATTLES_ABI = [
-    "function deaRaid(address target) external",
-    "function deaRaidFee() view returns (uint256)",
-    "function deaRaidsEnabled() view returns (bool)",
-    "function getDeaAttackerStats(address) view returns (uint256 raidsWon, uint256 raidsLost, uint256 rewardsStolen, uint256 rewardsLostAttacking, uint256 cooldownRemaining, bool canAttack)",
-    "function getGlobalStats() view returns (uint256,uint256,uint256,uint256,uint256,uint256,uint256)",
-    "function deaLastAttackOnTarget(address attacker, address target) view returns (uint256)",
-    "function suspects(address) view returns (bool isSuspect, uint256 firstFlaggedAt, uint256 lastSellTimestamp, uint256 lastRaidedAt, uint256 totalTimesRaided, uint256 totalLost, uint256 totalSoldAmount, uint256 sellCount)",
-    "function canBeRaided(address) view returns (bool)",
-    "event DeaRaidResult(address indexed attacker, address indexed defender, bool attackerWon, uint256 stolenAmount, uint256 damagePct)"
-];
-
-const STAKING_ABI = [
-    "function hasRaidShield(address) view returns (bool)",
-    "function getUserBattleStats(address) view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards)",
-    "function calculateBattlePower(address) view returns (uint256)",
-    "function pending(address) view returns (uint256)"
-];
+const MULTICALL3_ABI = ["function tryAggregate(bool requireSuccess, tuple(address target, bytes callData)[] calls) view returns (tuple(bool success, bytes returnData)[])"];
+const BATTLES_ABI = ["function deaRaid(address target) external","function deaRaidFee() view returns (uint256)","function deaRaidsEnabled() view returns (bool)","function getDeaAttackerStats(address) view returns (uint256 raidsWon, uint256 raidsLost, uint256 rewardsStolen, uint256 rewardsLostAttacking, uint256 cooldownRemaining, bool canAttack)","function getGlobalStats() view returns (uint256,uint256,uint256,uint256,uint256,uint256,uint256)","function deaLastAttackOnTarget(address attacker, address target) view returns (uint256)","function suspects(address) view returns (bool isSuspect, uint256 firstFlaggedAt, uint256 lastSellTimestamp, uint256 lastRaidedAt, uint256 totalTimesRaided, uint256 totalLost, uint256 totalSoldAmount, uint256 sellCount)","function canBeRaided(address) view returns (bool)","event DeaRaidResult(address indexed attacker, address indexed defender, bool attackerWon, uint256 stolenAmount, uint256 damagePct)"];
+const STAKING_ABI = ["function hasRaidShield(address) view returns (bool)","function getUserBattleStats(address) view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards)","function calculateBattlePower(address) view returns (uint256)","function pending(address) view returns (uint256)"];
 
 const battlesInterface = new ethers.utils.Interface(BATTLES_ABI);
 const stakingInterface = new ethers.utils.Interface(STAKING_ABI);
 
-type FarmInfo = {
-    address: string;
-    plants: number;
-    avgHealth: number;
-    pendingRewards: string;
-    hasShield: boolean;
-    canAttack: boolean;
-    battlePower: number;
-    targetImmunityEnds: number;
-    myAttackCooldownEnds: number;
-};
-
-type JeetEntry = { 
-    address: string; 
-    totalSold: string; 
-    sellCount: number; 
-    lastSellTimestamp: number;
-    expiresAt: number; 
-    hasShield: boolean; 
-    source: "onchain" | "backend" | "both";
-    needsFlagging: boolean;
-    plants: number;
-    avgHealth: number;
-    battlePower: number;
-    isCluster: boolean;
-    farms: FarmInfo[];
-    totalPlants: number;
-    targetImmunityEnds: number;
-    myAttackCooldownEnds: number;
-    hasRaidableFarm: boolean;
-};
-
-type TargetInfo = { 
-    address: string; 
-    pendingRewards: string; 
-    plants: number; 
-    avgHealth: number; 
-    battlePower: number; 
-    hasShield: boolean; 
-    attackerPower: number; 
-    winChance: number; 
-    needsFlagging: boolean;
-    farms: FarmInfo[];
-};
-
-type ActiveTargeting = {
-    targetAddress: string;
-    attackerAddress: string;
-    farmAddress?: string;
-    timestamp: number;
-    isAttacking: boolean;
-};
-
-type Props = { 
-    connected: boolean; 
-    userAddress: string | null; 
-    theme: "light" | "dark"; 
-    readProvider: ethers.providers.Provider | null; 
-    sendContractTx: (to: string, data: string, gasLimit?: string) => Promise<ethers.providers.TransactionResponse | null>; 
-    ensureAllowance: (spender: string, amount: ethers.BigNumber) => Promise<boolean>; 
-    refreshData: () => void; 
-};
+type FarmInfo = { address: string; plants: number; avgHealth: number; pendingRewards: string; hasShield: boolean; canAttack: boolean; battlePower: number; targetImmunityEnds: number; myAttackCooldownEnds: number; };
+type JeetEntry = { address: string; totalSold: string; sellCount: number; lastSellTimestamp: number; expiresAt: number; hasShield: boolean; source: "onchain" | "backend" | "both"; needsFlagging: boolean; plants: number; avgHealth: number; battlePower: number; isCluster: boolean; farms: FarmInfo[]; totalPlants: number; targetImmunityEnds: number; myAttackCooldownEnds: number; hasRaidableFarm: boolean; };
+type TargetInfo = { address: string; pendingRewards: string; plants: number; avgHealth: number; battlePower: number; hasShield: boolean; attackerPower: number; winChance: number; needsFlagging: boolean; farms: FarmInfo[]; };
+type ActiveTargeting = { targetAddress: string; attackerAddress: string; farmAddress?: string; timestamp: number; isAttacking: boolean; };
+type Props = { connected: boolean; userAddress: string | null; theme: "light" | "dark"; readProvider: ethers.providers.Provider | null; sendContractTx: (to: string, data: string, gasLimit?: string) => Promise<ethers.providers.TransactionResponse | null>; ensureAllowance: (spender: string, amount: ethers.BigNumber) => Promise<boolean>; refreshData: () => void; };
 
 const ITEMS_PER_PAGE = 10;
 const SUSPECT_EXPIRY = 24 * 60 * 60;
@@ -107,7 +31,6 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     const [totalRaids, setTotalRaids] = useState(0);
     const [raidFee, setRaidFee] = useState("100K");
     const [raidFeeRaw, setRaidFeeRaw] = useState<ethers.BigNumber>(ethers.utils.parseUnits("100000", 18));
-    const [playerDeaStats, setPlayerDeaStats] = useState<{ wins: number; losses: number; stolen: string } | null>(null);
     const [showAttackModal, setShowAttackModal] = useState(false);
     const [showResultModal, setShowResultModal] = useState(false);
     const [selectedTarget, setSelectedTarget] = useState<TargetInfo | null>(null);
@@ -123,55 +46,32 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     const [lastRefresh, setLastRefresh] = useState(Date.now());
     const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
     const [activeTargetings, setActiveTargetings] = useState<ActiveTargeting[]>([]);
+    // Player stats for the header
+    const [playerStats, setPlayerStats] = useState<{ wins: number; losses: number; stolen: string } | null>(null);
     
     const fetchingRef = useRef(false);
     const targetingPollRef = useRef<NodeJS.Timeout | null>(null);
 
-    useEffect(() => {
-        const timer = setInterval(() => setCurrentTime(Math.floor(Date.now() / 1000)), 1000);
-        return () => clearInterval(timer);
-    }, []);
+    useEffect(() => { const timer = setInterval(() => setCurrentTime(Math.floor(Date.now() / 1000)), 1000); return () => clearInterval(timer); }, []);
 
     const pollActiveTargetings = useCallback(async () => {
         try {
             const response = await fetch(`${WARS_BACKEND_URL}/api/dea/targeting/active`);
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success && Array.isArray(data.targetings)) {
-                    const now = Date.now();
-                    setActiveTargetings(data.targetings.filter((t: ActiveTargeting) => now - t.timestamp < TARGETING_TIMEOUT));
-                }
-            }
+            if (response.ok) { const data = await response.json(); if (data.success && Array.isArray(data.targetings)) { const now = Date.now(); setActiveTargetings(data.targetings.filter((t: ActiveTargeting) => now - t.timestamp < TARGETING_TIMEOUT)); } }
         } catch {}
     }, []);
 
     const registerTargeting = useCallback(async (jeetAddress: string, farmAddress?: string, isAttacking: boolean = false) => {
         if (!userAddress) return;
-        try {
-            await fetch(`${WARS_BACKEND_URL}/api/dea/targeting/register`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ targetAddress: jeetAddress, attackerAddress: userAddress, farmAddress, isAttacking, timestamp: Date.now() })
-            });
-        } catch {}
+        try { await fetch(`${WARS_BACKEND_URL}/api/dea/targeting/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetAddress: jeetAddress, attackerAddress: userAddress, farmAddress, isAttacking, timestamp: Date.now() }) }); } catch {}
     }, [userAddress]);
 
     const clearTargeting = useCallback(async (jeetAddress: string) => {
         if (!userAddress) return;
-        try {
-            await fetch(`${WARS_BACKEND_URL}/api/dea/targeting/clear`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ targetAddress: jeetAddress, attackerAddress: userAddress })
-            });
-        } catch {}
+        try { await fetch(`${WARS_BACKEND_URL}/api/dea/targeting/clear`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetAddress: jeetAddress, attackerAddress: userAddress }) }); } catch {}
     }, [userAddress]);
 
-    useEffect(() => {
-        pollActiveTargetings();
-        targetingPollRef.current = setInterval(pollActiveTargetings, TARGETING_POLL_INTERVAL);
-        return () => { if (targetingPollRef.current) clearInterval(targetingPollRef.current); };
-    }, [pollActiveTargetings]);
+    useEffect(() => { pollActiveTargetings(); targetingPollRef.current = setInterval(pollActiveTargetings, TARGETING_POLL_INTERVAL); return () => { if (targetingPollRef.current) clearInterval(targetingPollRef.current); }; }, [pollActiveTargetings]);
 
     const getTargetingInfo = useCallback((jeetAddress: string) => {
         const addr = jeetAddress.toLowerCase();
@@ -229,26 +129,25 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             
             try {
                 const [fee, globalStats] = await Promise.all([battlesContract.deaRaidFee(), battlesContract.getGlobalStats()]);
-                setRaidFeeRaw(fee);
-                setRaidFee(formatLargeNumber(fee));
-                setTotalRaids(globalStats[1].toNumber());
+                setRaidFeeRaw(fee); setRaidFee(formatLargeNumber(fee)); setTotalRaids(globalStats[1].toNumber());
             } catch (e) { console.error("[DEA] Stats error:", e); }
             
             if (userAddress) {
                 try {
                     const [attackerStats, power] = await Promise.all([battlesContract.getDeaAttackerStats(userAddress), stakingContract.calculateBattlePower(userAddress)]);
-                    setCooldownRemaining(attackerStats.cooldownRemaining.toNumber());
+                    setCooldownRemaining(attackerStats.cooldownRemaining.toNumber()); 
                     setMyBattlePower(power.toNumber());
-                    setPlayerDeaStats({ wins: attackerStats.raidsWon.toNumber(), losses: attackerStats.raidsLost.toNumber(), stolen: formatLargeNumber(attackerStats.rewardsStolen) });
+                    // Store player stats for header display
+                    setPlayerStats({
+                        wins: attackerStats.raidsWon.toNumber(),
+                        losses: attackerStats.raidsLost.toNumber(),
+                        stolen: formatLargeNumber(attackerStats.rewardsStolen)
+                    });
                 } catch (e) { console.error("[DEA] User stats error:", e); }
             }
             
             let backendData: any[] = [];
-            try {
-                const res = await fetch(`${WARS_BACKEND_URL}/api/dea/leaderboard?limit=200`);
-                const data = await res.json();
-                if (data.success && Array.isArray(data.jeets)) backendData = data.jeets;
-            } catch (e) { console.error("[DEA] Backend error:", e); }
+            try { const res = await fetch(`${WARS_BACKEND_URL}/api/dea/leaderboard?limit=200`); const data = await res.json(); if (data.success && Array.isArray(data.jeets)) backendData = data.jeets; } catch (e) { console.error("[DEA] Backend error:", e); }
             
             const processedJeets: JeetEntry[] = [];
             for (const j of backendData) {
@@ -381,56 +280,91 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     return (
         <>
             <div style={{ padding: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                    <div>
-                        <h2 style={{ fontSize: 18, fontWeight: 700, color: textPrimary, marginBottom: 4 }}>🚔 DEA Raids</h2>
-                        <div style={{ fontSize: 10, color: textMuted }}>{totalRaids} total raids • Fee: {raidFee}</div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        {isAutoRefreshing && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", animation: "pulse 1s infinite" }} />}
-                        <div style={{ fontSize: 9, color: textMuted }}>Updated {Math.floor((Date.now() - lastRefresh) / 1000)}s ago</div>
+                {/* Header with title and refresh indicator */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <h2 style={{ fontSize: 18, fontWeight: 700, color: textPrimary, margin: 0 }}>🚔 DEA Raids</h2>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            {isAutoRefreshing && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", animation: "pulse 1s infinite" }} />}
+                            <span style={{ fontSize: 10, color: textMuted }}>Updated {Math.floor((Date.now() - lastRefresh) / 1000)}s ago</span>
+                        </div>
                     </div>
                 </div>
 
-                {connected && playerDeaStats && (
+                {/* Subtitle with global stats */}
+                <div style={{ fontSize: 10, color: textMuted, marginBottom: 16 }}>{totalRaids} total raids • Fee: {raidFee}</div>
+
+                {/* Player Stats Box - Single consolidated stats */}
+                {connected && playerStats && (
                     <div style={{ background: cardBg, borderRadius: 10, padding: 12, marginBottom: 16, border: `1px solid ${borderColor}` }}>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, textAlign: "center" }}>
-                            <div><div style={{ fontSize: 9, color: textMuted }}>WINS</div><div style={{ fontSize: 16, fontWeight: 700, color: "#10b981" }}>{playerDeaStats.wins}</div></div>
-                            <div><div style={{ fontSize: 9, color: textMuted }}>LOSSES</div><div style={{ fontSize: 16, fontWeight: 700, color: "#ef4444" }}>{playerDeaStats.losses}</div></div>
-                            <div><div style={{ fontSize: 9, color: textMuted }}>STOLEN</div><div style={{ fontSize: 16, fontWeight: 700, color: "#fbbf24" }}>{playerDeaStats.stolen}</div></div>
+                            <div>
+                                <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>WINS</div>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: "#10b981" }}>{playerStats.wins}</div>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>LOSSES</div>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: "#ef4444" }}>{playerStats.losses}</div>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>STOLEN</div>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: "#fbbf24" }}>{playerStats.stolen}</div>
+                            </div>
                         </div>
                     </div>
                 )}
 
+                {/* Jeets List */}
                 {loading ? <div style={{ textAlign: "center", padding: 40, color: textMuted }}>Loading suspects...</div> : activeJeets.length === 0 ? <div style={{ textAlign: "center", padding: 40, color: textMuted }}>No active suspects found</div> : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                         {paginatedJeets.map((jeet) => {
                             const targetingInfo = getTargetingInfo(jeet.address);
                             const isBeingTargeted = targetingInfo.count > 0;
                             return (
-                                <div key={jeet.address} onClick={() => handleSelectTarget(jeet)} style={{ background: cardBg, borderRadius: 10, padding: "10px 12px", border: `1px solid ${isBeingTargeted ? "rgba(239,68,68,0.5)" : borderColor}`, cursor: "pointer", position: "relative" }}>
+                                <div key={jeet.address} onClick={() => handleSelectTarget(jeet)} style={{ background: cardBg, borderRadius: 10, padding: "12px 14px", border: `1px solid ${isBeingTargeted ? "rgba(239,68,68,0.5)" : borderColor}`, cursor: "pointer", position: "relative" }}>
+                                    {/* Targeting indicator badge */}
                                     {isBeingTargeted && (
                                         <div style={{ position: "absolute", top: -8, right: 8, background: targetingInfo.hasActiveAttack ? "#dc2626" : "#ef4444", color: "#fff", fontSize: 9, fontWeight: 700, padding: "3px 8px", borderRadius: 10, display: "flex", alignItems: "center", gap: 4, animation: targetingInfo.hasActiveAttack ? "pulse 0.5s infinite" : "pulse 1.5s infinite", boxShadow: "0 2px 4px rgba(0,0,0,0.3)" }}>
                                             <span>{targetingInfo.hasActiveAttack ? "⚔️" : "🎯"}</span>
                                             {targetingInfo.count === 1 ? (targetingInfo.hasActiveAttack ? "Under Attack!" : "1 Player Targeting") : `${targetingInfo.count} Players Targeting`}
                                         </div>
                                     )}
-                                    <div style={{ display: "grid", gridTemplateColumns: "130px 1fr 70px", alignItems: "center", gap: 8 }}>
-                                        <div style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 600, color: textPrimary, display: "flex", alignItems: "center", gap: 6 }}>
-                                            {shortAddr(jeet.address)}
-                                            {jeet.isCluster && <span style={{ fontSize: 9, color: "#8b5cf6", background: "rgba(139,92,246,0.15)", padding: "2px 5px", borderRadius: 4 }}>📦 {jeet.farms.length}</span>}
+                                    
+                                    {/* Row 1: Address + Farms badge + Timer (right side) */}
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                            {/* Address line */}
+                                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: textPrimary }}>{shortAddr(jeet.address)}</span>
+                                                {jeet.isCluster && (
+                                                    <span style={{ fontSize: 9, color: "#8b5cf6", background: "rgba(139,92,246,0.15)", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>
+                                                        📦 {jeet.farms.length} FARMS
+                                                    </span>
+                                                )}
+                                                {jeet.hasShield && <span style={{ fontSize: 10, color: "#3b82f6" }}>🛡️</span>}
+                                            </div>
+                                            {/* Timer below address */}
+                                            <div style={{ fontSize: 10, color: "#fbbf24", display: "flex", alignItems: "center", gap: 4 }}>
+                                                <span>⏱️</span>
+                                                <span>{formatTimeRemaining(jeet.expiresAt)}</span>
+                                            </div>
                                         </div>
-                                        <div style={{ fontSize: 10, color: textMuted, display: "flex", alignItems: "center", gap: 8 }}>
-                                            <span style={{ color: "#fbbf24" }}>💰 {formatLargeNumber(jeet.totalSold)}</span>
-                                            <span>•</span>
-                                            <span style={{ color: "#10b981" }}>{jeet.totalPlants} 🌿</span>
-                                            <span>•</span>
-                                            <span style={{ color: getHealthColor(jeet.avgHealth) }}>{jeet.avgHealth}% ❤️</span>
-                                        </div>
-                                        <div style={{ textAlign: "right" }}>
-                                            <div style={{ fontSize: 10, color: "#fbbf24" }}>⏱️ {formatTimeRemaining(jeet.expiresAt)}</div>
-                                            {jeet.hasShield && <div style={{ fontSize: 10, color: "#3b82f6" }}>🛡️</div>}
-                                        </div>
+                                    </div>
+                                    
+                                    {/* Row 2: Stats */}
+                                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: textMuted }}>
+                                        <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                                            <span>💰</span>
+                                            <span style={{ color: "#fbbf24", fontWeight: 600 }}>{formatLargeNumber(jeet.totalSold)}</span>
+                                        </span>
+                                        <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                                            <span style={{ color: "#10b981", fontWeight: 600 }}>{jeet.totalPlants}</span>
+                                            <span>🌿</span>
+                                        </span>
+                                        <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                                            <span style={{ color: getHealthColor(jeet.avgHealth), fontWeight: 600 }}>{jeet.avgHealth}%</span>
+                                            <span>❤️</span>
+                                        </span>
                                     </div>
                                 </div>
                             );
@@ -438,6 +372,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     </div>
                 )}
 
+                {/* Pagination */}
                 {totalPages > 1 && (
                     <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 16 }}>
                         <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} style={{ padding: "6px 12px", fontSize: 11, borderRadius: 6, border: `1px solid ${borderColor}`, background: "transparent", color: textMuted, cursor: currentPage === 1 ? "not-allowed" : "pointer" }}>Prev</button>
@@ -447,6 +382,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 )}
             </div>
 
+            {/* Attack Modal */}
             {showAttackModal && (
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 16 }}>
                     <div style={{ background: modalBg, borderRadius: 16, padding: 20, maxWidth: 380, width: "100%", border: `1px solid ${borderColor}`, maxHeight: "90vh", overflow: "auto" }}>
@@ -514,6 +450,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 </div>
             )}
 
+            {/* Result Modal */}
             {showResultModal && raidResult && (
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 16 }}>
                     <div style={{ background: modalBg, borderRadius: 16, padding: 24, maxWidth: 340, width: "100%", border: `2px solid ${raidResult.won ? "rgba(16,185,129,0.5)" : "rgba(239,68,68,0.5)"}`, textAlign: "center" }}>

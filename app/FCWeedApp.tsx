@@ -842,7 +842,7 @@ export default function FCWeedApp()
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
             if (tx) {
                 await tx.wait();
-                setInventoryStatus("AK-47 activated! +100% combat power for 6h");
+                setInventoryStatus("AK-47 activated! +100% combat power for 12h");
                 fetchInventory();
                 refreshAllData();
             } else {
@@ -865,7 +865,7 @@ export default function FCWeedApp()
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
             if (tx) {
                 await tx.wait();
-                setInventoryStatus("RPG activated! +500% combat power for 1h");
+                setInventoryStatus("RPG activated! +500% combat power for 3h");
                 fetchInventory();
                 refreshAllData();
             } else {
@@ -5421,8 +5421,8 @@ export default function FCWeedApp()
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Raid Shield</b> — 24h Protection, Purge Bypasses Shields</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Attack Boost</b> — +20% Power for 6h</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% Power for 6h</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% Power for 1h</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% Power for 12h</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% Power for 3h</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% Power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 50% | STEAL: 50%</b></li>
                             </ul>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
@@ -6232,27 +6232,6 @@ export default function FCWeedApp()
                             ensureAllowance={ensureFcweedAllowance}
                             refreshData={refreshAllData}
                         />
-
-                        
-                        {connected && warsPlayerStats && (warsPlayerStats.deaRaidsWon > 0 || warsPlayerStats.deaRaidsLost > 0) && (
-                            <div style={{ background: theme === "light" ? "rgba(220,38,38,0.08)" : "rgba(220,38,38,0.1)", border: "1px solid rgba(220,38,38,0.3)", borderRadius: 10, padding: 12, marginBottom: 16 }}>
-                                <div style={{ fontSize: 12, color: "#dc2626", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>🚔 Your DEA Raids Stats</div>
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>WINS</div>
-                                        <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.deaRaidsWon || 0}</div>
-                                    </div>
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LOSSES</div>
-                                        <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.deaRaidsLost || 0}</div>
-                                    </div>
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af" }}>STOLEN</div>
-                                        <div style={{ fontSize: 14, color: "#10b981", fontWeight: 600 }}>{warsPlayerStats.deaRewardsStolen ? (parseFloat(ethers.utils.formatUnits(warsPlayerStats.deaRewardsStolen, 18)) / 1000).toFixed(0) + "K" : "0"}</div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
 
                         <DEARaidsLeaderboard
                             connected={connected}
