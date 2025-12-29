@@ -1011,21 +1011,19 @@ export default function FCWeedApp()
 
                         const { isMiniApp, isBaseApp, isMobile } = detectMiniAppEnvironment();
                         
-                        // Only auto-connect on actual mobile devices or confirmed mini apps
-                        // Don't auto-connect on desktop Farcaster web (let user choose wallet)
-                        const shouldAutoConnect = (isMobile && (isMiniApp || isBaseApp)) || 
-                                                   (isBaseApp && !isMobile); // Base App on any device
+                        // Auto-connect on mobile, mini apps, or Base App (this is a mobile-only app)
+                        const shouldAutoConnect = isMobile || isMiniApp || isBaseApp;
                         
                         if (shouldAutoConnect && !userAddress)
                         {
-                            console.log("[Init] Auto-connecting wallet in mini app / Base app...", { isMiniApp, isBaseApp, isMobile });
+                            console.log("[Init] Auto-connecting wallet...", { isMiniApp, isBaseApp, isMobile });
                             t = setTimeout(() =>
                                 {
                                     void ensureWallet().catch((err) =>
                                         {
                                             console.warn("[Init] Auto-connect failed:", err);
                                         });
-                                }, 500);
+                                }, 200); // Fast connect for mobile
                         }
                     }
                     catch (err)
@@ -1137,16 +1135,7 @@ export default function FCWeedApp()
     // Disconnect modal state
     const [showDisconnectModal, setShowDisconnectModal] = useState(false);
     
-    // Wallet selection state
-    const [showWalletSelection, setShowWalletSelection] = useState(false);
-    const [walletPreference, setWalletPreference] = useState<'farcaster' | 'external' | null>(() => {
-        // Load synchronously on init to avoid race condition
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem('fcweed_wallet_preference') as 'farcaster' | 'external' | null;
-        }
-        return null;
-    });
-    const walletSelectionResolve = useRef<((choice: 'farcaster' | 'external' | null) => void) | null>(null);
+    // Wallet state
     const userDisconnected = useRef(false); // Flag to prevent auto-reconnect after explicit disconnect
 
     // Resolve username and avatar from Basenames, ENS, or Farcaster
@@ -1254,31 +1243,6 @@ export default function FCWeedApp()
         setUsingMiniApp(false);
         setMiniAppEthProvider(null);
         setShowDisconnectModal(false);
-        // Clear wallet preference so user can choose again
-        setWalletPreference(null);
-        localStorage.removeItem('fcweed_wallet_preference');
-    };
-    
-    // Connect with wallet selection (for switching wallets)
-    const connectWithSelection = async () => {
-        userDisconnected.current = true; // Prevent auto-reconnect during selection
-        setShowDisconnectModal(false);
-        // Clear current connection
-        setProvider(null);
-        setSigner(null);
-        setUserAddress(null);
-        setDisplayName(null);
-        setUserAvatar(null);
-        setUsingMiniApp(false);
-        setMiniAppEthProvider(null);
-        // Clear preference
-        setWalletPreference(null);
-        localStorage.removeItem('fcweed_wallet_preference');
-        // Small delay then force wallet selection
-        setTimeout(() => {
-            userDisconnected.current = false;
-            ensureWallet(true);
-        }, 100);
     };
     
     // Get display name or shortened address
@@ -1386,141 +1350,63 @@ export default function FCWeedApp()
 
             console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, isBaseApp, userAgent: navigator.userAgent });
 
-            // Desktop = not mobile (even if in iframe/farcaster context on desktop browser)
-            const isDesktop = !isMobile;
-            let selectedWallet: 'farcaster' | 'external' | null = walletPreference;
-            
-            // If desktop and (no preference OR forceSelection), show wallet picker
-            if (isDesktop && (!selectedWallet || forceSelection)) {
-                // Check if Farcaster SDK wallet is available
-                let hasFarcasterWallet = false;
+            // Mobile-only app - always try SDK/mini app wallet first
+            try {
+                console.log("[Wallet] Attempting SDK wallet connection...");
+
+                // Try SDK ready first
                 try {
-                    const testProvider = await sdk.wallet.getEthereumProvider();
-                    hasFarcasterWallet = !!testProvider;
-                    console.log("[Wallet] Farcaster wallet available:", hasFarcasterWallet);
-                } catch (e) {
-                    console.log("[Wallet] Farcaster wallet check failed:", e);
-                    hasFarcasterWallet = false;
+                    await sdk.actions.ready();
+                    console.log("[Wallet] SDK ready confirmed");
+                } catch (readyErr) {
+                    console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
                 }
-                
-                const hasExternalWallet = !!(window as any).ethereum;
-                console.log("[Wallet] External wallet available:", hasExternalWallet);
-                
-                // If only one option available, use it
-                if (hasFarcasterWallet && !hasExternalWallet) {
-                    selectedWallet = 'farcaster';
-                } else if (!hasFarcasterWallet && hasExternalWallet) {
-                    selectedWallet = 'external';
-                } else if (hasFarcasterWallet && hasExternalWallet) {
-                    // Show selection modal
-                    console.log("[Wallet] Both wallets available, showing selection modal");
-                    selectedWallet = await new Promise<'farcaster' | 'external' | null>((resolve) => {
-                        walletSelectionResolve.current = resolve;
-                        setShowWalletSelection(true);
-                    });
-                    
-                    if (!selectedWallet) {
-                        setConnecting(false);
-                        return null;
-                    }
-                    
-                    // Save preference
-                    setWalletPreference(selectedWallet);
-                    localStorage.setItem('fcweed_wallet_preference', selectedWallet);
-                } else {
-                    // Neither available
-                    setMintStatus("No wallet found. Please install MetaMask or use Farcaster.");
-                    setConnecting(false);
-                    return null;
-                }
-            }
-            
-            console.log("[Wallet] Selected wallet type:", selectedWallet || 'auto (mobile/miniapp)');
 
-            // Use Farcaster/SDK wallet for mobile OR if explicitly selected
-            const useFarcasterWallet = (isMobile && (detectedMiniApp || isBaseApp)) || selectedWallet === 'farcaster';
-            
-            if (useFarcasterWallet && selectedWallet !== 'external') {
+                // Try Farcaster SDK wallet first (primary method)
                 try {
-                    console.log("[Wallet] Attempting SDK wallet connection...");
-
-                    // Try SDK ready first
-                    try {
-                        await sdk.actions.ready();
-                        console.log("[Wallet] SDK ready confirmed");
-                    } catch (readyErr) {
-                        console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
-                    }
-
-                    // If user explicitly selected Farcaster, ONLY use Farcaster SDK
-                    if (selectedWallet === 'farcaster') {
-                        try {
-                            ethProv = await sdk.wallet.getEthereumProvider();
-                            console.log("[Wallet] Got provider via Farcaster SDK getEthereumProvider()");
-                            isMini = true;
-                        } catch (err1) {
-                            console.warn("[Wallet] Farcaster getEthereumProvider failed:", err1);
-                            if ((sdk.wallet as any).ethProvider) {
-                                ethProv = (sdk.wallet as any).ethProvider;
-                                console.log("[Wallet] Got provider via Farcaster ethProvider property");
-                                isMini = true;
-                            }
-                        }
-                        
-                        if (!ethProv) {
-                            setMintStatus("Farcaster wallet not available. Please try external wallet.");
-                            setConnecting(false);
-                            return null;
-                        }
-                    } else {
-                        // Mobile/Base App auto-detection - try multiple providers
-                        const anyWindow = window as any;
-                        if (isBaseApp || anyWindow.ethereum?.isCoinbaseWallet || anyWindow.ethereum?.isBase) {
-                            if (anyWindow.ethereum?.isCoinbaseWallet) {
-                                ethProv = anyWindow.ethereum;
-                                console.log("[Wallet] Got provider via Coinbase Wallet");
-                                isMini = true;
-                            } else if (anyWindow.ethereum?.isBase) {
-                                ethProv = anyWindow.ethereum;
-                                console.log("[Wallet] Got provider via Base App window.ethereum");
-                                isMini = true;
-                            } else if (anyWindow.coinbaseWalletExtension) {
-                                ethProv = anyWindow.coinbaseWalletExtension;
-                                console.log("[Wallet] Got provider via coinbaseWalletExtension");
-                                isMini = true;
-                            } else if (anyWindow.ethereum && isMobile) {
-                                // Only use window.ethereum on mobile as fallback
-                                ethProv = anyWindow.ethereum;
-                                console.log("[Wallet] Got provider via window.ethereum (mobile fallback)");
-                                isMini = true;
-                            }
-                        }
-
-                        // Try Farcaster SDK wallet if no Base provider found
-                        if (!ethProv) {
-                            try {
-                                ethProv = await sdk.wallet.getEthereumProvider();
-                                console.log("[Wallet] Got provider via getEthereumProvider()");
-                                isMini = true;
-                            } catch (err1) {
-                                console.warn("[Wallet] getEthereumProvider failed:", err1);
-                                if ((sdk.wallet as any).ethProvider) {
-                                    ethProv = (sdk.wallet as any).ethProvider;
-                                    console.log("[Wallet] Got provider via ethProvider property");
-                                    isMini = true;
-                                }
-                            }
-                        }
-                    }
-
-                    if (ethProv) {
-                        console.log("[Wallet] Got ethereum provider:", typeof ethProv);
+                    ethProv = await sdk.wallet.getEthereumProvider();
+                    console.log("[Wallet] Got provider via Farcaster SDK");
+                    isMini = true;
+                } catch (err1) {
+                    console.warn("[Wallet] Farcaster SDK failed:", err1);
+                    
+                    // Try ethProvider property
+                    if ((sdk.wallet as any).ethProvider) {
+                        ethProv = (sdk.wallet as any).ethProvider;
+                        console.log("[Wallet] Got provider via ethProvider property");
                         isMini = true;
                     }
-                } catch (err) {
-                    console.warn("[Wallet] SDK wallet failed:", err);
-                    ethProv = null;
                 }
+
+                // If no Farcaster provider, try Base/Coinbase wallet
+                if (!ethProv) {
+                    const anyWindow = window as any;
+                    if (anyWindow.ethereum?.isCoinbaseWallet) {
+                        ethProv = anyWindow.ethereum;
+                        console.log("[Wallet] Got provider via Coinbase Wallet");
+                        isMini = true;
+                    } else if (anyWindow.ethereum?.isBase) {
+                        ethProv = anyWindow.ethereum;
+                        console.log("[Wallet] Got provider via Base App");
+                        isMini = true;
+                    } else if (anyWindow.coinbaseWalletExtension) {
+                        ethProv = anyWindow.coinbaseWalletExtension;
+                        console.log("[Wallet] Got provider via coinbaseWalletExtension");
+                        isMini = true;
+                    } else if (anyWindow.ethereum) {
+                        // Fallback to window.ethereum
+                        ethProv = anyWindow.ethereum;
+                        console.log("[Wallet] Got provider via window.ethereum fallback");
+                        isMini = true;
+                    }
+                }
+
+                if (ethProv) {
+                    console.log("[Wallet] Got ethereum provider:", typeof ethProv);
+                }
+            } catch (err) {
+                console.warn("[Wallet] SDK wallet failed:", err);
+                ethProv = null;
             }
 
 
@@ -4742,26 +4628,26 @@ export default function FCWeedApp()
             onClick={connected ? () => setShowDisconnectModal(true) : handleConnectWallet}
             onTouchEnd={connected ? () => setShowDisconnectModal(true) : handleConnectWallet}
             style={{
-                padding: userAvatar && connected ? "6px 10px 6px 6px" : "10px 14px",
-                borderRadius: 14,
+                padding: userAvatar && connected ? "4px 8px 4px 4px" : "6px 10px",
+                borderRadius: 10,
                 border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`,
                 background: theme === "light" 
                     ? "#ffffff"
                     : (connected ? "rgba(15,23,42,0.9)" : "rgba(39,95,255,0.55)"),
-                boxShadow: theme === "light" ? "0 2px 4px rgba(0,0,0,0.06)" : "0 2px 4px rgba(0,0,0,0.2)",
-                fontSize: 12,
+                boxShadow: theme === "light" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                fontSize: 11,
                 fontWeight: 600,
                 color: theme === "light" ? "#1e293b" : "#fff",
                 cursor: connecting ? "wait" : "pointer",
                 touchAction: "manipulation",
                 WebkitTapHighlightColor: "transparent",
                 userSelect: "none",
-                minHeight: 38,
-                maxWidth: 160,
+                height: 32,
+                maxWidth: 120,
                 opacity: connecting ? 0.7 : 1,
                 display: "flex",
                 alignItems: "center",
-                gap: 8,
+                gap: 6,
                 transition: "all 0.2s ease",
             }}
         >
@@ -4770,23 +4656,23 @@ export default function FCWeedApp()
                     src={userAvatar} 
                     alt="avatar" 
                     style={{ 
-                        width: 26, 
-                        height: 26, 
-                        borderRadius: 8,
+                        width: 22, 
+                        height: 22, 
+                        borderRadius: 6,
                         objectFit: "cover",
                         flexShrink: 0,
-                        border: `2px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`
+                        border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`
                     }} 
                 />
             ) : !connected && (
-                <span style={{ fontSize: 14, flexShrink: 0 }}>🔗</span>
+                <span style={{ fontSize: 12, flexShrink: 0 }}>🔗</span>
             )}
             <span style={{ 
                 overflow: "hidden", 
                 textOverflow: "ellipsis", 
                 whiteSpace: "nowrap",
-                maxWidth: connected && userAvatar ? 90 : 110
-            }}>{connecting ? "Connecting..." : getDisplayName()}</span>
+                maxWidth: connected && userAvatar ? 70 : 80
+            }}>{connecting ? "..." : getDisplayName()}</span>
         </button>
     );
 
@@ -4800,7 +4686,11 @@ export default function FCWeedApp()
                     : undefined,
                 color: theme === "light" ? "#1e293b" : undefined,
                 maxWidth: "100vw",
-                overflowX: "hidden"
+                width: "100%",
+                minHeight: "100vh",
+                overflowX: "hidden",
+                boxSizing: "border-box",
+                position: "relative"
             }} 
             data-theme={theme}
             onPointerDown={() => { if (!isPlaying && !manualPause && audioRef.current) audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {}); }}
@@ -4810,6 +4700,20 @@ export default function FCWeedApp()
                 @keyframes scrollText {
                     0% { transform: translateX(0); }
                     100% { transform: translateX(-100%); }
+                }
+                * { box-sizing: border-box; }
+                html, body { 
+                    margin: 0; 
+                    padding: 0; 
+                    width: 100%; 
+                    max-width: 100vw;
+                    overflow-x: hidden;
+                    -webkit-text-size-adjust: 100%;
+                    -webkit-overflow-scrolling: touch;
+                }
+                body {
+                    min-height: 100vh;
+                    min-height: 100dvh;
                 }
             `}</style>
             
@@ -5065,206 +4969,83 @@ export default function FCWeedApp()
                             >
                                 🔌 Disconnect
                             </button>
-                            <button
-                                onClick={connectWithSelection}
-                                style={{
-                                    width: "100%",
-                                    padding: "12px 20px",
-                                    borderRadius: 12,
-                                    border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`,
-                                    background: "transparent",
-                                    color: theme === "light" ? "#1e293b" : "#fff",
-                                    fontWeight: 500,
-                                    fontSize: 13,
-                                    cursor: "pointer"
-                                }}
-                            >
-                                🔄 Switch Wallet
-                            </button>
                         </div>
                     </div>
                 </div>
             )}
             
-            {/* Wallet Selection Modal */}
-            {showWalletSelection && (
-                <div style={{
-                    position: "fixed",
-                    inset: 0,
-                    background: "rgba(0,0,0,0.85)",
-                    backdropFilter: "blur(10px)",
-                    zIndex: 1001,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: 16
-                }} onClick={() => {
-                    setShowWalletSelection(false);
-                    if (walletSelectionResolve.current) {
-                        walletSelectionResolve.current(null);
-                        walletSelectionResolve.current = null;
-                    }
-                }}>
-                    <div 
-                        style={{
-                            background: theme === "light" ? "#ffffff" : "#0f172a",
-                            borderRadius: 20,
-                            border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.1)"}`,
-                            maxWidth: 340,
-                            width: "100%",
-                            padding: 24,
-                            textAlign: "center"
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div style={{ fontSize: 40, marginBottom: 12 }}>🔗</div>
-                        <h3 style={{ 
-                            fontSize: 18, 
-                            fontWeight: 600, 
-                            marginBottom: 8,
-                            color: theme === "light" ? "#1e293b" : "#fff"
-                        }}>
-                            Connect Wallet
-                        </h3>
-                        <p style={{ 
-                            fontSize: 12, 
-                            color: theme === "light" ? "#64748b" : "#94a3b8",
-                            marginBottom: 20
-                        }}>
-                            Choose how you want to connect
-                        </p>
-                        
-                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                            <button
-                                onClick={() => {
-                                    setShowWalletSelection(false);
-                                    if (walletSelectionResolve.current) {
-                                        walletSelectionResolve.current('farcaster');
-                                        walletSelectionResolve.current = null;
-                                    }
-                                }}
-                                style={{
-                                    width: "100%",
-                                    padding: "14px 20px",
-                                    borderRadius: 12,
-                                    border: "none",
-                                    background: "linear-gradient(135deg, #8b5cf6, #7c3aed)",
-                                    color: "#fff",
-                                    fontWeight: 600,
-                                    fontSize: 14,
-                                    cursor: "pointer",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    gap: 10
-                                }}
-                            >
-                                <span style={{ fontSize: 20 }}>🟣</span>
-                                Farcaster Wallet
-                            </button>
-                            <button
-                                onClick={() => {
-                                    setShowWalletSelection(false);
-                                    if (walletSelectionResolve.current) {
-                                        walletSelectionResolve.current('external');
-                                        walletSelectionResolve.current = null;
-                                    }
-                                }}
-                                style={{
-                                    width: "100%",
-                                    padding: "14px 20px",
-                                    borderRadius: 12,
-                                    border: "none",
-                                    background: "linear-gradient(135deg, #f59e0b, #d97706)",
-                                    color: "#fff",
-                                    fontWeight: 600,
-                                    fontSize: 14,
-                                    cursor: "pointer",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    gap: 10
-                                }}
-                            >
-                                <span style={{ fontSize: 20 }}>🦊</span>
-                                External Wallet (MetaMask, etc.)
-                            </button>
-                            <button
-                                onClick={() => {
-                                    setShowWalletSelection(false);
-                                    if (walletSelectionResolve.current) {
-                                        walletSelectionResolve.current(null);
-                                        walletSelectionResolve.current = null;
-                                    }
-                                }}
-                                style={{
-                                    width: "100%",
-                                    padding: "10px 20px",
-                                    borderRadius: 12,
-                                    border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`,
-                                    background: "transparent",
-                                    color: theme === "light" ? "#64748b" : "#9ca3af",
-                                    fontWeight: 500,
-                                    fontSize: 12,
-                                    cursor: "pointer",
-                                    marginTop: 4
-                                }}
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
             
             <header className={styles.headerWrapper} style={{
-                background: theme === "light" ? "rgba(255,255,255,0.9)" : undefined,
-                borderBottom: theme === "light" ? "1px solid #e2e8f0" : undefined
+                background: theme === "light" ? "rgba(255,255,255,0.95)" : "rgba(5, 8, 20, 0.95)",
+                borderBottom: theme === "light" ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
+                padding: "8px 12px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8
             }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
-                    <div className={styles.brand} style={{ color: theme === "light" ? "#1e293b" : undefined }}>
+                {/* Left: Brand + Wallet */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: "0 1 auto" }}>
+                    <div className={styles.brand} style={{ color: theme === "light" ? "#1e293b" : undefined, flexShrink: 0 }}>
                         <span className={styles.liveDot} />
-                        <span className={styles.brandText} style={{ color: theme === "light" ? "#1e293b" : undefined }}>FCWEED</span>
+                        <span className={styles.brandText} style={{ color: theme === "light" ? "#1e293b" : undefined, fontSize: 14 }}>FCWEED</span>
                     </div>
                     <ConnectWalletButton />
                 </div>
-                <div className={styles.headerRight}>
-                    
+                
+                {/* Right: Theme + Radio */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                     <button 
                         type="button" 
-                        className={styles.iconButton}
                         onClick={toggleTheme}
                         style={{ 
-                            background: theme === "light" ? "#e2e8f0" : undefined,
-                            color: theme === "light" ? "#1e293b" : undefined,
-                            borderColor: theme === "light" ? "#cbd5e1" : undefined
+                            width: 32,
+                            height: 32,
+                            borderRadius: 8,
+                            border: `1px solid ${theme === "light" ? "#cbd5e1" : "rgba(255,255,255,0.2)"}`,
+                            background: theme === "light" ? "#f1f5f9" : "rgba(255,255,255,0.1)",
+                            color: theme === "light" ? "#1e293b" : "#fff",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            cursor: "pointer",
+                            fontSize: 14
                         }}
-                        title={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
+                        title={theme === "dark" ? "Light Mode" : "Dark Mode"}
                     >
                         {theme === "dark" ? "☀️" : "🌙"}
                     </button>
-                    <div className={styles.radioPill} style={{
-                        background: theme === "light" ? "#f1f5f9" : undefined,
-                        borderColor: theme === "light" ? "#cbd5e1" : undefined
+                    
+                    {/* Compact Radio Pill */}
+                    <div style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        background: theme === "light" ? "#f1f5f9" : "rgba(255,255,255,0.1)",
+                        border: `1px solid ${theme === "light" ? "#cbd5e1" : "rgba(255,255,255,0.2)"}`,
+                        borderRadius: 8,
+                        padding: "4px 8px",
+                        height: 32
                     }}>
-                        <span className={styles.radioLabel} style={{ color: theme === "light" ? "#475569" : undefined }}>Base Radio</span>
-                        <div className={styles.radioTitleWrap} style={{ overflow: "hidden", maxWidth: 100 }}>
-                            <span 
-                                className={styles.radioTitleInner} 
-                                style={{ 
-                                    color: theme === "light" ? "#1e293b" : undefined,
-                                    display: "inline-block",
-                                    whiteSpace: "nowrap",
-                                    animation: "scrollText 10s linear infinite",
-                                    paddingLeft: "100%"
-                                }}
-                            >
+                        <span style={{ fontSize: 10, color: theme === "light" ? "#64748b" : "#9ca3af", whiteSpace: "nowrap" }}>📻</span>
+                        <div style={{ overflow: "hidden", maxWidth: 70, height: 14 }}>
+                            <span style={{ 
+                                color: theme === "light" ? "#1e293b" : "#fff",
+                                display: "inline-block",
+                                whiteSpace: "nowrap",
+                                fontSize: 10,
+                                fontWeight: 500,
+                                animation: "scrollText 8s linear infinite",
+                                paddingLeft: "100%"
+                            }}>
                                 {currentTrackMeta.title}
                             </span>
                         </div>
-                        <button type="button" className={styles.iconButtonSmall} onClick={handlePrevTrack}>‹</button>
-                        <button type="button" className={styles.iconButtonSmall} onClick={handlePlayPause}>{isPlaying ? "❚❚" : "▶"}</button>
-                        <button type="button" className={styles.iconButtonSmall} onClick={handleNextTrack}>›</button>
+                        <div style={{ display: "flex", gap: 2 }}>
+                            <button type="button" onClick={handlePrevTrack} style={{ width: 20, height: 20, border: "none", background: "transparent", color: theme === "light" ? "#64748b" : "#9ca3af", cursor: "pointer", fontSize: 12, padding: 0 }}>‹</button>
+                            <button type="button" onClick={handlePlayPause} style={{ width: 20, height: 20, border: "none", background: "transparent", color: theme === "light" ? "#1e293b" : "#fff", cursor: "pointer", fontSize: 10, padding: 0 }}>{isPlaying ? "❚❚" : "▶"}</button>
+                            <button type="button" onClick={handleNextTrack} style={{ width: 20, height: 20, border: "none", background: "transparent", color: theme === "light" ? "#64748b" : "#9ca3af", cursor: "pointer", fontSize: 12, padding: 0 }}>›</button>
+                        </div>
                     </div>
                     <audio ref={audioRef} src={currentTrackMeta.src} onEnded={handleNextTrack} autoPlay style={{ display: "none" }} />
                 </div>
