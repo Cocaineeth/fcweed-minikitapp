@@ -36,7 +36,7 @@ const battlesInterface = new ethers.utils.Interface(BATTLES_ABI);
 const stakingInterface = new ethers.utils.Interface(STAKING_ABI);
 
 type FarmInfo = { address: string; plants: number; avgHealth: number; pendingRewards: string; pendingRaw: number; hasShield: boolean; canAttack: boolean; battlePower: number; targetImmunityEnds: number; myAttackCooldownEnds: number; };
-type JeetEntry = { address: string; totalSold: string; sellCount: number; lastSellTimestamp: number; expiresAt: number; hasShield: boolean; source: "onchain" | "backend" | "both"; needsFlagging: boolean; plants: number; avgHealth: number; battlePower: number; isCluster: boolean; farms: FarmInfo[]; totalPlants: number; targetImmunityEnds: number; myAttackCooldownEnds: number; hasRaidableFarm: boolean; };
+type JeetEntry = { address: string; totalSold: string; sellCount: number; lastSellTimestamp: number; expiresAt: number; hasShield: boolean; source: "onchain" | "backend" | "both"; needsFlagging: boolean; plants: number; avgHealth: number; battlePower: number; isCluster: boolean; farms: FarmInfo[]; totalPlants: number; totalPendingRaw: number; targetImmunityEnds: number; myAttackCooldownEnds: number; hasRaidableFarm: boolean; };
 type TargetInfo = { address: string; pendingRewards: string; plants: number; avgHealth: number; battlePower: number; hasShield: boolean; attackerPower: number; winChance: number; needsFlagging: boolean; farms: FarmInfo[]; };
 type ActiveTargeting = { targetAddress: string; attackerAddress: string; farmAddress?: string; timestamp: number; isAttacking: boolean; };
 type Props = { connected: boolean; userAddress: string | null; theme: "light" | "dark"; readProvider: ethers.providers.Provider | null; sendContractTx: (to: string, data: string, gasLimit?: string) => Promise<ethers.providers.TransactionResponse | null>; ensureAllowance: (spender: string, amount: ethers.BigNumber) => Promise<boolean>; refreshData: () => void; };
@@ -251,6 +251,9 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     totalPlants = farms[0].plants; avgHealthSum = farms[0].avgHealth;
                 }
                 
+                // Calculate total pending from all farms
+                const totalPendingRaw = farms.reduce((sum, f) => sum + (f.pendingRaw || 0), 0);
+                
                 processedJeets.push({ 
                     address: j.address, 
                     totalSold: j.totalSold || "0", 
@@ -265,14 +268,16 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     battlePower: 0, 
                     isCluster: farms.length > 1, 
                     farms, 
-                    totalPlants, 
+                    totalPlants,
+                    totalPendingRaw: j.totalPendingRaw || totalPendingRaw,
                     targetImmunityEnds: 0, 
                     myAttackCooldownEnds: 0, 
                     hasRaidableFarm: farms.some(f => f.plants > 0 && !f.hasShield && f.canAttack) 
                 });
             }
             
-            processedJeets.sort((a, b) => (parseFloat(b.totalSold) || 0) - (parseFloat(a.totalSold) || 0));
+            // Sort by TOTAL PENDING REWARDS (highest loot first!)
+            processedJeets.sort((a, b) => (b.totalPendingRaw || 0) - (a.totalPendingRaw || 0));
             setJeets(processedJeets);
             setLastRefresh(Date.now());
         } catch (e) { console.error("[DEA] Fetch error:", e); }
