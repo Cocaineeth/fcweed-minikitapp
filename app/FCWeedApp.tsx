@@ -1473,60 +1473,81 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
             console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, isBaseApp, userAgent: navigator.userAgent });
 
-            // Try Farcaster SDK first (for Warpcast users)
+            // Check if we're in Farcaster context
+            let inFarcasterContext = false;
             try {
-                console.log("[Wallet] Attempting SDK wallet connection...");
+                const context = await sdk.context;
+                if (context) {
+                    inFarcasterContext = true;
+                    console.log("[Wallet] In Farcaster context, will use SDK wallet only");
+                }
+            } catch {}
 
+            // Try Farcaster SDK first (for Warpcast users)
+            if (inFarcasterContext || detectedMiniApp) {
                 try {
-                    await sdk.actions.ready();
-                    console.log("[Wallet] SDK ready confirmed");
-                } catch (readyErr) {
-                    console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
-                }
+                    console.log("[Wallet] Attempting Farcaster SDK wallet connection...");
 
-                try {
-                    ethProv = await sdk.wallet.getEthereumProvider();
-                    if (ethProv) {
-                        console.log("[Wallet] Got provider via Farcaster SDK");
-                        const providerInfo = {
-                            isRabby: !!(ethProv as any).isRabby,
-                            isMetaMask: !!(ethProv as any).isMetaMask,
-                            isCoinbaseWallet: !!(ethProv as any).isCoinbaseWallet,
-                            isFarcaster: !!(ethProv as any).isFarcaster,
-                        };
-                        console.log("[Wallet] Provider info:", providerInfo);
-                        isMini = true;
+                    try {
+                        await sdk.actions.ready();
+                        console.log("[Wallet] SDK ready confirmed");
+                    } catch (readyErr) {
+                        console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
                     }
-                } catch (err1) {
-                    console.warn("[Wallet] Farcaster SDK getEthereumProvider failed:", err1);
-                    if ((sdk.wallet as any).ethProvider) {
-                        ethProv = (sdk.wallet as any).ethProvider;
-                        console.log("[Wallet] Got provider via ethProvider property");
-                        isMini = true;
-                    }
-                }
 
-                // Check window.ethereum if SDK didn't return provider
-                if (!ethProv) {
-                    const anyWindow = window as any;
-                    if (anyWindow.ethereum) {
-                        const windowProviderInfo = {
-                            isRabby: !!anyWindow.ethereum.isRabby,
-                            isMetaMask: !!anyWindow.ethereum.isMetaMask,
-                            isCoinbaseWallet: !!anyWindow.ethereum.isCoinbaseWallet,
-                            isBase: !!anyWindow.ethereum.isBase,
-                        };
-                        console.log("[Wallet] window.ethereum info:", windowProviderInfo);
-                        ethProv = anyWindow.ethereum;
-                        console.log("[Wallet] Using window.ethereum as provider");
-                    } else if (anyWindow.coinbaseWalletExtension) {
-                        ethProv = anyWindow.coinbaseWalletExtension;
-                        console.log("[Wallet] Got provider via coinbaseWalletExtension");
+                    try {
+                        ethProv = await sdk.wallet.getEthereumProvider();
+                        if (ethProv) {
+                            console.log("[Wallet] Got provider via Farcaster SDK");
+                            const providerInfo = {
+                                isRabby: !!(ethProv as any).isRabby,
+                                isMetaMask: !!(ethProv as any).isMetaMask,
+                                isCoinbaseWallet: !!(ethProv as any).isCoinbaseWallet,
+                                isFarcaster: !!(ethProv as any).isFarcaster,
+                            };
+                            console.log("[Wallet] Provider info:", providerInfo);
+                            isMini = true;
+                        }
+                    } catch (err1) {
+                        console.warn("[Wallet] Farcaster SDK getEthereumProvider failed:", err1);
+                        if ((sdk.wallet as any).ethProvider) {
+                            ethProv = (sdk.wallet as any).ethProvider;
+                            console.log("[Wallet] Got provider via ethProvider property");
+                            isMini = true;
+                        }
                     }
+                } catch (err) {
+                    console.warn("[Wallet] Farcaster SDK wallet failed:", err);
                 }
-            } catch (err) {
-                console.warn("[Wallet] SDK wallet failed:", err);
-                ethProv = null;
+                
+                // If in Farcaster context but SDK failed, don't fall back to window.ethereum
+                if (!ethProv && inFarcasterContext) {
+                    console.log("[Wallet] In Farcaster but SDK wallet failed, not falling back to extensions");
+                    setMintStatus("Please enable wallet in Farcaster settings");
+                    setConnecting(false);
+                    return null;
+                }
+            }
+
+            // Only check window.ethereum if NOT in Farcaster context
+            if (!ethProv && !inFarcasterContext) {
+                const anyWindow = window as any;
+                if (anyWindow.ethereum) {
+                    const windowProviderInfo = {
+                        isRabby: !!anyWindow.ethereum.isRabby,
+                        isMetaMask: !!anyWindow.ethereum.isMetaMask,
+                        isCoinbaseWallet: !!anyWindow.ethereum.isCoinbaseWallet,
+                        isBase: !!anyWindow.ethereum.isBase,
+                    };
+                    console.log("[Wallet] window.ethereum info:", windowProviderInfo);
+                    ethProv = anyWindow.ethereum;
+                    console.log("[Wallet] Using window.ethereum as provider");
+                    isMini = false;
+                } else if (anyWindow.coinbaseWalletExtension) {
+                    ethProv = anyWindow.coinbaseWalletExtension;
+                    console.log("[Wallet] Got provider via coinbaseWalletExtension");
+                    isMini = false;
+                }
             }
 
 
