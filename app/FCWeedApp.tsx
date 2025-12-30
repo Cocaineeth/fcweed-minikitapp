@@ -995,8 +995,9 @@ export default function FCWeedApp()
                         const dustBalance = stats.dustBalance ?? stats[0];
                         
                         if (dustBalance.lt(dustPrice)) {
-                            const needed = parseFloat(ethers.utils.formatUnits(dustPrice, 18));
-                            const have = parseFloat(ethers.utils.formatUnits(dustBalance, 18));
+                            // Dust prices are now raw numbers (not 18 decimals)
+                            const needed = dustPrice.toNumber();
+                            const have = dustBalance.toNumber();
                             setShopStatus(`Insufficient Dust! Need ${needed.toLocaleString()}, have ${have.toLocaleString()}. Open crates to earn Dust.`);
                             setShopLoading(false);
                             return;
