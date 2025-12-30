@@ -442,11 +442,21 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             // Step 3: Execute the raid
             setStatus("Initiating DEA Raid...");
             const data = battlesInterface.encodeFunctionData("deaRaid", [selectedTarget.address]);
-            const tx = await sendContractTx(V5_BATTLES_ADDRESS, data, "0x7A120");
+            // Increased gas limit from 500k to 800k - DEA raids are gas intensive
+            const tx = await sendContractTx(V5_BATTLES_ADDRESS, data, "0xC3500");
             if (!tx) { setStatus("Transaction rejected"); setRaiding(false); return; }
             setStatus("Raid in progress...");
             const receipt = await tx.wait();
+            
+            // Check if transaction succeeded
+            if (receipt.status === 0) {
+                setStatus("Transaction failed - check gas and try again");
+                setRaiding(false);
+                return;
+            }
+            
             let won = false, amount = "0", damage = 0;
+            let foundEvent = false;
             for (const log of receipt.logs) { 
                 try { 
                     const parsed = battlesInterface.parseLog(log); 
@@ -454,11 +464,20 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         // V3 event: DeaResult(a, t, w, ap, dp, s, dmg)
                         won = parsed.args.w; 
                         amount = formatLargeNumber(parsed.args.s); 
-                        damage = parsed.args.dmg.toNumber(); 
+                        damage = parsed.args.dmg.toNumber();
+                        foundEvent = true;
                         break; 
                     } 
                 } catch {} 
             }
+            
+            // If no event found, transaction likely failed silently
+            if (!foundEvent) {
+                setStatus("Raid failed - no result event found");
+                setRaiding(false);
+                return;
+            }
+            
             await clearTargeting(selectedJeet.address);
             setRaidResult({ won, amount, damage }); setShowAttackModal(false); setShowResultModal(true); fetchDEAData();
         } catch (e: any) { console.error("[DEA] Raid failed:", e); setStatus(e?.reason || e?.message || "Raid failed"); await clearTargeting(selectedJeet.address); }
@@ -673,11 +692,14 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 16 }}>
                     <div style={{ background: modalBg, borderRadius: 16, padding: 24, maxWidth: 340, width: "100%", border: `2px solid ${raidResult.won ? "rgba(16,185,129,0.5)" : "rgba(239,68,68,0.5)"}`, textAlign: "center" }}>
                         <div style={{ fontSize: 56, marginBottom: 12 }}>{raidResult.won ? "🎉" : "💀"}</div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: raidResult.won ? "#10b981" : "#ef4444", marginBottom: 16 }}>{raidResult.won ? "SUCCESS!" : "FAILED!"}</div>
-                        <div style={{ background: raidResult.won ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)", borderRadius: 10, padding: 16, marginBottom: 16 }}>
-                            {raidResult.won ? <><div style={{ fontSize: 11, color: textMuted }}>Seized</div><div style={{ fontSize: 28, fontWeight: 700, color: "#10b981" }}>{raidResult.amount}</div></> : <><div style={{ fontSize: 11, color: textMuted }}>Fee Lost</div><div style={{ fontSize: 20, fontWeight: 600, color: "#ef4444" }}>{raidFee}</div></>}
-                            <div style={{ fontSize: 10, color: textMuted, marginTop: 8 }}>Damage: {raidResult.damage}%</div>
-                        </div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: raidResult.won ? "#10b981" : "#ef4444", marginBottom: 16 }}>{raidResult.won ? "SUCCESS!" : "DEFEATED"}</div>
+                        {raidResult.won && (
+                            <div style={{ background: "rgba(16,185,129,0.1)", borderRadius: 10, padding: 16, marginBottom: 16 }}>
+                                <div style={{ fontSize: 11, color: textMuted }}>Seized</div>
+                                <div style={{ fontSize: 28, fontWeight: 700, color: "#10b981" }}>{raidResult.amount}</div>
+                                <div style={{ fontSize: 10, color: textMuted, marginTop: 8 }}>Damage dealt: {raidResult.damage}%</div>
+                            </div>
+                        )}
                         <button onClick={closeResultModal} style={{ width: "100%", padding: "12px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", cursor: "pointer" }}>Continue</button>
                     </div>
                 </div>
