@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ethers } from "ethers";
-import { V5_BATTLES_ADDRESS, WARS_BACKEND_URL, MULTICALL3_ADDRESS, V5_STAKING_ADDRESS } from "../lib/constants";
+import { V5_BATTLES_ADDRESS, WARS_BACKEND_URL, MULTICALL3_ADDRESS, V5_STAKING_ADDRESS, V5_ITEMSHOP_ADDRESS } from "../lib/constants";
 
 const MULTICALL3_ABI = ["function tryAggregate(bool requireSuccess, tuple(address target, bytes callData)[] calls) view returns (tuple(bool success, bytes returnData)[])"];
 
@@ -30,6 +30,12 @@ const STAKING_ABI = [
     "function getUserBattleStats(address) view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards)",
     "function calculateBattlePower(address) view returns (uint256)",
     "function pending(address) view returns (uint256)"
+];
+
+// ItemShop ABI for Nuke check
+const ITEMSHOP_ABI = [
+    "function hasActiveNukeReady(address) view returns (bool)",
+    "function nukeExpiry(address) view returns (uint256)"
 ];
 
 const battlesInterface = new ethers.utils.Interface(BATTLES_ABI);
@@ -173,11 +179,13 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 try {
                     // V3: getAtkStats() for unified attack stats, canDea() for cooldown check
                     // Use getPower from Battles contract - it includes ItemShop boosts!
-                    const [atkStats, fullPower, canAttack, lastAttack] = await Promise.all([
+                    const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, ITEMSHOP_ABI, readProvider);
+                    const [atkStats, fullPower, canAttack, lastAttack, hasNuke] = await Promise.all([
                         battlesContract.getAtkStats(userAddress), 
                         battlesContract.getPower(userAddress), // Returns (base, atk, def) - atk includes boosts!
                         battlesContract.canDea(userAddress),
-                        battlesContract.lastDea(userAddress)
+                        battlesContract.lastDea(userAddress),
+                        itemShopContract.hasActiveNukeReady(userAddress).catch(() => false) // Check for active Nuke
                     ]);
                     
                     // Calculate cooldown remaining
@@ -185,8 +193,15 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     const cooldownEnds = lastAttack.toNumber() + deaCD;
                     const remaining = cooldownEnds > now ? cooldownEnds - now : 0;
                     setCooldownRemaining(remaining);
+                    
                     // Use ATK power (index 1) which includes boosts from ItemShop
-                    setMyBattlePower(fullPower[1].toNumber());
+                    // BUT: getPower doesn't include Nuke boost! Nuke = 101x multiplier
+                    let power = fullPower[1].toNumber();
+                    if (hasNuke) {
+                        power = Math.floor(power * 101); // Nuke gives +10000% = 101x
+                        console.log("[DEA] Nuke active! Power boosted to:", power);
+                    }
+                    setMyBattlePower(power);
                     
                     setPlayerStats({
                         wins: atkStats[0].toNumber(),
@@ -194,6 +209,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         stolen: formatLargeNumber(atkStats[2])
                     });
                 } catch (e) { console.error("[DEA] User stats error:", e); }
+            }
             }
             
             let backendData: any[] = [];
@@ -304,6 +320,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         
         try {
             const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
+            const itemShopInterface = new ethers.utils.Interface(ITEMSHOP_ABI);
             const farmAddresses = jeet.farms.map(f => f.address);
             const calls: any[] = [];
             farmAddresses.forEach(addr => {
@@ -317,7 +334,10 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 );
                 if (userAddress) calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("lastDeaOn", [userAddress, addr]) });
             });
-            if (userAddress) calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getPower", [userAddress]) });
+            if (userAddress) {
+                calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getPower", [userAddress]) });
+                calls.push({ target: V5_ITEMSHOP_ADDRESS, callData: itemShopInterface.encodeFunctionData("hasActiveNukeReady", [userAddress]) }); // Check for Nuke
+            }
             
             const results = await mc.tryAggregate(false, calls);
             const updatedFarms: FarmInfo[] = [];
@@ -360,10 +380,24 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             }
             
             let attackerPower = myBattlePower;
-            if (userAddress && results[farmAddresses.length * callsPerFarm]?.success) { 
+            const powerResultIdx = farmAddresses.length * callsPerFarm;
+            const nukeResultIdx = powerResultIdx + 1;
+            
+            if (userAddress && results[powerResultIdx]?.success) { 
                 // getPower returns (base, atk, def) - use atk (index 1) which includes ItemShop boosts
-                const powerResult = battlesInterface.decodeFunctionResult("getPower", results[farmAddresses.length * callsPerFarm].returnData);
+                const powerResult = battlesInterface.decodeFunctionResult("getPower", results[powerResultIdx].returnData);
                 attackerPower = powerResult[1].toNumber(); // ATK power with boosts
+                
+                // Check if Nuke is active - getPower doesn't include Nuke, so multiply by 101
+                if (results[nukeResultIdx]?.success) {
+                    try {
+                        const hasNuke = itemShopInterface.decodeFunctionResult("hasActiveNukeReady", results[nukeResultIdx].returnData)[0];
+                        if (hasNuke) {
+                            attackerPower = Math.floor(attackerPower * 101); // Nuke = +10000%
+                            console.log("[DEA] Modal: Nuke active! Power:", attackerPower);
+                        }
+                    } catch {}
+                }
                 setMyBattlePower(attackerPower); 
             }
             
