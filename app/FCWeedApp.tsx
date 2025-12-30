@@ -3502,6 +3502,12 @@ export default function FCWeedApp()
             setWarsTarget(data.target);
             setWarsTargetLocked(false);
             setWarsPreviewData(data);
+            console.log("[Wars] Search response:", {
+                target: data.target,
+                deadline: data.deadline,
+                signatureLength: data.signature?.length,
+                signaturePrefix: data.signature?.slice(0, 20)
+            });
             setWarsStatus("Target found! Pay fee to lock.");
         } catch (err: any) {
             console.error("[Wars] Search error:", err);
@@ -3555,7 +3561,29 @@ export default function FCWeedApp()
                 setWarsStatus("Attacking...");
             }
 
-            const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("cartelAttack", [warsTarget, warsPreviewData?.deadline || Math.floor(Date.now()/1000) + 600, warsPreviewData?.signature || "0x"]), "0x4C4B40");
+            // Validate signature exists and is valid
+            const signature = warsPreviewData?.signature;
+            const deadline = warsPreviewData?.deadline;
+            
+            if (!signature || signature === "0x" || signature.length < 130) {
+                console.error("[Wars] Invalid signature:", signature);
+                setWarsStatus("Invalid signature - please search again");
+                setWarsAttacking(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+            
+            if (!deadline || deadline < Math.floor(Date.now() / 1000)) {
+                console.error("[Wars] Deadline expired:", deadline);
+                setWarsStatus("Search expired - please search again");
+                setWarsAttacking(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+            
+            console.log("[Wars] Attacking with signature:", signature.slice(0, 20) + "...", "deadline:", deadline);
+
+            const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("cartelAttack", [warsTarget, deadline, signature]), "0x4C4B40");
             if (!tx) {
                 setWarsStatus("Transaction rejected");
                 setWarsAttacking(false);

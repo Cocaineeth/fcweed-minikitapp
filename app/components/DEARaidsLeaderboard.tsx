@@ -330,7 +330,9 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 
                 const targetImmunityEnds = 0; // Handled by canRaid check
                 const myAttackCooldownEnds = myLastAttackAt > 0 ? myLastAttackAt + PER_TARGET_COOLDOWN : 0;
-                const canAttack = plants > 0 && !hasShield && avgHealth > 0 && canBeRaided && !(myAttackCooldownEnds > now);
+                // Don't require canBeRaided since we auto-flag unflagged targets before raid
+                const canAttack = plants > 0 && !hasShield && avgHealth > 0 && pendingRaw > 0 && !(myAttackCooldownEnds > now);
+                const needsFlagging = !canBeRaided; // Track if we need to flag first
                 const farm: FarmInfo = { address: addr, plants, avgHealth, pendingRewards: pending, pendingRaw, hasShield, canAttack, battlePower: power || Math.floor(plants * 3 * avgHealth / 100), targetImmunityEnds, myAttackCooldownEnds };
                 updatedFarms.push(farm);
                 if (canAttack && (!bestFarm || pendingRaw > bestFarm.pendingRaw)) bestFarm = farm;
