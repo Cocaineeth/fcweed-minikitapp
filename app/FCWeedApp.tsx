@@ -2652,7 +2652,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             } else if (selectedV4PlantsToWater.length === 1) {
                 // Single plant with partial water - use waterPlantWithAmount
                 const plantId = selectedV4PlantsToWater[0];
-                const amountToUse = Math.min(userWaterBalance, v4CustomWaterAmounts[plantId] ?? v4WaterNeeded[plantId] || 1);
+                const amountToUse = Math.min(userWaterBalance, (v4CustomWaterAmounts[plantId] ?? v4WaterNeeded[plantId]) || 1);
                 const amountWei = ethers.utils.parseUnits(amountToUse.toFixed(18), 18);
                 
                 tx = await txAction().sendContractTx(
@@ -3145,7 +3145,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             } else if (selectedV5PlantsToWater.length === 1) {
                 // Single plant with partial water - use waterPlantWithAmount
                 const plantId = selectedV5PlantsToWater[0];
-                const amountToUse = Math.min(userWaterBalance, v5CustomWaterAmounts[plantId] ?? v5WaterNeeded[plantId] || 1);
+                const amountToUse = Math.min(userWaterBalance, (v5CustomWaterAmounts[plantId] ?? v5WaterNeeded[plantId]) || 1);
                 const amountWei = ethers.utils.parseUnits(amountToUse.toFixed(18), 18);
                 
                 console.log("[Water] Using waterPlantWithAmount - partial water for plant", plantId, "amount:", amountToUse);
