@@ -979,16 +979,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 if (dustPrice.gt(0)) {
                     setShopStatus("Checking dust balance...");
                     try {
+                        // Use same function as UI display (getUserStats)
                         const crateVaultAbi = [
-                            "function userStats(address) view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent, uint256 lastOpenedAt)"
+                            "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)"
                         ];
                         const crateVault = new ethers.Contract(CRATE_VAULT_ADDRESS, crateVaultAbi, readProvider);
-                        const stats = await crateVault.userStats(userAddress);
+                        const stats = await crateVault.getUserStats(userAddress);
                         const dustBalance = stats.dustBalance ?? stats[0];
                         
+                        console.log("[Shop] Dust check - price:", dustPrice.toString(), "balance:", dustBalance.toString());
+                        
                         if (dustBalance.lt(dustPrice)) {
-                            const needed = parseFloat(ethers.utils.formatUnits(dustPrice, 18));
-                            const have = parseFloat(ethers.utils.formatUnits(dustBalance, 18));
+                            // Dust has NO decimals - use raw numbers
+                            const needed = dustPrice.toNumber();
+                            const have = dustBalance.toNumber();
                             setShopStatus(`Insufficient Dust! Need ${needed.toLocaleString()}, have ${have.toLocaleString()}. Open crates to earn Dust.`);
                             setShopLoading(false);
                             return;
@@ -3868,19 +3872,28 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         e.preventDefault();
         e.stopPropagation();
 
-        if (connecting) return;
+        console.log("[UI] Connect button clicked, connecting:", connecting, "openConnectModal available:", !!openConnectModal);
 
-        console.log("[UI] Connect wallet button pressed");
+        if (connecting) {
+            console.log("[UI] Already connecting, ignoring click");
+            return;
+        }
 
-        // Check if we're in Farcaster context first
+        // Quick check if we're in Farcaster context (with timeout to not hang on web)
         let inFarcaster = false;
         try {
-            const context = await sdk.context;
+            const contextPromise = sdk.context;
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error("timeout")), 500)
+            );
+            const context = await Promise.race([contextPromise, timeoutPromise]);
             if (context) {
                 inFarcaster = true;
                 console.log("[UI] In Farcaster context, using SDK wallet");
             }
-        } catch {}
+        } catch (e) {
+            console.log("[UI] Not in Farcaster context (timeout or error)");
+        }
 
         // If in Farcaster, use ensureWallet for SDK connection
         if (inFarcaster) {
@@ -3892,17 +3905,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             return;
         }
 
-        // On web, check for wallet extension
-        const anyWindow = window as any;
-        const hasWalletExtension = anyWindow.ethereum || anyWindow.coinbaseWalletExtension;
-        
-        if (!hasWalletExtension && openConnectModal) {
-            console.log("[UI] No wallet extension, opening RainbowKit modal");
+        // On web (not Farcaster), always use RainbowKit modal
+        // This provides a consistent experience and handles all wallet types
+        if (openConnectModal) {
+            console.log("[UI] Opening RainbowKit modal for web connection");
             openConnectModal();
             return;
+        } else {
+            console.log("[UI] RainbowKit openConnectModal is not available!");
         }
 
-        // Has extension, use ensureWallet
+        // Fallback: try ensureWallet if RainbowKit unavailable
+        console.log("[UI] RainbowKit unavailable, trying direct connection");
         try {
             await ensureWallet();
         } catch (err) {
@@ -4793,19 +4807,29 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     );
 
 
-    const ConnectWalletButton = () => (
+    const ConnectWalletButton = () => {
+        const isActuallyConnected = !!(userAddress || (wagmiConnected && wagmiAddress));
+        
+        const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+            if (isActuallyConnected) {
+                setShowDisconnectModal(true);
+            } else {
+                handleConnectWallet(e);
+            }
+        };
+        
+        return (
         <button
             type="button"
             disabled={connecting}
-            onClick={connected ? () => setShowDisconnectModal(true) : handleConnectWallet}
-            onTouchEnd={connected ? () => setShowDisconnectModal(true) : handleConnectWallet}
+            onClick={handleClick}
             style={{
-                padding: userAvatar && connected ? "4px 8px 4px 4px" : "6px 10px",
+                padding: userAvatar && isActuallyConnected ? "4px 8px 4px 4px" : "6px 10px",
                 borderRadius: 10,
                 border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`,
                 background: theme === "light" 
                     ? "#ffffff"
-                    : (connected ? "rgba(15,23,42,0.9)" : "rgba(39,95,255,0.55)"),
+                    : (isActuallyConnected ? "rgba(15,23,42,0.9)" : "rgba(39,95,255,0.55)"),
                 boxShadow: theme === "light" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
                 fontSize: 11,
                 fontWeight: 600,
@@ -4823,7 +4847,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 transition: "all 0.2s ease",
             }}
         >
-            {userAvatar && connected ? (
+            {userAvatar && isActuallyConnected ? (
                 <img 
                     src={userAvatar} 
                     alt="avatar" 
@@ -4836,17 +4860,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.2)"}`
                     }} 
                 />
-            ) : !connected && (
+            ) : !isActuallyConnected && (
                 <span style={{ fontSize: 12, flexShrink: 0 }}>🔗</span>
             )}
             <span style={{ 
                 overflow: "hidden", 
                 textOverflow: "ellipsis", 
                 whiteSpace: "nowrap",
-                maxWidth: connected && userAvatar ? 70 : 80
-            }}>{connecting && !connected ? "..." : getDisplayName()}</span>
+                maxWidth: isActuallyConnected && userAvatar ? 70 : 80
+            }}>{connecting && !isActuallyConnected ? "..." : getDisplayName()}</span>
         </button>
     );
+    };
 
     return (
         <div 
