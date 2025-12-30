@@ -172,9 +172,10 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             if (userAddress) {
                 try {
                     // V3: getAtkStats() for unified attack stats, canDea() for cooldown check
-                    const [atkStats, power, canAttack, lastAttack] = await Promise.all([
+                    // Use getPower from Battles contract - it includes ItemShop boosts!
+                    const [atkStats, fullPower, canAttack, lastAttack] = await Promise.all([
                         battlesContract.getAtkStats(userAddress), 
-                        stakingContract.calculateBattlePower(userAddress),
+                        battlesContract.getPower(userAddress), // Returns (base, atk, def) - atk includes boosts!
                         battlesContract.canDea(userAddress),
                         battlesContract.lastDea(userAddress)
                     ]);
@@ -184,7 +185,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     const cooldownEnds = lastAttack.toNumber() + deaCD;
                     const remaining = cooldownEnds > now ? cooldownEnds - now : 0;
                     setCooldownRemaining(remaining);
-                    setMyBattlePower(power.toNumber());
+                    // Use ATK power (index 1) which includes boosts from ItemShop
+                    setMyBattlePower(fullPower[1].toNumber());
                     
                     setPlayerStats({
                         wins: atkStats[0].toNumber(),
@@ -290,7 +292,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     useEffect(() => {
         if (!readProvider) return;
         fetchDEAData();
-        const refreshInterval = setInterval(fetchDEAData, 15000);
+        // 3 second refresh for near-live activity display (1 sec would overload backend)
+        const refreshInterval = setInterval(fetchDEAData, 3000);
         return () => clearInterval(refreshInterval);
     }, [readProvider, userAddress, fetchDEAData]);
 
@@ -307,14 +310,14 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 calls.push(
                     { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("pending", [addr]) },
                     { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("getUserBattleStats", [addr]) },
-                    { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("calculateBattlePower", [addr]) },
+                    { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getPower", [addr]) }, // Get full power with boosts
                     { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("hasRaidShield", [addr]) },
                     { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("canRaid", [addr]) },
                     { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getSuspect", [addr]) }
                 );
                 if (userAddress) calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("lastDeaOn", [userAddress, addr]) });
             });
-            if (userAddress) calls.push({ target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("calculateBattlePower", [userAddress]) });
+            if (userAddress) calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getPower", [userAddress]) });
             
             const results = await mc.tryAggregate(false, calls);
             const updatedFarms: FarmInfo[] = [];
@@ -331,7 +334,11 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     pendingRaw = parseFloat(ethers.utils.formatUnits(pendingBN, 18));
                 }
                 if (results[baseIdx + 1]?.success) { const stats = stakingInterface.decodeFunctionResult("getUserBattleStats", results[baseIdx + 1].returnData); plants = stats[0].toNumber(); avgHealth = stats[3].toNumber(); }
-                if (results[baseIdx + 2]?.success) power = stakingInterface.decodeFunctionResult("calculateBattlePower", results[baseIdx + 2].returnData)[0].toNumber();
+                if (results[baseIdx + 2]?.success) {
+                    // getPower returns (base, atk, def) - use def (index 2) for target's defense
+                    const powerResult = battlesInterface.decodeFunctionResult("getPower", results[baseIdx + 2].returnData);
+                    power = powerResult[2].toNumber(); // DEF power with boosts
+                }
                 if (results[baseIdx + 3]?.success) hasShield = stakingInterface.decodeFunctionResult("hasRaidShield", results[baseIdx + 3].returnData)[0];
                 if (results[baseIdx + 4]?.success) canBeRaided = battlesInterface.decodeFunctionResult("canRaid", results[baseIdx + 4].returnData)[0];
                 if (results[baseIdx + 5]?.success) {
@@ -353,7 +360,12 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             }
             
             let attackerPower = myBattlePower;
-            if (userAddress && results[farmAddresses.length * callsPerFarm]?.success) { attackerPower = stakingInterface.decodeFunctionResult("calculateBattlePower", results[farmAddresses.length * callsPerFarm].returnData)[0].toNumber(); setMyBattlePower(attackerPower); }
+            if (userAddress && results[farmAddresses.length * callsPerFarm]?.success) { 
+                // getPower returns (base, atk, def) - use atk (index 1) which includes ItemShop boosts
+                const powerResult = battlesInterface.decodeFunctionResult("getPower", results[farmAddresses.length * callsPerFarm].returnData);
+                attackerPower = powerResult[1].toNumber(); // ATK power with boosts
+                setMyBattlePower(attackerPower); 
+            }
             
             const selectedFarm = bestFarm || updatedFarms.find(f => f.plants > 0) || updatedFarms[0];
             const targetPower = selectedFarm?.battlePower || 0;
