@@ -3276,14 +3276,37 @@ export default function FCWeedApp()
 
                 const { target, nonce, deadline, signature, stats } = data;
 
-                // Store preview data - DON'T REVEAL STATS YET
+                // V4 SIMPLIFIED: Store target data and show plants + pending immediately
                 setWarsPreviewData({ target, nonce, deadline, signature, stats });
                 setWarsTarget(target);
-                setWarsTargetRevealed(false); // Not revealed yet
+                setWarsTargetRevealed(true); // Show stats immediately (plants + pending only in UI)
                 setWarsTargetLocked(false);
-                setWarsTargetStats(null); // Don't show stats until revealed
+                
+                // Set basic target stats for pre-attack display
+                let pendingBN = ethers.BigNumber.from(0);
+                const rawPending = stats?.pendingRewards;
+                if (rawPending !== null && rawPending !== undefined && rawPending !== "" && rawPending !== "0") {
+                    try {
+                        const pendingStr = rawPending.toString().trim();
+                        if (pendingStr && !isNaN(parseFloat(pendingStr))) {
+                            pendingBN = ethers.utils.parseUnits(pendingStr, 18);
+                        }
+                    } catch {
+                        try { pendingBN = ethers.BigNumber.from(rawPending); } catch {}
+                    }
+                }
+                
+                setWarsTargetStats({
+                    plants: stats?.plants || 0,
+                    avgHealth: stats?.avgHealth || 100,
+                    battlePower: stats?.battlePower || 0,
+                    pendingRewards: pendingBN,
+                    hasShield: stats?.hasShield || false,
+                });
+                
+                // Don't show odds before attack
                 setWarsOdds(null);
-                setWarsStatus("Opponent found! Pay 50K to reveal stats.");
+                setWarsStatus("Target found! Attack or skip.");
             } catch (fetchErr: any) {
                 clearTimeout(timeoutId);
                 console.error("[Wars] Fetch error:", fetchErr);
@@ -3409,9 +3432,9 @@ export default function FCWeedApp()
         }
     }
 
-    // Attack target - Execute cartelAttack (another 50K)
+    // Attack target - Execute cartelAttack (50K fee)
     async function handleWarsAttack() {
-        if (warsTransactionInProgress.current || !warsPreviewData || !warsTargetRevealed) return;
+        if (warsTransactionInProgress.current || !warsPreviewData) return;
         warsTransactionInProgress.current = true;
         setWarsSearching(true);
         setWarsStatus("Preparing attack...");
@@ -3572,8 +3595,13 @@ export default function FCWeedApp()
                 setWarsResult({ won: true, rewardsTransferred: ethers.BigNumber.from(0), damageDealt: 0 });
             }
 
-            // Set cooldown immediately (6 hours = 21600 seconds)
-            setWarsCooldown(21600);
+            // V4: Set cooldown ONLY on WIN (6 hours = 21600 seconds)
+            if (battleResult?.won) {
+                setWarsCooldown(21600);
+            } else {
+                // On loss, no cooldown - can search again immediately
+                setWarsCooldown(0);
+            }
 
             // Refresh data
             setTimeout(() => {
@@ -5850,7 +5878,8 @@ export default function FCWeedApp()
                         <div style={{ background: theme === "light" ? "rgba(239,68,68,0.05)" : "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, padding: 14, marginBottom: 16 }}>
                             <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700, marginBottom: 12, textAlign: "center" }}>⚔️ CARTEL WARS</div>
                             
-                            {warsCooldown > 0 && (
+                            {/* V4: Only show cooldown banner when NOT showing result modal */}
+                            {warsCooldown > 0 && !warsResult && (
                                 <div style={{ background: theme === "light" ? "rgba(251,191,36,0.08)" : "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 8, padding: 8, marginBottom: 12 }}>
                                     <div style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24" }}>⏳ Attack Cooldown: {Math.floor(warsCooldown / 3600)}h {Math.floor((warsCooldown % 3600) / 60)}m</div>
                                 </div>
@@ -5884,176 +5913,151 @@ export default function FCWeedApp()
                                         </div>
                                         <div style={{ fontSize: 12, color: "#fff", marginBottom: 12, wordBreak: "break-all" }}>{warsTarget.slice(0, 8)}...{warsTarget.slice(-6)}</div>
 
-                                        {!warsTargetRevealed && (
-                                            <div style={{ background: "rgba(251,191,36,0.1)", border: "1px dashed rgba(251,191,36,0.5)", borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                                                <div style={{ fontSize: 24, marginBottom: 8 }}>❓</div>
-                                                <p style={{ fontSize: 11, color: "#fbbf24", margin: 0 }}>Pay {warsSearchFee} to reveal target stats</p>
-                                            </div>
-                                        )}
-
-                                        {warsTargetRevealed && warsTargetStats && (
+                                        {/* V4 SIMPLIFIED: Pre-attack shows only plants + pending */}
+                                        {warsTargetRevealed && warsTargetStats && !warsResult && (
                                             <div style={{ marginBottom: 12 }}>
-                                                
-                                                <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 8, marginBottom: 12 }}>
-                                                    
-                                                    <div style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: 8, padding: 8 }}>
-                                                        <div style={{ fontSize: 9, color: "#22c55e", fontWeight: 600, textAlign: "center", marginBottom: 6 }}>⚔️ YOU</div>
-                                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
-                                                            <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 4, padding: 4, textAlign: "center" }}>
-                                                                <div style={{ fontSize: 7, color: "#9ca3af" }}>PLANTS</div>
-                                                                <div style={{ fontSize: 12, fontWeight: 700, color: "#22c55e" }}>{v5StakedPlants?.length || 0}</div>
-                                                            </div>
-                                                            <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 4, padding: 4, textAlign: "center" }}>
-                                                                <div style={{ fontSize: 7, color: "#9ca3af" }}>HEALTH</div>
-                                                                <div style={{ fontSize: 12, fontWeight: 700, color: "#22c55e" }}>{v5AverageHealth || 100}%</div>
-                                                            </div>
-                                                        </div>
-                                                        <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 4, padding: 4, textAlign: "center", marginTop: 4 }}>
-                                                            <div style={{ fontSize: 7, color: "#9ca3af" }}>COMBAT POWER</div>
-                                                            <div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{warsOdds?.attackerPower || "..."}</div>
-                                                        </div>
-                                                        
-                                                        <div style={{ marginTop: 6 }}>
-                                                            <div style={{ fontSize: 7, color: "#9ca3af", textAlign: "center", marginBottom: 2 }}>MODIFIERS</div>
-                                                            <div style={{ display: "flex", flexWrap: "wrap", gap: 2, justifyContent: "center" }}>
-                                                                {ak47Expiry > Math.floor(Date.now() / 1000) && (
-                                                                    <span style={{ fontSize: 7, padding: "2px 4px", borderRadius: 3, background: "rgba(239,68,68,0.3)", color: "#ef4444" }}>🔫 AK +100%</span>
-                                                                )}
-                                                                {rpgExpiry > Math.floor(Date.now() / 1000) && (
-                                                                    <span style={{ fontSize: 7, padding: "2px 4px", borderRadius: 3, background: "rgba(249,115,22,0.3)", color: "#f97316" }}>🚀 RPG +500%</span>
-                                                                )}
-                                                                {boostExpiry > Math.floor(Date.now() / 1000) && (
-                                                                    <span style={{ fontSize: 7, padding: "2px 4px", borderRadius: 3, background: "rgba(251,191,36,0.3)", color: "#fbbf24" }}>⚡ +20%</span>
-                                                                )}
-                                                                {nukeExpiry > Math.floor(Date.now() / 1000) && (
-                                                                    <span style={{ fontSize: 7, padding: "2px 4px", borderRadius: 3, background: "rgba(220,38,38,0.3)", color: "#dc2626" }}>☢️ NUKE</span>
-                                                                )}
-                                                                {ak47Expiry <= Math.floor(Date.now() / 1000) && rpgExpiry <= Math.floor(Date.now() / 1000) && boostExpiry <= Math.floor(Date.now() / 1000) && nukeExpiry <= Math.floor(Date.now() / 1000) && (
-                                                                    <span style={{ fontSize: 7, color: "#6b7280" }}>None</span>
-                                                                )}
-                                                            </div>
-                                                        </div>
+                                                {/* Simple 2-column display: Plants + Pending */}
+                                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                                                    <div style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: 10, padding: 12, textAlign: "center" }}>
+                                                        <div style={{ fontSize: 10, color: "#22c55e", marginBottom: 4 }}>🌿 THEIR PLANTS</div>
+                                                        <div style={{ fontSize: 28, fontWeight: 700, color: "#22c55e" }}>{warsTargetStats.plants}</div>
                                                     </div>
-                                                    
-                                                    
-                                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                                                        <div style={{ fontSize: 16, fontWeight: 700, color: "#ef4444" }}>VS</div>
-                                                    </div>
-                                                    
-                                                    
-                                                    <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: 8 }}>
-                                                        <div style={{ fontSize: 9, color: "#ef4444", fontWeight: 600, textAlign: "center", marginBottom: 6 }}>🛡️ TARGET</div>
-                                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
-                                                            <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 4, padding: 4, textAlign: "center" }}>
-                                                                <div style={{ fontSize: 7, color: "#9ca3af" }}>PLANTS</div>
-                                                                <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444" }}>{warsTargetStats.plants}</div>
-                                                            </div>
-                                                            <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 4, padding: 4, textAlign: "center" }}>
-                                                                <div style={{ fontSize: 7, color: "#9ca3af" }}>HEALTH</div>
-                                                                <div style={{ fontSize: 12, fontWeight: 700, color: warsTargetStats.avgHealth > 50 ? "#fbbf24" : "#ef4444" }}>{warsTargetStats.avgHealth}%</div>
-                                                            </div>
-                                                        </div>
-                                                        <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 4, padding: 4, textAlign: "center", marginTop: 4 }}>
-                                                            <div style={{ fontSize: 7, color: "#9ca3af" }}>COMBAT POWER</div>
-                                                            <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>{warsOdds?.defenderPower || warsTargetStats.battlePower || "..."}</div>
-                                                        </div>
-                                                        
-                                                        <div style={{ marginTop: 6 }}>
-                                                            <div style={{ fontSize: 7, color: "#9ca3af", textAlign: "center", marginBottom: 2 }}>MODIFIERS</div>
-                                                            <div style={{ display: "flex", flexWrap: "wrap", gap: 2, justifyContent: "center" }}>
-                                                                {warsTargetStats.hasShield ? (
-                                                                    <span style={{ fontSize: 7, padding: "2px 4px", borderRadius: 3, background: "rgba(59,130,246,0.3)", color: "#3b82f6" }}>🛡️ Shield</span>
-                                                                ) : (
-                                                                    <span style={{ fontSize: 7, color: "#6b7280" }}>None</span>
-                                                                )}
-                                                            </div>
+                                                    <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 10, padding: 12, textAlign: "center" }}>
+                                                        <div style={{ fontSize: 10, color: "#fbbf24", marginBottom: 4 }}>💰 PENDING LOOT</div>
+                                                        <div style={{ fontSize: 22, fontWeight: 700, color: "#fbbf24" }}>
+                                                            {warsTargetStats.pendingRewards ? (parseFloat(ethers.utils.formatUnits(warsTargetStats.pendingRewards, 18)) / 1000).toFixed(0) + "K" : "0"}
                                                         </div>
                                                     </div>
                                                 </div>
                                                 
-                                                
-                                                <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 8, padding: 8, marginBottom: 8, textAlign: "center" }}>
-                                                    <div style={{ fontSize: 9, color: "#fbbf24", marginBottom: 4 }}>💰 TARGET'S PENDING REWARDS</div>
-                                                    <div style={{ fontSize: 20, fontWeight: 700, color: "#fbbf24" }}>
-                                                        {warsTargetStats.pendingRewards ? (parseFloat(ethers.utils.formatUnits(warsTargetStats.pendingRewards, 18)) / 1000).toFixed(0) + "K" : "0"} FCWEED
-                                                    </div>
-                                                </div>
-
-                                                
-                                                {warsOdds && (
-                                                    <div style={{ background: warsOdds.estimatedWinChance > 50 ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)", border: `1px solid ${warsOdds.estimatedWinChance > 50 ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"}`, borderRadius: 8, padding: 10, textAlign: "center" }}>
-                                                        <div style={{ fontSize: 10, color: warsOdds.estimatedWinChance > 50 ? "#22c55e" : "#ef4444", marginBottom: 4 }}>🎲 ESTIMATED WIN CHANCE</div>
-                                                        <div style={{ fontSize: 28, fontWeight: 700, color: warsOdds.estimatedWinChance > 50 ? "#22c55e" : "#ef4444" }}>{warsOdds.estimatedWinChance}%</div>
+                                                {/* Shield warning if target has shield */}
+                                                {warsTargetStats.hasShield && (
+                                                    <div style={{ background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 8, padding: 8, marginBottom: 12, textAlign: "center" }}>
+                                                        <span style={{ fontSize: 10, color: "#3b82f6" }}>🛡️ Target has a shield - cannot attack</span>
                                                     </div>
                                                 )}
                                             </div>
                                         )}
 
-                                        <div style={{ display: "flex", gap: 8 }}>
-                                            {!warsTargetRevealed ? (
-                                                /* Not revealed yet - show Reveal button */
-                                                <button type="button" onClick={handleRevealStats} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #f59e0b, #fbbf24)" }}>
-                                                    {warsSearching ? "Revealing..." : `🔓 Lock & Reveal (${warsSearchFee})`}
-                                                </button>
-                                            ) : !warsTargetLocked ? (
-                                                /* Revealed but not attacked - show Attack button */
-                                                <button type="button" onClick={handleWarsAttack} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}>
-                                                    {warsSearching ? "Attacking..." : `⚔️ Attack (${warsSearchFee})`}
-                                                </button>
-                                            ) : warsCooldown > 0 ? (
-                                                /* Battle done but on cooldown - show cooldown timer */
-                                                <div style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.4)", borderRadius: 8, textAlign: "center" }}>
-                                                    <div style={{ fontSize: 10, color: "#fbbf24", marginBottom: 2 }}>⏳ COOLDOWN</div>
-                                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24" }}>{Math.floor(warsCooldown / 3600)}h {Math.floor((warsCooldown % 3600) / 60)}m {warsCooldown % 60}s</div>
-                                                </div>
-                                            ) : (
-                                                /* Battle done, cooldown over - show Search Again */
-                                                <button type="button" onClick={handleNextOpponent} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #f59e0b, #fbbf24)" }}>
-                                                    {warsSearching ? "Searching..." : "🔍 Search Again"}
-                                                </button>
-                                            )}
-                                            {!warsTargetLocked && (
-                                                <button type="button" onClick={handleNextOpponent} disabled={warsSearching} style={{ padding: "10px 14px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(239,68,68,0.5)", background: "transparent", color: "#ef4444", cursor: warsSearching ? "not-allowed" : "pointer" }}>
-                                                    Skip
-                                                </button>
-                                            )}
-                                        </div>
-                                        {warsStatus && <p style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24", marginTop: 8 }}>{warsStatus}</p>}
+                                        {/* V4 SIMPLIFIED: Attack/Skip buttons - no Reveal step */}
+                                        {!warsResult && (
+                                            <div style={{ display: "flex", gap: 8 }}>
+                                                {!warsTargetLocked && warsTargetStats && !warsTargetStats.hasShield ? (
+                                                    /* Show Attack button */
+                                                    <button type="button" onClick={handleWarsAttack} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}>
+                                                        {warsSearching ? "⚔️ Attacking..." : `⚔️ Attack (${warsSearchFee})`}
+                                                    </button>
+                                                ) : null}
+                                                {!warsTargetLocked && (
+                                                    <button type="button" onClick={handleNextOpponent} disabled={warsSearching} style={{ padding: "10px 14px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(239,68,68,0.5)", background: "transparent", color: "#ef4444", cursor: warsSearching ? "not-allowed" : "pointer" }}>
+                                                        Skip
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
+                                        {warsStatus && !warsResult && <p style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24", marginTop: 8 }}>{warsStatus}</p>}
                                     </div>
                                 </div>
                             )}
 
+                            {/* V4: Enhanced Battle Result Modal */}
                             {warsResult && (
-                                <div style={{ marginTop: 12, background: warsResult.won ? "linear-gradient(135deg, rgba(16,185,129,0.2), rgba(34,197,94,0.1))" : "linear-gradient(135deg, rgba(239,68,68,0.2), rgba(220,38,38,0.1))", border: `2px solid ${warsResult.won ? "rgba(16,185,129,0.5)" : "rgba(239,68,68,0.5)"}`, borderRadius: 12, padding: 20, textAlign: "center" }}>
-                                    <div style={{ fontSize: 48, marginBottom: 12 }}>{warsResult.won ? "🎉" : "💀"}</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700, color: warsResult.won ? "#10b981" : "#ef4444", marginBottom: 8 }}>{warsResult.won ? "VICTORY!" : "DEFEAT!"}</div>
-                                    <div style={{ fontSize: 12, color: theme === "light" ? "#475569" : "#c0c9f4" }}>
-                                        {(() => {
-                                            // Safely convert rewardsTransferred to a displayable value
-                                            const rewards = warsResult.rewardsTransferred;
-                                            let amount = 0;
-                                            try {
-                                                if (rewards) {
-                                                    if (ethers.BigNumber.isBigNumber(rewards)) {
-                                                        amount = parseFloat(ethers.utils.formatUnits(rewards, 18));
-                                                    } else if (typeof rewards === 'string' || typeof rewards === 'number') {
-                                                        amount = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(rewards), 18));
-                                                    } else if (rewards._hex) {
-                                                        amount = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(rewards._hex), 18));
-                                                    }
-                                                }
-                                            } catch (e) {
-                                                console.error("[Wars] Failed to parse rewardsTransferred:", e, rewards);
-                                            }
-                                            const formatted = amount >= 1000 ? (amount / 1000).toFixed(1) + "K" : amount.toFixed(0);
-                                            return warsResult.won 
-                                                ? `You raided ${formatted} FCWEED!`
-                                                : `You lost ${formatted} FCWEED!`;
-                                        })()}
+                                <div style={{ marginTop: 12, background: warsResult.won ? "linear-gradient(135deg, rgba(16,185,129,0.2), rgba(34,197,94,0.1))" : "linear-gradient(135deg, rgba(239,68,68,0.2), rgba(220,38,38,0.1))", border: `2px solid ${warsResult.won ? "rgba(16,185,129,0.5)" : "rgba(239,68,68,0.5)"}`, borderRadius: 12, padding: 20 }}>
+                                    {/* Victory/Defeat Header */}
+                                    <div style={{ textAlign: "center", marginBottom: 16 }}>
+                                        <div style={{ fontSize: 48, marginBottom: 8 }}>{warsResult.won ? "🎉" : "💀"}</div>
+                                        <div style={{ fontSize: 22, fontWeight: 700, color: warsResult.won ? "#10b981" : "#ef4444" }}>{warsResult.won ? "VICTORY!" : "DEFEAT!"}</div>
                                     </div>
-                                    <button type="button" onClick={() => setWarsResult(null)} className={styles.btnPrimary} style={{ marginTop: 16, padding: "10px 24px", fontSize: 12, background: "linear-gradient(135deg, #dc2626, #ef4444)" }}>
-                                        Continue
-                                    </button>
+                                    
+                                    {/* Battle Stats Comparison - shown AFTER battle */}
+                                    {warsOdds && warsTargetStats && (
+                                        <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 8, marginBottom: 16 }}>
+                                            {/* Your Stats */}
+                                            <div style={{ background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.4)", borderRadius: 8, padding: 10 }}>
+                                                <div style={{ fontSize: 10, color: "#22c55e", fontWeight: 600, textAlign: "center", marginBottom: 8 }}>⚔️ YOU</div>
+                                                <div style={{ textAlign: "center" }}>
+                                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>PLANTS</div>
+                                                    <div style={{ fontSize: 16, fontWeight: 700, color: "#22c55e" }}>{v5StakedPlants?.length || 0}</div>
+                                                </div>
+                                                <div style={{ textAlign: "center", marginTop: 6 }}>
+                                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>POWER</div>
+                                                    <div style={{ fontSize: 18, fontWeight: 700, color: "#22c55e" }}>{warsOdds.attackerPower}</div>
+                                                </div>
+                                            </div>
+                                            
+                                            {/* VS */}
+                                            <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                                <div style={{ fontSize: 14, fontWeight: 700, color: "#9ca3af" }}>VS</div>
+                                            </div>
+                                            
+                                            {/* Their Stats */}
+                                            <div style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 8, padding: 10 }}>
+                                                <div style={{ fontSize: 10, color: "#ef4444", fontWeight: 600, textAlign: "center", marginBottom: 8 }}>🛡️ TARGET</div>
+                                                <div style={{ textAlign: "center" }}>
+                                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>PLANTS</div>
+                                                    <div style={{ fontSize: 16, fontWeight: 700, color: "#ef4444" }}>{warsTargetStats.plants}</div>
+                                                </div>
+                                                <div style={{ textAlign: "center", marginTop: 6 }}>
+                                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>POWER</div>
+                                                    <div style={{ fontSize: 18, fontWeight: 700, color: "#ef4444" }}>{warsOdds.defenderPower}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Rewards/Loss Amount */}
+                                    <div style={{ background: warsResult.won ? "rgba(16,185,129,0.2)" : "rgba(239,68,68,0.2)", borderRadius: 8, padding: 12, marginBottom: 16, textAlign: "center" }}>
+                                        <div style={{ fontSize: 11, color: warsResult.won ? "#10b981" : "#ef4444", marginBottom: 4 }}>
+                                            {warsResult.won ? "💰 REWARDS STOLEN" : "💸 TOKENS LOST"}
+                                        </div>
+                                        <div style={{ fontSize: 24, fontWeight: 700, color: warsResult.won ? "#10b981" : "#ef4444" }}>
+                                            {(() => {
+                                                const rewards = warsResult.rewardsTransferred;
+                                                let amount = 0;
+                                                try {
+                                                    if (rewards) {
+                                                        if (ethers.BigNumber.isBigNumber(rewards)) {
+                                                            amount = parseFloat(ethers.utils.formatUnits(rewards, 18));
+                                                        } else if (typeof rewards === 'string' || typeof rewards === 'number') {
+                                                            amount = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(rewards), 18));
+                                                        } else if (rewards._hex) {
+                                                            amount = parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(rewards._hex), 18));
+                                                        }
+                                                    }
+                                                } catch (e) {}
+                                                return amount >= 1000 ? (amount / 1000).toFixed(1) + "K" : amount.toFixed(0);
+                                            })()} FCWEED
+                                        </div>
+                                        {warsResult.damageDealt > 0 && (
+                                            <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>
+                                                Damage dealt: {warsResult.damageDealt}%
+                                            </div>
+                                        )}
+                                    </div>
+                                    
+                                    {/* WIN: Show Cooldown Timer */}
+                                    {warsResult.won && warsCooldown > 0 && (
+                                        <div style={{ background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.4)", borderRadius: 8, padding: 12, marginBottom: 12, textAlign: "center" }}>
+                                            <div style={{ fontSize: 10, color: "#fbbf24", marginBottom: 4 }}>⏳ ATTACK COOLDOWN</div>
+                                            <div style={{ fontSize: 20, fontWeight: 700, color: "#fbbf24" }}>
+                                                {Math.floor(warsCooldown / 3600)}h {Math.floor((warsCooldown % 3600) / 60)}m {warsCooldown % 60}s
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* WIN + Cooldown Done: Search New Target */}
+                                    {warsResult.won && warsCooldown <= 0 && (
+                                        <button type="button" onClick={() => { setWarsResult(null); setWarsTarget(null); setWarsTargetStats(null); setWarsTargetLocked(false); handleWarsSearch(); }} className={styles.btnPrimary} style={{ width: "100%", padding: "12px 20px", fontSize: 13, background: "linear-gradient(135deg, #22c55e, #10b981)" }}>
+                                            🔍 Search New Target
+                                        </button>
+                                    )}
+                                    
+                                    {/* LOSS: Search Again Button - Immediate (no cooldown) */}
+                                    {!warsResult.won && (
+                                        <button type="button" onClick={() => { setWarsResult(null); setWarsTarget(null); setWarsTargetStats(null); setWarsTargetLocked(false); handleWarsSearch(); }} className={styles.btnPrimary} style={{ width: "100%", padding: "12px 20px", fontSize: 13, background: "linear-gradient(135deg, #dc2626, #ef4444)" }}>
+                                            🔍 Search Again
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>
