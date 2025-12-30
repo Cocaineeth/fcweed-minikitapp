@@ -49,8 +49,8 @@ type Props = { connected: boolean; userAddress: string | null; theme: "light" | 
 
 const ITEMS_PER_PAGE = 10;
 const SUSPECT_EXPIRY = 24 * 60 * 60;
-const TARGET_IMMUNITY = 1 * 60 * 60; // V3: 1 hour immunity after being raided
-const PER_TARGET_COOLDOWN = 6 * 60 * 60; // V3: 6 hour per-target cooldown
+const TARGET_IMMUNITY = 2 * 60 * 60; // 2 hour immunity after being raided
+const PER_TARGET_COOLDOWN = 6 * 60 * 60; // 6 hour per-target cooldown (same target)
 const TARGETING_POLL_INTERVAL = 3000;
 const TARGETING_TIMEOUT = 120000;
 
