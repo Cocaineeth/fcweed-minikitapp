@@ -81,6 +81,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
     const [activeTargetings, setActiveTargetings] = useState<ActiveTargeting[]>([]);
     const [playerStats, setPlayerStats] = useState<{ wins: number; losses: number; stolen: string } | null>(null);
+    const [canUserRaid, setCanUserRaid] = useState(false);
     
     const fetchingRef = useRef(false);
     const targetingPollRef = useRef<NodeJS.Timeout | null>(null);
@@ -197,6 +198,10 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         battlesContract.lastDea(userAddress),
                         itemShopContract.hasActiveNukeReady(userAddress).catch(() => false) // Check for active Nuke
                     ]);
+                    
+                    // Store whether user can raid
+                    setCanUserRaid(canAttack);
+                    console.log("[DEA] canDea check:", canAttack, "for user:", userAddress);
                     
                     // Calculate cooldown remaining
                     const deaCD = 7200; // 2 hour general cooldown between any DEA raid
@@ -383,6 +388,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             if (userAddress) {
                 calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getPower", [userAddress]) });
                 calls.push({ target: V5_ITEMSHOP_ADDRESS, callData: itemShopInterface.encodeFunctionData("hasActiveNukeReady", [userAddress]) });
+                // Add canDea check for the user
+                calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("canDea", [userAddress]) });
             }
             
             const results = await mc.tryAggregate(false, calls);
@@ -465,6 +472,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             let attackerPower = myBattlePower;
             const powerResultIdx = 1 + farmAddresses.length * callsPerFarm; // +1 for deaTargetImm call
             const nukeResultIdx = powerResultIdx + 1;
+            const canDeaResultIdx = powerResultIdx + 2;
             
             if (userAddress && results[powerResultIdx]?.success) { 
                 // getPower returns (base, atk, def) - use atk (index 1) which includes ItemShop boosts
@@ -482,6 +490,15 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     } catch {}
                 }
                 setMyBattlePower(attackerPower); 
+            }
+            
+            // Check canDea result
+            if (userAddress && results[canDeaResultIdx]?.success) {
+                try {
+                    const canDea = battlesInterface.decodeFunctionResult("canDea", results[canDeaResultIdx].returnData)[0];
+                    setCanUserRaid(canDea);
+                    console.log("[DEA] Modal canDea check:", canDea);
+                } catch {}
             }
             
             const selectedFarm = bestFarm || updatedFarms.find(f => f.plants > 0) || updatedFarms[0];
@@ -506,13 +523,50 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     const closeResultModal = () => { setShowResultModal(false); setRaidResult(null); refreshData(); fetchDEAData(); };
 
     const handleRaid = async () => {
-        if (!selectedTarget || !userAddress || !selectedJeet || raiding) return;
+        if (!selectedTarget || !userAddress || !selectedJeet || raiding || !readProvider) return;
         await registerTargeting(selectedJeet.address, selectedTarget.address, true);
         setRaiding(true); 
         
         try {
-            // Step 1: Check if target needs flagging first
-            if (selectedTarget.needsFlagging || selectedJeet.needsFlagging) {
+            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, BATTLES_ABI, readProvider);
+            
+            // ==================== PRE-FLIGHT CHECKS ====================
+            setStatus("Checking authorization...");
+            
+            // Check 1: Can user perform DEA raids at all?
+            const canDeaUser = await battlesContract.canDea(userAddress);
+            console.log("[DEA] Pre-flight canDea:", canDeaUser);
+            if (!canDeaUser) {
+                // Check why - is it cooldown or no battle power?
+                const [lastAttack, userPower] = await Promise.all([
+                    battlesContract.lastDea(userAddress),
+                    battlesContract.getPower(userAddress)
+                ]);
+                const deaCD = 7200; // 2 hour cooldown
+                const cooldownEnds = lastAttack.toNumber() + deaCD;
+                const nowTs = Math.floor(Date.now() / 1000);
+                
+                if (cooldownEnds > nowTs) {
+                    const remaining = cooldownEnds - nowTs;
+                    setStatus(`Cooldown active: ${formatCooldown(remaining)} remaining`);
+                } else if (userPower[1].toNumber() === 0) {
+                    setStatus("You need staked NFTs to raid! Stake plants/lands first.");
+                } else {
+                    setStatus("Not authorized to raid. Check your staked NFTs.");
+                }
+                setRaiding(false);
+                return;
+            }
+            
+            // Check 2: Is the target a valid suspect?
+            const suspectInfo = await battlesContract.getSuspect(selectedTarget.address);
+            const isSuspect = suspectInfo[0];
+            const suspectExpires = suspectInfo[1].toNumber();
+            const nowTs = Math.floor(Date.now() / 1000);
+            console.log("[DEA] Pre-flight suspect check:", { isSuspect, suspectExpires, nowTs, expired: suspectExpires <= nowTs });
+            
+            // Step 1: Flag if needed
+            if (!isSuspect || suspectExpires <= nowTs) {
                 setStatus("Target not flagged. Getting flag signature...");
                 try {
                     // Get flag signature from backend
@@ -538,7 +592,17 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     ]);
                     const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagCallData);
                     if (!flagTx) { setStatus("Flagging rejected"); setRaiding(false); return; }
+                    setStatus("Confirming flag...");
                     await flagTx.wait();
+                    
+                    // Wait a bit and verify the flag took effect
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    const newSuspectInfo = await battlesContract.getSuspect(selectedTarget.address);
+                    if (!newSuspectInfo[0]) {
+                        setStatus("Flag failed to register. Try again.");
+                        setRaiding(false);
+                        return;
+                    }
                     setStatus("Target flagged! Proceeding to raid...");
                 } catch (flagErr: any) {
                     console.error("[DEA] Flagging failed:", flagErr);
@@ -550,6 +614,36 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     }
                 }
             }
+            
+            // Check 3: Can this specific target be raided?
+            const canRaidTarget = await battlesContract.canRaid(selectedTarget.address);
+            console.log("[DEA] Pre-flight canRaid:", canRaidTarget);
+            if (!canRaidTarget) {
+                // Check why
+                const targetSuspect = await battlesContract.getSuspect(selectedTarget.address);
+                if (!targetSuspect[0]) {
+                    setStatus("Target is not flagged as a suspect");
+                } else if (targetSuspect[1].toNumber() <= nowTs) {
+                    setStatus("Target's suspect status has expired");
+                } else {
+                    setStatus("Target cannot be raided (may have immunity or shield)");
+                }
+                setRaiding(false);
+                return;
+            }
+            
+            // Check 4: Per-target cooldown
+            const lastDeaOnTarget = await battlesContract.lastDeaOn(userAddress, selectedTarget.address);
+            const perTargetCD = 21600; // 6 hours
+            const targetCooldownEnds = lastDeaOnTarget.toNumber() + perTargetCD;
+            if (targetCooldownEnds > nowTs) {
+                const remaining = targetCooldownEnds - nowTs;
+                setStatus(`Per-target cooldown: ${formatCooldown(remaining)} remaining`);
+                setRaiding(false);
+                return;
+            }
+            
+            // ==================== EXECUTE RAID ====================
             
             // Step 2: Ensure allowance for raid fee
             setStatus("Checking allowance...");
@@ -590,9 +684,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             
             // If no event found, transaction likely failed silently
             if (!foundEvent) {
-                setStatus("Raid failed - no result event found");
-                setRaiding(false);
-                return;
+                setStatus("Raid completed but no result event found");
             }
             
             // Record raid to backend for immunity tracking (fire and forget)
@@ -606,7 +698,21 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             
             await clearTargeting(selectedJeet.address);
             setRaidResult({ won, amount, damage }); setShowAttackModal(false); setShowResultModal(true); fetchDEAData();
-        } catch (e: any) { console.error("[DEA] Raid failed:", e); setStatus(e?.reason || e?.message || "Raid failed"); await clearTargeting(selectedJeet.address); }
+        } catch (e: any) { 
+            console.error("[DEA] Raid failed:", e); 
+            // Parse the error message for better feedback
+            const reason = e?.reason || e?.message || "Raid failed";
+            if (reason.includes("Not authorized")) {
+                setStatus("Not authorized - check your staked NFTs and cooldowns");
+            } else if (reason.includes("cooldown")) {
+                setStatus("Cooldown active - wait before raiding again");
+            } else if (reason.includes("suspect")) {
+                setStatus("Target is not a valid suspect");
+            } else {
+                setStatus(reason);
+            }
+            await clearTargeting(selectedJeet.address); 
+        }
         setRaiding(false);
     };
 
@@ -630,6 +736,14 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         </div>
                     </div>
                 </div>
+
+                {/* User authorization warning */}
+                {connected && userAddress && !canUserRaid && myBattlePower === 0 && (
+                    <div style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 10, padding: 12, marginBottom: 12, textAlign: "center" }}>
+                        <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 600 }}>⚠️ You need staked NFTs to raid</div>
+                        <div style={{ fontSize: 10, color: textMuted, marginTop: 4 }}>Stake plants or lands to gain battle power</div>
+                    </div>
+                )}
 
                 {/* Stats Box with total raids, seized, and cooldown */}
                 <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
@@ -783,6 +897,14 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     <div style={{ background: modalBg, borderRadius: 16, padding: 20, maxWidth: 380, width: "100%", border: `1px solid ${borderColor}`, maxHeight: "90vh", overflow: "auto" }}>
                         <div style={{ fontSize: 16, fontWeight: 700, color: textPrimary, marginBottom: 16, textAlign: "center" }}>🚔 DEA RAID</div>
                         
+                        {/* User can't raid warning */}
+                        {!canUserRaid && myBattlePower === 0 && (
+                            <div style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 10, padding: 12, marginBottom: 16, textAlign: "center" }}>
+                                <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 600 }}>⚠️ Cannot Raid</div>
+                                <div style={{ fontSize: 10, color: textMuted, marginTop: 4 }}>You need staked NFTs to participate in DEA raids</div>
+                            </div>
+                        )}
+                        
                         {selectedJeet && (() => { const info = getTargetingInfo(selectedJeet.address); if (info.count === 0) return null; return (
                             <div style={{ background: info.hasActiveAttack ? "rgba(220,38,38,0.2)" : "rgba(239,68,68,0.15)", border: `1px solid ${info.hasActiveAttack ? "rgba(220,38,38,0.6)" : "rgba(239,68,68,0.4)"}`, borderRadius: 10, padding: 12, marginBottom: 16, textAlign: "center", animation: info.hasActiveAttack ? "pulse 0.5s infinite" : undefined }}>
                                 <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 600 }}>{info.hasActiveAttack ? `⚔️ ${info.count} player${info.count > 1 ? 's' : ''} actively attacking!` : `🎯 ${info.count} other player${info.count > 1 ? 's' : ''} targeting this!`}</div>
@@ -849,8 +971,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                 <div style={{ background: "rgba(251,191,36,0.1)", borderRadius: 8, padding: 8, marginBottom: 16, textAlign: "center" }}><span style={{ fontSize: 10, color: "#fbbf24" }}>Raid Fee: <b>{raidFee}</b> • Refunded on win</span></div>
                                 <div style={{ display: "flex", gap: 10 }}>
                                     <button onClick={closeAttackModal} disabled={raiding} style={{ flex: 1, padding: "12px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${borderColor}`, background: "transparent", color: textMuted, cursor: "pointer" }}>Cancel</button>
-                                    <button onClick={handleRaid} disabled={raiding || selectedTarget.hasShield || selectedTarget.hasImmunity || selectedTarget.plants === 0 || cooldownRemaining > 0} style={{ flex: 2, padding: "12px", fontSize: 13, fontWeight: 700, borderRadius: 8, border: "none", background: (raiding || selectedTarget.hasShield || selectedTarget.hasImmunity || cooldownRemaining > 0) ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)", color: "#fff", cursor: (raiding || selectedTarget.hasShield || selectedTarget.hasImmunity || cooldownRemaining > 0) ? "not-allowed" : "pointer" }}>
-                                        {raiding ? "Raiding..." : selectedTarget.hasShield ? "🛡️ Shielded" : selectedTarget.hasImmunity ? `🛡️ Immune (${selectedTarget.immunityEndsAt > now ? formatCooldown(selectedTarget.immunityEndsAt - now) : "<2h"})` : cooldownRemaining > 0 ? `⏳ ${formatCooldown(cooldownRemaining)}` : "🚔 RAID"}
+                                    <button onClick={handleRaid} disabled={raiding || selectedTarget.hasShield || selectedTarget.hasImmunity || selectedTarget.plants === 0 || cooldownRemaining > 0 || (!canUserRaid && myBattlePower === 0)} style={{ flex: 2, padding: "12px", fontSize: 13, fontWeight: 700, borderRadius: 8, border: "none", background: (raiding || selectedTarget.hasShield || selectedTarget.hasImmunity || cooldownRemaining > 0 || (!canUserRaid && myBattlePower === 0)) ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)", color: "#fff", cursor: (raiding || selectedTarget.hasShield || selectedTarget.hasImmunity || cooldownRemaining > 0 || (!canUserRaid && myBattlePower === 0)) ? "not-allowed" : "pointer" }}>
+                                        {raiding ? "Raiding..." : (!canUserRaid && myBattlePower === 0) ? "⚠️ No Battle Power" : selectedTarget.hasShield ? "🛡️ Shielded" : selectedTarget.hasImmunity ? `🛡️ Immune (${selectedTarget.immunityEndsAt > now ? formatCooldown(selectedTarget.immunityEndsAt - now) : "<2h"})` : cooldownRemaining > 0 ? `⏳ ${formatCooldown(cooldownRemaining)}` : "🚔 RAID"}
                                     </button>
                                 </div>
                                 {status && <div style={{ fontSize: 10, color: "#fbbf24", marginTop: 10, textAlign: "center" }}>{status}</div>}

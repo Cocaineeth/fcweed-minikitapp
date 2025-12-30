@@ -982,6 +982,31 @@ export default function FCWeedApp()
                 }
                 data = itemShopInterface.encodeFunctionData("purchaseWithFcweed", [itemId]);
             } else {
+                // ============== PRE-FLIGHT DUST BALANCE CHECK ==============
+                const dustPrice = item.dustPrice;
+                if (dustPrice.gt(0)) {
+                    setShopStatus("Checking dust balance...");
+                    try {
+                        const crateVaultAbi = [
+                            "function userStats(address) view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent, uint256 lastOpenedAt)"
+                        ];
+                        const crateVault = new ethers.Contract(CRATE_VAULT_ADDRESS, crateVaultAbi, readProvider);
+                        const stats = await crateVault.userStats(userAddress);
+                        const dustBalance = stats.dustBalance ?? stats[0];
+                        
+                        if (dustBalance.lt(dustPrice)) {
+                            const needed = parseFloat(ethers.utils.formatUnits(dustPrice, 18));
+                            const have = parseFloat(ethers.utils.formatUnits(dustBalance, 18));
+                            setShopStatus(`Insufficient Dust! Need ${needed.toLocaleString()}, have ${have.toLocaleString()}. Open crates to earn Dust.`);
+                            setShopLoading(false);
+                            return;
+                        }
+                    } catch (e) {
+                        console.error("[Shop] Dust balance check failed:", e);
+                        // Continue anyway - let contract handle it
+                    }
+                }
+                // ============== END DUST CHECK ==============
                 data = itemShopInterface.encodeFunctionData("purchaseWithDust", [itemId]);
             }
             setShopStatus("Confirming purchase...");
@@ -998,7 +1023,17 @@ export default function FCWeedApp()
             refreshAllData();
             setTimeout(() => setShopStatus(""), 3000);
         } catch (e: any) {
-            setShopStatus(e?.reason || e?.message || "Purchase failed");
+            // Better error message handling
+            const reason = e?.reason || e?.message || "Purchase failed";
+            if (reason.includes("Insufficient dust")) {
+                setShopStatus("Insufficient Dust! Open more crates to earn Dust.");
+            } else if (reason.includes("Sold out")) {
+                setShopStatus("Item sold out for today!");
+            } else if (reason.includes("Shop disabled")) {
+                setShopStatus("Shop is currently disabled");
+            } else {
+                setShopStatus(reason.slice(0, 100));
+            }
         } finally {
             setShopLoading(false);
         }
@@ -3432,7 +3467,7 @@ export default function FCWeedApp()
         }
     }
 
-    // Attack target - Execute cartelAttack (50K fee)
+    // Attack target - Execute cartelAttack (50K fee) - WITH PRE-FLIGHT AUTHORIZATION CHECKS
     async function handleWarsAttack() {
         if (warsTransactionInProgress.current || !warsPreviewData) return;
         warsTransactionInProgress.current = true;
@@ -3450,8 +3485,66 @@ export default function FCWeedApp()
 
             const { target, nonce, deadline, signature, stats } = warsPreviewData;
             
-            // Check and request approval for attack fee
+            // Create contracts for checks
             const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            
+            // ==================== PRE-FLIGHT AUTHORIZATION CHECKS ====================
+            setWarsStatus("Checking authorization...");
+            
+            // Check 1: Can user perform Cartel attacks?
+            const canAttack = await battlesContract.canCartel(ctx.userAddress);
+            console.log("[Wars] Pre-flight canCartel:", canAttack);
+            
+            if (!canAttack) {
+                // Determine why - cooldown or no battle power?
+                const [lastAttack, userPower] = await Promise.all([
+                    battlesContract.lastCartel(ctx.userAddress),
+                    battlesContract.getPower(ctx.userAddress)
+                ]);
+                
+                const cartelCD = 21600; // 6 hour cooldown
+                const cooldownEnds = lastAttack.toNumber() + cartelCD;
+                const nowTs = Math.floor(Date.now() / 1000);
+                
+                if (cooldownEnds > nowTs) {
+                    const remaining = cooldownEnds - nowTs;
+                    const hours = Math.floor(remaining / 3600);
+                    const minutes = Math.floor((remaining % 3600) / 60);
+                    const timeStr = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+                    setWarsStatus(`Cooldown active: ${timeStr} remaining`);
+                } else if (userPower[1].toNumber() === 0) {
+                    setWarsStatus("You need staked NFTs to attack! Stake plants/lands first.");
+                } else {
+                    setWarsStatus("Not authorized to attack. Check your staked NFTs.");
+                }
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+            
+            // Check 2: Verify signature hasn't expired
+            const nowTs = Math.floor(Date.now() / 1000);
+            if (deadline < nowTs) {
+                setWarsStatus("Attack signature expired. Please search for a new target.");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+            
+            // Check 3: Verify target still has plants
+            try {
+                const targetPower = await battlesContract.getPower(target);
+                if (targetPower[2].toNumber() === 0) {
+                    setWarsStatus("Target no longer has staked NFTs.");
+                    setWarsSearching(false);
+                    warsTransactionInProgress.current = false;
+                    return;
+                }
+            } catch {}
+            
+            // ==================== PROCEED WITH ATTACK ====================
+            
+            // Check and request approval for attack fee
             const attackFee = await battlesContract.cartelFee();
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             let allowance = await tokenContract.allowance(ctx.userAddress, V5_BATTLES_ADDRESS);
@@ -3497,7 +3590,7 @@ export default function FCWeedApp()
             const tx = await txAction().sendContractTx(
                 V5_BATTLES_ADDRESS,
                 v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]),
-                "0x4C4B40"
+                "0x7A120" // 500k gas - increased for safety
             );
 
             if (!tx) {
@@ -3509,6 +3602,14 @@ export default function FCWeedApp()
 
             setWarsStatus("Battle in progress...");
             const receipt = await waitForTx(tx, readProvider);
+            
+            // Check if transaction failed
+            if (receipt && receipt.status === 0) {
+                setWarsStatus("Transaction failed - the attack was reverted");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
 
             // Parse battle result from logs
             const battleResultTopic = v3BattlesInterface.getEventTopic("CartelResult");
@@ -3615,6 +3716,14 @@ export default function FCWeedApp()
             const errMsg = (err.reason || err.message || err).toString().toLowerCase();
             if (errMsg.includes("cooldown") || errMsg.includes("!cd")) {
                 setWarsStatus("❌ Attack on cooldown! Wait before attacking again.");
+            } else if (errMsg.includes("!p")) {
+                setWarsStatus("❌ You need staked NFTs to attack!");
+            } else if (errMsg.includes("!tgt")) {
+                setWarsStatus("❌ Invalid target - search for a new one.");
+            } else if (errMsg.includes("!shld")) {
+                setWarsStatus("❌ Target has a shield.");
+            } else if (errMsg.includes("!exp") || errMsg.includes("!sig")) {
+                setWarsStatus("❌ Signature expired - search for a new target.");
             } else if (errMsg.includes("user rejected") || errMsg.includes("rejected")) {
                 setWarsStatus("Transaction cancelled.");
             } else {
