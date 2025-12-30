@@ -365,19 +365,33 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 }
                 if (results[baseIdx + 3]?.success) hasShield = stakingInterface.decodeFunctionResult("hasRaidShield", results[baseIdx + 3].returnData)[0];
                 if (results[baseIdx + 4]?.success) canBeRaided = battlesInterface.decodeFunctionResult("canRaid", results[baseIdx + 4].returnData)[0];
+                
+                // Parse getSuspect to detect immunity properly
+                let isSuspect = false;
+                let suspectExpiresAt = 0;
                 if (results[baseIdx + 5]?.success) {
                     const suspect = battlesInterface.decodeFunctionResult("getSuspect", results[baseIdx + 5].returnData);
                     // V3 getSuspect returns: (isSuspect, expiresAt, raids, lost, sold, cnt)
+                    isSuspect = suspect[0];
+                    suspectExpiresAt = suspect[1].toNumber();
                 }
                 if (userAddress && results[baseIdx + 6]?.success) myLastAttackAt = battlesInterface.decodeFunctionResult("lastDeaOn", results[baseIdx + 6].returnData)[0].toNumber();
                 
-                // Determine if target has 2h global immunity (canRaid=false but not shielded)
-                const hasImmunity = !canBeRaided && !hasShield && plants > 0;
-                const targetImmunityEnds = 0; // Would need contract update to expose raidAt
+                // Immunity detection:
+                // canRaid returns false for: not flagged, expired, has immunity, or has shield
+                // To detect immunity specifically:
+                // - isSuspect = true (they ARE flagged)
+                // - suspectExpiresAt > now (not expired)
+                // - hasShield = false (no shield)
+                // - canRaid = false (can't raid for some reason)
+                // If all above true, the ONLY reason is 2h immunity!
+                const hasImmunity = isSuspect && suspectExpiresAt > now && !hasShield && !canBeRaided;
+                
+                const targetImmunityEnds = 0; // Contract doesn't expose raidAt
                 const myAttackCooldownEnds = myLastAttackAt > 0 ? myLastAttackAt + PER_TARGET_COOLDOWN : 0;
                 // Can attack if: has plants, no shield, no immunity, no personal cooldown
                 const canAttack = plants > 0 && !hasShield && !hasImmunity && avgHealth > 0 && pendingRaw > 0 && !(myAttackCooldownEnds > now);
-                const needsFlagging = !canBeRaided && !hasImmunity; // Track if we need to flag first
+                const needsFlagging = !isSuspect || suspectExpiresAt <= now; // Need to flag if not suspect or expired
                 const farm: FarmInfo = { address: addr, plants, avgHealth, pendingRewards: pending, pendingRaw, hasShield, hasImmunity, canAttack, battlePower: power || Math.floor(plants * 3 * avgHealth / 100), targetImmunityEnds, myAttackCooldownEnds };
                 updatedFarms.push(farm);
                 if (canAttack && (!bestFarm || pendingRaw > bestFarm.pendingRaw)) bestFarm = farm;
@@ -596,10 +610,10 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                                 {jeet.hasShield && <span style={{ fontSize: 10, color: "#3b82f6" }}>🛡️</span>}
                                             </div>
                                             
-                                            {/* Timer below address - simplified */}
-                                            <div style={{ fontSize: 10, color: "#fbbf24", display: "flex", alignItems: "center", gap: 4, marginBottom: 6 }}>
-                                                <span>⏱️</span>
-                                                <span>{formatTimeRemaining(jeet.expiresAt, false)}</span>
+                                            {/* Timer below address - show flag status or countdown */}
+                                            <div style={{ fontSize: 10, color: jeet.needsFlagging || jeet.expiresAt <= now ? "#f59e0b" : "#fbbf24", display: "flex", alignItems: "center", gap: 4, marginBottom: 6 }}>
+                                                <span>{jeet.needsFlagging || jeet.expiresAt <= now ? "🏴" : "⏱️"}</span>
+                                                <span>{jeet.needsFlagging ? "Needs Flag" : jeet.expiresAt <= now ? "Flag Expired" : formatTimeRemaining(jeet.expiresAt, false)}</span>
                                             </div>
                                             
                                             {/* Bottom stats row */}

@@ -347,6 +347,7 @@ export default function FCWeedApp()
     // V5 Staking State
     const [v5StakingOpen, setV5StakingOpen] = useState(false);
     const [v5StakingStats, setV5StakingStats] = useState<any>(null);
+    const [contractCombatPower, setContractCombatPower] = useState<number>(0); // Power from contract's getPower()
     const [v5StakedPlants, setV5StakedPlants] = useState<number[]>([]);
     const [v5StakedLands, setV5StakedLands] = useState<number[]>([]);
     const [v5StakedSuperLands, setV5StakedSuperLands] = useState<number[]>([]);
@@ -2742,6 +2743,30 @@ export default function FCWeedApp()
             setV5AvailableLands(availLands);
             setV5AvailableSuperLands(availSuperLandNums);
 
+            // Fetch combat power from Battles contract (includes ItemShop boosts)
+            try {
+                const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, [
+                    "function getPower(address) view returns (uint256 base, uint256 atk, uint256 def)"
+                ], readProvider);
+                const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, [
+                    "function hasActiveNukeReady(address) view returns (bool)"
+                ], readProvider);
+                
+                const [powerResult, hasNuke] = await Promise.all([
+                    battlesContract.getPower(userAddress),
+                    itemShopContract.hasActiveNukeReady(userAddress).catch(() => false)
+                ]);
+                
+                let atkPower = powerResult[1].toNumber(); // ATK power includes boosts
+                if (hasNuke) {
+                    atkPower = Math.floor(atkPower * 101); // Nuke = 101x
+                }
+                setContractCombatPower(atkPower);
+                console.log("[V5] Contract combat power:", atkPower, "hasNuke:", hasNuke);
+            } catch (e) {
+                console.error("[V5] Failed to get combat power:", e);
+            }
+
         } catch (err) { console.error("[V5Staking] Error:", err); }
         finally { refreshV5StakingRef.current = false; setLoadingV5Staking(false); }
     }
@@ -3332,79 +3357,46 @@ export default function FCWeedApp()
             });
             setWarsSearchExpiry(Math.floor(Date.now() / 1000) + 600);
 
-            // Calculate defender power from backend stats
-            const defenderPower = Math.round((stats.plants * 100 + stats.lands * 50 + stats.superLands * 150) * stats.avgHealth / 100);
-            console.log("[Wars] Lock - Defender power:", defenderPower, "from stats:", stats);
-
-            // Get attacker power - try multiple methods
-            let attackerPower = 0;
-            const attackerAddr = ctx.userAddress;
-            console.log("[Wars] Lock - Getting attacker power for:", attackerAddr);
-
-            // Method 1: Try V5 contract call
+            // Get BOTH attacker and defender power from Battles contract (includes ItemShop boosts)
+            let attackerPower = contractCombatPower; // Use cached contract power for attacker
+            let defenderPower = 0;
+            
             try {
-                const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, [
-                    "function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)"
+                const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, [
+                    "function getPower(address) view returns (uint256 base, uint256 atk, uint256 def)"
                 ], readProvider);
-
-                console.log("[Wars] Lock - Calling V5 getUserBattleStats...");
-                const userStats = await v5Contract.getUserBattleStats(attackerAddr);
-                console.log("[Wars] Lock - Raw V5 response:", userStats);
-
-                const aPlants = userStats[0].toNumber();
-                const aLands = userStats[1].toNumber();
-                const aSuperLands = userStats[2].toNumber();
-                const aAvgHealth = userStats[3].toNumber();
-
-                console.log("[Wars] Lock - Parsed V5 stats - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
-
-                if (aPlants > 0 || aLands > 0 || aSuperLands > 0) {
-                    attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
-                    
-                    // Apply item boost multipliers - ADD all boosts (matches contract)
-                    const now = Math.floor(Date.now() / 1000);
-                    let totalBoostBps = 0;
-                    if (boostExpiry > now) totalBoostBps += 2000;   // +20%
-                    if (ak47Expiry > now) totalBoostBps += 10000;   // +100%
-                    if (rpgExpiry > now) totalBoostBps += 50000;    // +500%
-                    
-                    if (totalBoostBps > 0) {
-                        attackerPower = Math.floor(attackerPower * (10000 + totalBoostBps) / 10000);
+                const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, [
+                    "function hasActiveNukeReady(address) view returns (bool)"
+                ], readProvider);
+                
+                // Fetch attacker power if not cached, and always fetch defender power
+                const calls: Promise<any>[] = [
+                    battlesContract.getPower(target), // Defender's power
+                ];
+                if (!attackerPower) {
+                    calls.push(battlesContract.getPower(ctx.userAddress)); // Attacker's power
+                    calls.push(itemShopContract.hasActiveNukeReady(ctx.userAddress).catch(() => false));
+                }
+                
+                const results = await Promise.all(calls);
+                
+                // Defender power - use DEF (index 2) which includes their defense boosts
+                defenderPower = results[0][2].toNumber();
+                console.log("[Wars] Lock - Contract defender power:", defenderPower);
+                
+                // Attacker power if we needed to fetch it
+                if (!attackerPower && results.length > 1) {
+                    attackerPower = results[1][1].toNumber(); // ATK power (index 1)
+                    const hasNuke = results[2] || false;
+                    if (hasNuke) {
+                        attackerPower = Math.floor(attackerPower * 101); // Nuke = 101x
                     }
-                    if (nukeExpiry > now) {
-                        attackerPower = Math.floor(attackerPower * 101); // +10000%
-                    }
-                    
-                    console.log("[Wars] Lock - Calculated attacker power from V5:", attackerPower);
+                    console.log("[Wars] Lock - Contract attacker power:", attackerPower, "hasNuke:", hasNuke);
                 }
-            } catch (e: any) {
-                console.error("[Wars] Lock - V5 contract call failed:", e.message || e);
-            }
-
-            // Method 2: If V5 returned 0, try using v5StakingStats from React state
-            if (attackerPower === 0 && v5StakingStats && v5StakingStats.plants > 0) {
-                console.log("[Wars] Lock - Using cached v5StakingStats as fallback");
-                const aPlants = v5StakingStats.plants || 0;
-                const aLands = v5StakingStats.lands || 0;
-                const aSuperLands = v5StakingStats.superLands || 0;
-                const aAvgHealth = v5StakingStats.avgHealth || 100;
-                attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
-                
-                // Apply item boost multipliers - ADD all boosts (matches contract)
-                const now = Math.floor(Date.now() / 1000);
-                let totalBoostBps = 0;
-                if (boostExpiry > now) totalBoostBps += 2000;   // +20%
-                if (ak47Expiry > now) totalBoostBps += 10000;   // +100%
-                if (rpgExpiry > now) totalBoostBps += 50000;    // +500%
-                
-                if (totalBoostBps > 0) {
-                    attackerPower = Math.floor(attackerPower * (10000 + totalBoostBps) / 10000);
-                }
-                if (nukeExpiry > now) {
-                    attackerPower = Math.floor(attackerPower * 101); // +10000%
-                }
-                
-                console.log("[Wars] Lock - Calculated attacker power from cache:", attackerPower);
+            } catch (e) {
+                console.error("[Wars] Lock - Failed to get contract power:", e);
+                // Fallback to backend stats for defender if contract call fails
+                defenderPower = Math.round((stats.plants * 100 + stats.lands * 50 + stats.superLands * 150) * stats.avgHealth / 100);
             }
 
             console.log("[Wars] Lock - Final attacker power:", attackerPower, "defender power:", defenderPower);
@@ -5889,39 +5881,8 @@ export default function FCWeedApp()
                                 <div style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.2), rgba(168,85,247,0.15))", border: "1px solid rgba(139,92,246,0.4)", borderRadius: 8, padding: 8, textAlign: "center" }}>
                                     <div style={{ fontSize: 9, color: "#a78bfa", marginBottom: 2 }}>TOTAL COMBAT POWER</div>
                                     <div style={{ fontSize: 22, color: "#a78bfa", fontWeight: 800 }}>
-                                                                            {(() => {
-                                                                                // Contract formula: (plants * 100 + lands * 50 + superLands * 150) * avgHealth / 100
-                                                                                const plants = v5StakedPlants?.length || 0;
-                                                                                const lands = v5StakedLands?.length || 0;
-                                                                                const superLands = v5StakedSuperLands?.length || 0;
-                                                                                const avgHealth = v5StakingStats?.avgHealth || 100;
-
-                                                                                let basePower = Math.round((plants * 100 + lands * 50 + superLands * 150) * avgHealth / 100);
-
-                                                                                // Match contract's getTotalAttackBoost: ADD all boosts together!
-                                                                                // ItemShop.getTotalAttackBoost() returns sum of all active boosts
-                                                                                const now = Math.floor(Date.now() / 1000);
-                                                                                let totalBoostBps = 0;
-
-                                                                                // Add each active boost (stackable - matches contract behavior)
-                                                                                if (boostExpiry > now) totalBoostBps += 2000;   // Attack Boost: +20%
-                                                                                if (ak47Expiry > now) totalBoostBps += 10000;  // AK-47: +100%
-                                                                                if (rpgExpiry > now) totalBoostBps += 50000;   // RPG: +500%
-
-                                                                                // Apply combined boost: power * (BPS + totalBoost) / BPS
-                                                                                if (totalBoostBps > 0) {
-                                                                                    basePower = Math.floor(basePower * (10000 + totalBoostBps) / 10000);
-                                                                                }
-
-                                                                                // Nuke is special - guaranteed win, displayed separately
-                                                                                // (getPower doesn't include nuke, DEA Raids multiplies by 101x)
-                                                                                if (nukeExpiry > now) {
-                                                                                    basePower = Math.floor(basePower * 101); // +10000% = 101x
-                                                                                }
-
-                                                                                return basePower >= 1000 ? (basePower / 1000).toFixed(1) + "K" : basePower;
-                                                                            })()}
-                                                                        </div>
+                                        {contractCombatPower >= 1000 ? (contractCombatPower / 1000).toFixed(1) + "K" : contractCombatPower || 0}
+                                    </div>
                                 </div>
                             </div>
                         )}
