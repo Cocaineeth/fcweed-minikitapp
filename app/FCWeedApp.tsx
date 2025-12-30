@@ -381,6 +381,7 @@ export default function FCWeedApp()
     const [warsPlayerStats, setWarsPlayerStats] = useState<any>(null);
     const [warsTarget, setWarsTarget] = useState<any>(null);
     const [warsTargetStats, setWarsTargetStats] = useState<any>(null);
+    const [warsTargetRevealed, setWarsTargetRevealed] = useState(false); // NEW: whether stats are revealed
     const [warsSearching, setWarsSearching] = useState(false);
     const [warsAttacking, setWarsAttacking] = useState(false);
     const [warsStatus, setWarsStatus] = useState("");
@@ -3275,13 +3276,14 @@ export default function FCWeedApp()
 
                 const { target, nonce, deadline, signature, stats } = data;
 
-                // Store preview data - DON'T PAY YET
+                // Store preview data - DON'T REVEAL STATS YET
                 setWarsPreviewData({ target, nonce, deadline, signature, stats });
                 setWarsTarget(target);
-                setWarsTargetLocked(false); // Not locked yet - just preview
-                setWarsTargetStats(null); // Don't show stats until they pay
+                setWarsTargetRevealed(false); // Not revealed yet
+                setWarsTargetLocked(false);
+                setWarsTargetStats(null); // Don't show stats until revealed
                 setWarsOdds(null);
-                setWarsStatus("Opponent found! Click Reveal to see stats.");
+                setWarsStatus("Opponent found! Pay 50K to reveal stats.");
             } catch (fetchErr: any) {
                 clearTimeout(timeoutId);
                 console.error("[Wars] Fetch error:", fetchErr);
@@ -3304,9 +3306,112 @@ export default function FCWeedApp()
         }
     }
 
-    // Reveal & Lock target - PAY 50K and execute cartelAttack
-    async function handleLockAndFight() {
+    // Reveal stats - PAY 50K to see target stats (doesn't attack yet)
+    async function handleRevealStats() {
         if (warsTransactionInProgress.current || !warsPreviewData) return;
+        warsTransactionInProgress.current = true;
+        setWarsSearching(true);
+        setWarsStatus("Preparing to reveal...");
+
+        try {
+            const ctx = await ensureWallet();
+            if (!ctx) {
+                setWarsStatus("Wallet connection failed");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
+            const { target, stats } = warsPreviewData;
+            
+            // Check and request approval for reveal fee (50K)
+            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            const revealFee = await battlesContract.cartelFee();
+            const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+            let allowance = await tokenContract.allowance(ctx.userAddress, V5_BATTLES_ADDRESS);
+
+            if (allowance.lt(revealFee)) {
+                setWarsStatus("Approving FCWEED (confirm in wallet)...");
+                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
+                if (!approveTx) {
+                    setWarsStatus("Approval rejected");
+                    setWarsSearching(false);
+                    warsTransactionInProgress.current = false;
+                    return;
+                }
+                setWarsStatus("Confirming approval...");
+                await waitForTx(approveTx, readProvider);
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+
+            // Transfer 50K to treasury for reveal (doesn't attack yet)
+            setWarsStatus("Paying reveal fee (50K - confirm in wallet)...");
+            const treasuryAddress = "0x5a567898881CEf8DF767D192b74d99513CAa6e46";
+            const transferTx = await txAction().sendContractTx(
+                FCWEED_ADDRESS,
+                erc20Interface.encodeFunctionData("transfer", [treasuryAddress, revealFee]),
+                "0x30D40" // 200k gas
+            );
+
+            if (!transferTx) {
+                setWarsStatus("Payment rejected");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
+            setWarsStatus("Confirming payment...");
+            await waitForTx(transferTx, readProvider);
+
+            // Now reveal stats
+            setWarsTargetRevealed(true);
+            
+            // Set target stats from backend data
+            let pendingBN = ethers.BigNumber.from(0);
+            const rawPending = stats?.pendingRewards;
+            if (rawPending !== null && rawPending !== undefined && rawPending !== "" && rawPending !== "0") {
+                try {
+                    const pendingStr = rawPending.toString().trim();
+                    if (pendingStr && !isNaN(parseFloat(pendingStr))) {
+                        pendingBN = ethers.utils.parseUnits(pendingStr, 18);
+                    }
+                } catch {
+                    try { pendingBN = ethers.BigNumber.from(rawPending); } catch {}
+                }
+            }
+
+            setWarsTargetStats({
+                plants: stats?.plants || 0,
+                avgHealth: stats?.avgHealth || 100,
+                battlePower: stats?.battlePower || 0,
+                pendingRewards: pendingBN,
+                hasShield: stats?.hasShield || false,
+            });
+
+            // Calculate win odds
+            const myPower = contractCombatPower || 100;
+            const targetPower = stats?.battlePower || 100;
+            const [defPower] = await Promise.all([
+                battlesContract.getPower(target).then((p: any) => p[2].toNumber()).catch(() => targetPower)
+            ]);
+            const totalPower = myPower + defPower;
+            const winChance = totalPower > 0 ? Math.round((myPower / totalPower) * 100) : 50;
+            setWarsOdds({ attackerPower: myPower, defenderPower: defPower, estimatedWinChance: winChance });
+
+            setWarsStatus("Stats revealed! Attack or Skip.");
+
+        } catch (err: any) {
+            console.error("[Wars] Reveal failed:", err);
+            setWarsStatus("Reveal failed: " + (err.reason || err.message || err).toString().slice(0, 80));
+        } finally {
+            setWarsSearching(false);
+            warsTransactionInProgress.current = false;
+        }
+    }
+
+    // Attack target - Execute cartelAttack (another 50K)
+    async function handleWarsAttack() {
+        if (warsTransactionInProgress.current || !warsPreviewData || !warsTargetRevealed) return;
         warsTransactionInProgress.current = true;
         setWarsSearching(true);
         setWarsStatus("Preparing attack...");
@@ -3467,6 +3572,9 @@ export default function FCWeedApp()
                 setWarsResult({ won: true, rewardsTransferred: ethers.BigNumber.from(0), damageDealt: 0 });
             }
 
+            // Set cooldown immediately (6 hours = 21600 seconds)
+            setWarsCooldown(21600);
+
             // Refresh data
             setTimeout(() => {
                 loadWarsPlayerStats();
@@ -3559,6 +3667,7 @@ export default function FCWeedApp()
         // Clear state and search again
         setWarsTarget(null);
         setWarsTargetStats(null);
+        setWarsTargetRevealed(false);
         setWarsOdds(null);
         setWarsSearchExpiry(0);
         setWarsPreviewData(null);
@@ -5766,8 +5875,8 @@ export default function FCWeedApp()
                                 <div>
                                     <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1))", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 12, padding: 16 }}>
                                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                                            <div style={{ fontSize: 10, color: "#9ca3af" }}>🎯 {warsTargetLocked ? "TARGET LOCKED" : "OPPONENT FOUND"}</div>
-                                            {warsSearchExpiry > 0 && warsTargetLocked && (
+                                            <div style={{ fontSize: 10, color: "#9ca3af" }}>🎯 {warsTargetRevealed ? "STATS REVEALED" : "OPPONENT FOUND"}</div>
+                                            {warsSearchExpiry > 0 && warsTargetRevealed && (
                                                 <div style={{ fontSize: 11, color: "#fbbf24", fontWeight: 600 }}>
                                                     ⏱️ {Math.max(0, Math.floor((warsSearchExpiry - Math.floor(Date.now() / 1000)) / 60))}:{String(Math.max(0, (warsSearchExpiry - Math.floor(Date.now() / 1000)) % 60)).padStart(2, '0')}
                                                 </div>
@@ -5775,14 +5884,14 @@ export default function FCWeedApp()
                                         </div>
                                         <div style={{ fontSize: 12, color: "#fff", marginBottom: 12, wordBreak: "break-all" }}>{warsTarget.slice(0, 8)}...{warsTarget.slice(-6)}</div>
 
-                                        {!warsTargetLocked && (
+                                        {!warsTargetRevealed && (
                                             <div style={{ background: "rgba(251,191,36,0.1)", border: "1px dashed rgba(251,191,36,0.5)", borderRadius: 8, padding: 12, marginBottom: 12 }}>
                                                 <div style={{ fontSize: 24, marginBottom: 8 }}>❓</div>
-                                                <p style={{ fontSize: 11, color: "#fbbf24", margin: 0 }}>Click Lock & Attack to pay {warsSearchFee} and battle!</p>
+                                                <p style={{ fontSize: 11, color: "#fbbf24", margin: 0 }}>Pay {warsSearchFee} to reveal target stats</p>
                                             </div>
                                         )}
 
-                                        {warsTargetLocked && warsTargetStats && (
+                                        {warsTargetRevealed && warsTargetStats && (
                                             <div style={{ marginBottom: 12 }}>
                                                 
                                                 <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 8, marginBottom: 12 }}>
@@ -5881,18 +5990,33 @@ export default function FCWeedApp()
                                         )}
 
                                         <div style={{ display: "flex", gap: 8 }}>
-                                            {!warsTargetLocked ? (
-                                                <button type="button" onClick={handleLockAndFight} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}>
-                                                    {warsSearching ? "Attacking..." : `🔓 Lock & Attack (${warsSearchFee})`}
+                                            {!warsTargetRevealed ? (
+                                                /* Not revealed yet - show Reveal button */
+                                                <button type="button" onClick={handleRevealStats} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #f59e0b, #fbbf24)" }}>
+                                                    {warsSearching ? "Revealing..." : `🔓 Lock & Reveal (${warsSearchFee})`}
                                                 </button>
+                                            ) : !warsTargetLocked ? (
+                                                /* Revealed but not attacked - show Attack button */
+                                                <button type="button" onClick={handleWarsAttack} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}>
+                                                    {warsSearching ? "Attacking..." : `⚔️ Attack (${warsSearchFee})`}
+                                                </button>
+                                            ) : warsCooldown > 0 ? (
+                                                /* Battle done but on cooldown - show cooldown timer */
+                                                <div style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.4)", borderRadius: 8, textAlign: "center" }}>
+                                                    <div style={{ fontSize: 10, color: "#fbbf24", marginBottom: 2 }}>⏳ COOLDOWN</div>
+                                                    <div style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24" }}>{Math.floor(warsCooldown / 3600)}h {Math.floor((warsCooldown % 3600) / 60)}m {warsCooldown % 60}s</div>
+                                                </div>
                                             ) : (
+                                                /* Battle done, cooldown over - show Search Again */
                                                 <button type="button" onClick={handleNextOpponent} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #f59e0b, #fbbf24)" }}>
                                                     {warsSearching ? "Searching..." : "🔍 Search Again"}
                                                 </button>
                                             )}
-                                            <button type="button" onClick={handleNextOpponent} disabled={warsSearching} style={{ padding: "10px 14px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(239,68,68,0.5)", background: "transparent", color: "#ef4444", cursor: warsSearching ? "not-allowed" : "pointer" }}>
-                                                Skip
-                                            </button>
+                                            {!warsTargetLocked && (
+                                                <button type="button" onClick={handleNextOpponent} disabled={warsSearching} style={{ padding: "10px 14px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(239,68,68,0.5)", background: "transparent", color: "#ef4444", cursor: warsSearching ? "not-allowed" : "pointer" }}>
+                                                    Skip
+                                                </button>
+                                            )}
                                         </div>
                                         {warsStatus && <p style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24", marginTop: 8 }}>{warsStatus}</p>}
                                     </div>
