@@ -9,6 +9,7 @@ const MULTICALL3_ABI = ["function tryAggregate(bool requireSuccess, tuple(addres
 // V3 BATTLES ABI (SLIM CONTRACT)
 const BATTLES_ABI = [
     "function deaRaid(address target) external",
+    "function flagWithSig(address suspect, uint256 soldAmount, uint256 deadline, bytes signature) external",
     "function deaFee() view returns (uint256)",
     "function deaOn() view returns (bool)",
     "function getAtkStats(address) view returns (uint256 wins, uint256 losses, uint256 stolen, uint256 nukes)",
@@ -362,10 +363,55 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     const handleRaid = async () => {
         if (!selectedTarget || !userAddress || !selectedJeet || raiding) return;
         await registerTargeting(selectedJeet.address, selectedTarget.address, true);
-        setRaiding(true); setStatus("Checking allowance...");
+        setRaiding(true); 
+        
         try {
+            // Step 1: Check if target needs flagging first
+            if (selectedTarget.needsFlagging || selectedJeet.needsFlagging) {
+                setStatus("Target not flagged. Getting flag signature...");
+                try {
+                    // Get flag signature from backend
+                    const flagRes = await fetch(`${WARS_BACKEND_URL}/api/dea/flag-signature`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ suspect: selectedTarget.address })
+                    });
+                    const flagData = await flagRes.json();
+                    
+                    if (!flagData.success) {
+                        setStatus(`Cannot flag: ${flagData.error || "Unknown error"}`);
+                        setRaiding(false);
+                        return;
+                    }
+                    
+                    setStatus("Flagging target on-chain...");
+                    const flagCallData = battlesInterface.encodeFunctionData("flagWithSig", [
+                        flagData.suspect,
+                        flagData.soldAmount,
+                        flagData.deadline,
+                        flagData.signature
+                    ]);
+                    const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagCallData);
+                    if (!flagTx) { setStatus("Flagging rejected"); setRaiding(false); return; }
+                    await flagTx.wait();
+                    setStatus("Target flagged! Proceeding to raid...");
+                } catch (flagErr: any) {
+                    console.error("[DEA] Flagging failed:", flagErr);
+                    // If flagging fails with "already flagged" or similar, continue to raid
+                    if (!flagErr?.message?.includes("already") && !flagErr?.reason?.includes("already")) {
+                        setStatus(`Flagging failed: ${flagErr?.reason || flagErr?.message || "Unknown error"}`);
+                        setRaiding(false);
+                        return;
+                    }
+                }
+            }
+            
+            // Step 2: Ensure allowance for raid fee
+            setStatus("Checking allowance...");
             const approved = await ensureAllowance(V5_BATTLES_ADDRESS, raidFeeRaw);
             if (!approved) { setStatus("Approval failed"); setRaiding(false); return; }
+            
+            // Step 3: Execute the raid
             setStatus("Initiating DEA Raid...");
             const data = battlesInterface.encodeFunctionData("deaRaid", [selectedTarget.address]);
             const tx = await sendContractTx(V5_BATTLES_ADDRESS, data, "0x7A120");
