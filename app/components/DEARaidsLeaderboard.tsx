@@ -12,12 +12,13 @@ const BATTLES_ABI = [
     "function flagWithSig(address suspect, uint256 soldAmount, uint256 deadline, bytes signature) external",
     "function deaFee() view returns (uint256)",
     "function deaOn() view returns (bool)",
+    "function deaTargetImm() view returns (uint256)",
+    "function deaTargetCD() view returns (uint256)",
     "function getAtkStats(address) view returns (uint256 wins, uint256 losses, uint256 stolen, uint256 nukes)",
     "function getDefStats(address) view returns (uint256 wins, uint256 losses, uint256 lost, bool hasShield)",
     "function getGlobal() view returns (uint256 cartel, uint256 dea, uint256 purge, uint256 flagged, uint256 redist, uint256 fees, uint256 burned)",
     "function getSuspect(address) view returns (bool isSuspect, uint256 expiresAt, uint256 raids, uint256 lost, uint256 sold, uint256 cnt)",
-    "function suspects(address) view returns (bool isSuspect, uint256 expiresAt, uint256 raids, uint256 lost, uint256 sold, uint256 cnt, uint256 lastRaided)",
-    "function raidAt(address) view returns (uint256)",
+    "function suspects(address) view returns (bool is_, uint256 flagAt, uint256 sellAt, uint256 raidAt, uint256 raids, uint256 lost, uint256 sold, uint256 cnt)",
     "function canDea(address) view returns (bool)",
     "function canDeaTarget(address,address) view returns (bool)",
     "function canRaid(address) view returns (bool)",
@@ -52,7 +53,7 @@ type Props = { connected: boolean; userAddress: string | null; theme: "light" | 
 const ITEMS_PER_PAGE = 10;
 const SUSPECT_EXPIRY = 24 * 60 * 60;
 const TARGET_IMMUNITY = 2 * 60 * 60; // 2 hour immunity after being raided
-const PER_TARGET_COOLDOWN = 6 * 60 * 60; // 6 hour per-target cooldown (same target)
+const PER_TARGET_COOLDOWN = 21600; // 6 hour per-target cooldown (matches contract deaTargetCD)
 const TARGETING_POLL_INTERVAL = 3000;
 const TARGETING_TIMEOUT = 120000;
 
@@ -363,30 +364,45 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             const itemShopInterface = new ethers.utils.Interface(ITEMSHOP_ABI);
             const farmAddresses = jeet.farms.map(f => f.address);
             const calls: any[] = [];
+            
+            // First call: get the immunity duration from contract
+            calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("deaTargetImm", []) });
+            
             farmAddresses.forEach(addr => {
                 calls.push(
                     { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("pending", [addr]) },
                     { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("getUserBattleStats", [addr]) },
-                    { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getPower", [addr]) }, // Get full power with boosts
+                    { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getPower", [addr]) },
                     { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("hasRaidShield", [addr]) },
                     { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("canRaid", [addr]) },
                     { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getSuspect", [addr]) },
-                    { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("raidAt", [addr]) } // Get last raided timestamp
+                    { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("suspects", [addr]) }
                 );
                 if (userAddress) calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("lastDeaOn", [userAddress, addr]) });
             });
             if (userAddress) {
                 calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getPower", [userAddress]) });
-                calls.push({ target: V5_ITEMSHOP_ADDRESS, callData: itemShopInterface.encodeFunctionData("hasActiveNukeReady", [userAddress]) }); // Check for Nuke
+                calls.push({ target: V5_ITEMSHOP_ADDRESS, callData: itemShopInterface.encodeFunctionData("hasActiveNukeReady", [userAddress]) });
             }
             
             const results = await mc.tryAggregate(false, calls);
+            
+            // Get immunity duration from first call result
+            let TARGET_IMMUNITY = 3600; // Default 1 hour
+            if (results[0]?.success) {
+                try {
+                    TARGET_IMMUNITY = battlesInterface.decodeFunctionResult("deaTargetImm", results[0].returnData)[0].toNumber();
+                    console.log(`[DEA] Target immunity duration: ${TARGET_IMMUNITY}s (${TARGET_IMMUNITY/3600}h)`);
+                } catch {}
+            }
+            
             const updatedFarms: FarmInfo[] = [];
             let bestFarm: FarmInfo | null = null;
-            const callsPerFarm = userAddress ? 8 : 7;  // Added raidAt call
+            const callsPerFarm = userAddress ? 8 : 7;
             
             for (let i = 0; i < farmAddresses.length; i++) {
-                const baseIdx = i * callsPerFarm, addr = farmAddresses[i];
+                const baseIdx = 1 + i * callsPerFarm; // +1 to skip deaTargetImm call
+                const addr = farmAddresses[i];
                 let pending = "0", pendingRaw = 0, plants = 0, avgHealth = 0, power = 0, hasShield = false, canBeRaided = false, lastRaidedAt = 0, myLastAttackAt = 0;
                 
                 if (results[baseIdx]?.success) {
@@ -403,7 +419,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 if (results[baseIdx + 3]?.success) hasShield = stakingInterface.decodeFunctionResult("hasRaidShield", results[baseIdx + 3].returnData)[0];
                 if (results[baseIdx + 4]?.success) canBeRaided = battlesInterface.decodeFunctionResult("canRaid", results[baseIdx + 4].returnData)[0];
                 
-                // Parse getSuspect to detect flag status
+                // Parse getSuspect to get flag status
                 let isSuspect = false;
                 let suspectExpiresAt = 0;
                 if (results[baseIdx + 5]?.success) {
@@ -412,18 +428,18 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     suspectExpiresAt = suspect[1].toNumber();
                 }
                 
-                // Get last raided timestamp from raidAt() - this tells us when they were last raided by ANYONE
+                // Get raidAt from suspects() mapping - returns (is_, flagAt, sellAt, raidAt, raids, lost, sold, cnt)
                 if (results[baseIdx + 6]?.success) {
                     try {
-                        lastRaidedAt = battlesInterface.decodeFunctionResult("raidAt", results[baseIdx + 6].returnData)[0].toNumber();
+                        const suspectData = battlesInterface.decodeFunctionResult("suspects", results[baseIdx + 6].returnData);
+                        lastRaidedAt = suspectData[3].toNumber(); // raidAt is at index 3
                     } catch { lastRaidedAt = 0; }
                 }
                 
                 // Get when WE last attacked this target
                 if (userAddress && results[baseIdx + 7]?.success) myLastAttackAt = battlesInterface.decodeFunctionResult("lastDeaOn", results[baseIdx + 7].returnData)[0].toNumber();
                 
-                // Calculate immunity: target has 2h immunity after being raided
-                const TARGET_IMMUNITY = 2 * 60 * 60; // 2 hours
+                // Calculate immunity: target has immunity after being raided
                 const targetImmunityEnds = lastRaidedAt > 0 ? lastRaidedAt + TARGET_IMMUNITY : 0;
                 const hasImmunity = targetImmunityEnds > now;
                 const immunityEndsAt = targetImmunityEnds;
@@ -447,7 +463,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             }
             
             let attackerPower = myBattlePower;
-            const powerResultIdx = farmAddresses.length * callsPerFarm;
+            const powerResultIdx = 1 + farmAddresses.length * callsPerFarm; // +1 for deaTargetImm call
             const nukeResultIdx = powerResultIdx + 1;
             
             if (userAddress && results[powerResultIdx]?.success) { 
