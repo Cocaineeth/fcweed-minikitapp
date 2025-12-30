@@ -103,7 +103,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     }, [activeTargetings, userAddress]);
 
     const now = currentTime;
-    const activeJeets = jeets.filter(j => j.expiresAt > now && j.totalPlants > 0);
+    // Show jeets that are either: flagged (expiresAt > now) OR have plants (can be flagged)
+    const activeJeets = jeets.filter(j => j.totalPlants > 0 && (j.expiresAt > now || j.needsFlagging));
     const totalPages = Math.ceil(activeJeets.length / ITEMS_PER_PAGE);
     const paginatedJeets = activeJeets.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
@@ -195,7 +196,10 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             const processedJeets: JeetEntry[] = [];
             for (const j of backendData) {
                 const expiresAt = j.expiresAt || 0;
-                if (expiresAt <= now) continue;
+                // Show both flagged (expiresAt > now) AND unflagged jeets with pending rewards
+                const hasPendingRewards = parseFloat(j.pendingRewards || "0") > 0;
+                const hasPlants = (j.plants || 0) > 0;
+                if (!hasPlants) continue; // Skip if no plants
                 
                 let farms: FarmInfo[] = [];
                 let totalPlants = 0, avgHealthSum = 0;
