@@ -5895,17 +5895,30 @@ export default function FCWeedApp()
                                             
                                             let basePower = Math.round((plants * 100 + lands * 50 + superLands * 150) * avgHealth / 100);
                                             
-                                            // Apply item boost multipliers (same as contract: power * (BPS + boostBps) / BPS)
-                                            // BPS = 10000, so +100% boost = boostBps of 10000
+                                            // Match contract's getTotalAttackBoost: ADD all boosts together!
+                                            // ItemShop.getTotalAttackBoost() returns sum of all active boosts
                                             const now = Math.floor(Date.now() / 1000);
-                                            if (nukeExpiry > now) basePower = Math.floor(basePower * (10000 + 1000000) / 10000); // +10000% = 101x
-                                            else if (rpgExpiry > now) basePower = Math.floor(basePower * (10000 + 50000) / 10000); // +500% = 6x
-                                            else if (ak47Expiry > now) basePower = Math.floor(basePower * (10000 + 10000) / 10000); // +100% = 2x
-                                            else if (boostExpiry > now) basePower = Math.floor(basePower * (10000 + 2000) / 10000); // +20% = 1.2x
+                                            let totalBoostBps = 0;
+                                            
+                                            // Add each active boost (stackable - matches contract behavior)
+                                            if (boostExpiry > now) totalBoostBps += 2000;   // Attack Boost: +20%
+                                            if (ak47Expiry > now) totalBoostBps += 10000;  // AK-47: +100%
+                                            if (rpgExpiry > now) totalBoostBps += 50000;   // RPG: +500%
+                                            
+                                            // Apply combined boost: power * (BPS + totalBoost) / BPS
+                                            if (totalBoostBps > 0) {
+                                                basePower = Math.floor(basePower * (10000 + totalBoostBps) / 10000);
+                                            }
+                                            
+                                            // Nuke is special - guaranteed win, displayed separately
+                                            // (getPower doesn't include nuke, DEA Raids multiplies by 101x)
+                                            if (nukeExpiry > now) {
+                                                basePower = Math.floor(basePower * 101); // +10000% = 101x
+                                            }
                                             
                                             return basePower >= 1000 ? (basePower / 1000).toFixed(1) + "K" : basePower;
                                         })()}
-                                    </div>
+                                                                        </div>
                                 </div>
                             </div>
                         )}
