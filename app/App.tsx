@@ -8,33 +8,54 @@ import { sdk } from "@farcaster/miniapp-sdk";
 import FCWeedApp from "./FCWeedApp";
 import { autoRefreshManager } from "./lib/autoRefresh";
 
-// Configure WalletConnect for additional wallet support
-// This extends OnchainKit's built-in wallet support
-const WALLETCONNECT_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "";
+// RainbowKit imports
+import "@rainbow-me/rainbowkit/styles.css";
+import { RainbowKitProvider, getDefaultConfig, darkTheme, lightTheme } from "@rainbow-me/rainbowkit";
+import { WagmiProvider, http } from "wagmi";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-function Providers({ children }: { children: ReactNode }) {
+// Configure wagmi for RainbowKit
+const config = getDefaultConfig({
+  appName: "FCWEED",
+  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "3a8170812b534d0ff9d794f19a901d64",
+  chains: [base],
+  transports: {
+    [base.id]: http("https://base.publicnode.com"),
+  },
+  ssr: false,
+});
+
+const queryClient = new QueryClient();
+
+function Providers({ children, theme }: { children: ReactNode; theme: "dark" | "light" }) {
   return (
-    <OnchainKitProvider
-      apiKey={process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY}
-      chain={base}
-      config={{
-        appearance: {
-          mode: "auto",
-        },
-        wallet: {
-          display: "modal",
-          // Enable all wallet types including external wallets
-          preference: "all",
-        },
-      }}
-    >
-      {children}
-    </OnchainKitProvider>
+    <WagmiProvider config={config}>
+      <QueryClientProvider client={queryClient}>
+        <RainbowKitProvider theme={theme === "dark" ? darkTheme() : lightTheme()}>
+          <OnchainKitProvider
+            apiKey={process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY}
+            chain={base}
+            config={{
+              appearance: {
+                mode: "auto",
+              },
+              wallet: {
+                display: "modal",
+                preference: "all",
+              },
+            }}
+          >
+            {children}
+          </OnchainKitProvider>
+        </RainbowKitProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
   );
 }
 
 export default function App() {
   const [mounted, setMounted] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
     setMounted(true);
@@ -81,8 +102,8 @@ export default function App() {
   }
 
   return (
-    <Providers>
-      <FCWeedApp />
+    <Providers theme={theme}>
+      <FCWeedApp onThemeChange={setTheme} />
     </Providers>
   );
 }
