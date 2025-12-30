@@ -251,9 +251,17 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
     const [readProvider] = useState(() => new ethers.providers.JsonRpcProvider(PUBLIC_BASE_RPC));
 
+    // Reset connecting state on mount (in case it got stuck)
+    useEffect(() => {
+        setConnecting(false);
+    }, []);
+
+    // Sync wagmi state to local state
     useEffect(() => {
         if (wagmiConnected && wagmiAddress && !userAddress && !usingMiniApp) {
+            console.log("[Wagmi] Syncing wagmi connection to local state:", wagmiAddress);
             setUserAddress(wagmiAddress);
+            setConnecting(false); // Ensure connecting is reset
             const anyWindow = window as any;
             if (anyWindow.ethereum) {
                 const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
@@ -269,6 +277,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setMiniAppEthProvider(null);
             setDisplayName(null);
             setUserAvatar(null);
+            setConnecting(false);
         }
     }, [wagmiConnected, wagmiAddress, userAddress, usingMiniApp]);
 
@@ -1123,17 +1132,33 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
                         const { isMiniApp, isBaseApp, isMobile } = detectMiniAppEnvironment();
                         
-                        // Auto-connect on mobile, mini apps, or Base App (this is a mobile-only app)
-                        const shouldAutoConnect = isMobile || isMiniApp || isBaseApp;
+                        // Check if we're actually in Farcaster context
+                        let inFarcasterContext = false;
+                        try {
+                            const context = await sdk.context;
+                            if (context) {
+                                inFarcasterContext = true;
+                            }
+                        } catch {}
+                        
+                        // Auto-connect only in Farcaster context or on actual mobile apps
+                        // Don't auto-connect on desktop web browsers
+                        const shouldAutoConnect = inFarcasterContext || (isMiniApp && isMobile) || isBaseApp;
+                        
+                        console.log("[Init] Environment check:", { isMiniApp, isBaseApp, isMobile, inFarcasterContext, shouldAutoConnect });
                         
                         if (shouldAutoConnect && !userAddress)
                         {
-                            console.log("[Init] Auto-connecting wallet...", { isMiniApp, isBaseApp, isMobile });
+                            console.log("[Init] Auto-connecting wallet...");
                             t = setTimeout(() =>
                                 {
                                     void ensureWallet().catch((err) =>
                                         {
                                             console.warn("[Init] Auto-connect failed:", err);
+                                            setConnecting(false); // Reset on failure
+                                        }).finally(() => {
+                                            // Safety: ensure connecting is reset after attempt
+                                            setTimeout(() => setConnecting(false), 5000);
                                         });
                                 }, 200); // Fast connect for mobile
                         }
@@ -1141,6 +1166,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     catch (err)
                     {
                         console.warn("[Init] Initialization failed:", err);
+                        setConnecting(false);
                     }
                 })();
 
@@ -1253,18 +1279,38 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         let avatar: string | null = null;
         
         try {
-            // Try Basenames first (Base's native naming service)
-            const basenameResponse = await fetch(
-                `https://api.basename.app/v1/address/${address}/basename`
-            ).catch(() => null);
-            
-            if (basenameResponse?.ok) {
-                const data = await basenameResponse.json();
-                if (data?.basename) {
-                    name = data.basename;
-                    // Try to get avatar from basename
-                    if (data?.avatar) {
-                        avatar = data.avatar;
+            // Try Farcaster context FIRST if we're in Farcaster
+            try {
+                const context = await sdk.context;
+                if (context?.user) {
+                    console.log("[Profile] Got Farcaster context user:", context.user.username);
+                    if (context.user.username) {
+                        name = context.user.username;
+                    }
+                    if (context.user.pfpUrl) {
+                        avatar = context.user.pfpUrl;
+                    }
+                    // If we got both from Farcaster context, return early
+                    if (name && avatar) {
+                        console.log("[Profile] Using Farcaster profile:", name, avatar);
+                        return { name, avatar };
+                    }
+                }
+            } catch {}
+
+            // Try Basenames (Base's native naming service)
+            if (!name) {
+                const basenameResponse = await fetch(
+                    `https://api.basename.app/v1/address/${address}/basename`
+                ).catch(() => null);
+                
+                if (basenameResponse?.ok) {
+                    const data = await basenameResponse.json();
+                    if (data?.basename) {
+                        name = data.basename;
+                        if (data?.avatar) {
+                            avatar = data.avatar;
+                        }
                     }
                 }
             }
@@ -1284,21 +1330,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         avatar = data.avatar;
                     }
                 }
-            }
-            
-            // Try Farcaster profile
-            if (usingMiniApp) {
-                try {
-                    const context = await sdk.context;
-                    if (context?.user) {
-                        if (!name && context.user.username) {
-                            name = context.user.username;
-                        }
-                        if (!avatar && context.user.pfpUrl) {
-                            avatar = context.user.pfpUrl;
-                        }
-                    }
-                } catch {}
             }
             
             // Try Farcaster API for avatar if still no avatar
@@ -1330,6 +1361,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     // Fetch profile when address changes
     useEffect(() => {
         const address = userAddress || wagmiAddress;
+        console.log("[Profile] Address changed, fetching profile for:", address, "usingMiniApp:", usingMiniApp);
+        
         if (!address) {
             setDisplayName(null);
             setUserAvatar(null);
@@ -1337,6 +1370,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
         
         resolveUserProfile(address).then(({ name, avatar }) => {
+            console.log("[Profile] Resolved:", { name, avatar });
             setDisplayName(name);
             setUserAvatar(avatar);
         });
@@ -4810,7 +4844,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 textOverflow: "ellipsis", 
                 whiteSpace: "nowrap",
                 maxWidth: connected && userAvatar ? 70 : 80
-            }}>{connecting ? "..." : getDisplayName()}</span>
+            }}>{connecting && !connected ? "..." : getDisplayName()}</span>
         </button>
     );
 
