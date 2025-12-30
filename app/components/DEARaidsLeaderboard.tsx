@@ -16,6 +16,8 @@ const BATTLES_ABI = [
     "function getDefStats(address) view returns (uint256 wins, uint256 losses, uint256 lost, bool hasShield)",
     "function getGlobal() view returns (uint256 cartel, uint256 dea, uint256 purge, uint256 flagged, uint256 redist, uint256 fees, uint256 burned)",
     "function getSuspect(address) view returns (bool isSuspect, uint256 expiresAt, uint256 raids, uint256 lost, uint256 sold, uint256 cnt)",
+    "function suspects(address) view returns (bool isSuspect, uint256 expiresAt, uint256 raids, uint256 lost, uint256 sold, uint256 cnt, uint256 lastRaided)",
+    "function raidAt(address) view returns (uint256)",
     "function canDea(address) view returns (bool)",
     "function canDeaTarget(address,address) view returns (bool)",
     "function canRaid(address) view returns (bool)",
@@ -226,6 +228,13 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 clearTimeout(timeoutId);
                 const data = await res.json(); 
                 console.log("[DEA] Backend response:", { success: data.success, jeetsCount: data.jeets?.length, immunities: Object.keys(data.immunities || {}).length });
+                // Log any farms with immunity
+                if (data.jeets) {
+                    const farmsWithImmunity = data.jeets.flatMap((j: any) => (j.farms || []).filter((f: any) => f.hasImmunity || f.immunityEndsAt > 0));
+                    if (farmsWithImmunity.length > 0) {
+                        console.log("[DEA] Farms with immunity from backend:", farmsWithImmunity.map((f: any) => ({ addr: f.address?.slice(0,10), immunityEndsAt: f.immunityEndsAt })));
+                    }
+                }
                 if (data.success && Array.isArray(data.jeets)) backendData = data.jeets; 
             } catch (e: any) { 
                 if (e.name !== 'AbortError') console.error("[DEA] Backend error:", e); 
@@ -361,7 +370,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getPower", [addr]) }, // Get full power with boosts
                     { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("hasRaidShield", [addr]) },
                     { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("canRaid", [addr]) },
-                    { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getSuspect", [addr]) }
+                    { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getSuspect", [addr]) },
+                    { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("raidAt", [addr]) } // Get last raided timestamp
                 );
                 if (userAddress) calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("lastDeaOn", [userAddress, addr]) });
             });
@@ -373,7 +383,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             const results = await mc.tryAggregate(false, calls);
             const updatedFarms: FarmInfo[] = [];
             let bestFarm: FarmInfo | null = null;
-            const callsPerFarm = userAddress ? 7 : 6;
+            const callsPerFarm = userAddress ? 8 : 7;  // Added raidAt call
             
             for (let i = 0; i < farmAddresses.length; i++) {
                 const baseIdx = i * callsPerFarm, addr = farmAddresses[i];
@@ -393,33 +403,45 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 if (results[baseIdx + 3]?.success) hasShield = stakingInterface.decodeFunctionResult("hasRaidShield", results[baseIdx + 3].returnData)[0];
                 if (results[baseIdx + 4]?.success) canBeRaided = battlesInterface.decodeFunctionResult("canRaid", results[baseIdx + 4].returnData)[0];
                 
-                // Parse getSuspect to detect immunity properly
+                // Parse getSuspect to detect flag status
                 let isSuspect = false;
                 let suspectExpiresAt = 0;
                 if (results[baseIdx + 5]?.success) {
                     const suspect = battlesInterface.decodeFunctionResult("getSuspect", results[baseIdx + 5].returnData);
-                    // V3 getSuspect returns: (isSuspect, expiresAt, raids, lost, sold, cnt)
                     isSuspect = suspect[0];
                     suspectExpiresAt = suspect[1].toNumber();
                 }
-                if (userAddress && results[baseIdx + 6]?.success) myLastAttackAt = battlesInterface.decodeFunctionResult("lastDeaOn", results[baseIdx + 6].returnData)[0].toNumber();
                 
-                // Immunity detection:
-                // canRaid returns false for: not flagged, expired, has immunity, or has shield
-                // To detect immunity specifically:
-                // - isSuspect = true (they ARE flagged)
-                // - suspectExpiresAt > now (not expired)
-                // - hasShield = false (no shield)
-                // - canRaid = false (can't raid for some reason)
-                // If all above true, the ONLY reason is 2h immunity!
-                const hasImmunity = isSuspect && suspectExpiresAt > now && !hasShield && !canBeRaided;
+                // Get last raided timestamp from raidAt() - this tells us when they were last raided by ANYONE
+                if (results[baseIdx + 6]?.success) {
+                    try {
+                        lastRaidedAt = battlesInterface.decodeFunctionResult("raidAt", results[baseIdx + 6].returnData)[0].toNumber();
+                    } catch { lastRaidedAt = 0; }
+                }
                 
-                const targetImmunityEnds = 0; // Contract doesn't expose raidAt
+                // Get when WE last attacked this target
+                if (userAddress && results[baseIdx + 7]?.success) myLastAttackAt = battlesInterface.decodeFunctionResult("lastDeaOn", results[baseIdx + 7].returnData)[0].toNumber();
+                
+                // Calculate immunity: target has 2h immunity after being raided
+                const TARGET_IMMUNITY = 2 * 60 * 60; // 2 hours
+                const targetImmunityEnds = lastRaidedAt > 0 ? lastRaidedAt + TARGET_IMMUNITY : 0;
+                const hasImmunity = targetImmunityEnds > now;
+                const immunityEndsAt = targetImmunityEnds;
+                
+                // Debug logging
+                if (hasImmunity || lastRaidedAt > 0) {
+                    console.log(`[DEA] Farm ${addr.slice(0,8)} raid status:`, { 
+                        lastRaidedAt, targetImmunityEnds, hasImmunity,
+                        timeRemaining: hasImmunity ? targetImmunityEnds - now : 0,
+                        isSuspect, canBeRaided, hasShield
+                    });
+                }
+                
                 const myAttackCooldownEnds = myLastAttackAt > 0 ? myLastAttackAt + PER_TARGET_COOLDOWN : 0;
                 // Can attack if: has plants, no shield, no immunity, no personal cooldown
                 const canAttack = plants > 0 && !hasShield && !hasImmunity && avgHealth > 0 && pendingRaw > 0 && !(myAttackCooldownEnds > now);
                 const needsFlagging = !isSuspect || suspectExpiresAt <= now; // Need to flag if not suspect or expired
-                const farm: FarmInfo = { address: addr, plants, avgHealth, pendingRewards: pending, pendingRaw, hasShield, hasImmunity, canAttack, battlePower: power || Math.floor(plants * 3 * avgHealth / 100), targetImmunityEnds, myAttackCooldownEnds };
+                const farm: FarmInfo = { address: addr, plants, avgHealth, pendingRewards: pending, pendingRaw, hasShield, hasImmunity, canAttack, battlePower: power || Math.floor(plants * 3 * avgHealth / 100), targetImmunityEnds: immunityEndsAt, immunityEndsAt, myAttackCooldownEnds };
                 updatedFarms.push(farm);
                 if (canAttack && (!bestFarm || pendingRaw > bestFarm.pendingRaw)) bestFarm = farm;
             }
@@ -622,8 +644,9 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                             
                             // Calculate farm stats for the card
                             const totalFarms = jeet.farms.length;
-                            const farmsAvailable = jeet.farms.filter(f => f.canAttack && f.plants > 0 && !f.hasShield).length;
+                            const farmsAvailable = jeet.farms.filter(f => f.canAttack && f.plants > 0 && !f.hasShield && !f.hasImmunity).length;
                             const farmsShielded = jeet.farms.filter(f => f.hasShield).length;
+                            const farmsImmune = jeet.farms.filter(f => f.hasImmunity && !f.hasShield).length;
                             const totalPending = jeet.farms.reduce((sum, f) => sum + (f.pendingRaw || parseFormattedNumber(f.pendingRewards)), 0);
                             
                             return (
@@ -679,13 +702,20 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                                 </span>
                                             </div>
                                             
-                                            {/* Farms Available / Shielded */}
+                                            {/* Farms Available / Shielded / Immune */}
                                             <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10 }}>
                                                 {farmsShielded > 0 ? (
                                                     <>
                                                         <span style={{ color: "#3b82f6" }}>🛡️</span>
                                                         <span style={{ color: "#3b82f6", fontWeight: 600 }}>
                                                             {farmsShielded} Protected
+                                                        </span>
+                                                    </>
+                                                ) : farmsImmune > 0 ? (
+                                                    <>
+                                                        <span style={{ color: "#f59e0b" }}>🛡️</span>
+                                                        <span style={{ color: "#f59e0b", fontWeight: 600 }}>
+                                                            {farmsImmune} Immune
                                                         </span>
                                                     </>
                                                 ) : (
