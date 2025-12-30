@@ -137,7 +137,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     };
 
     const formatTimeRemaining = (expiresAt: number, needsFlagging?: boolean): string => {
-        if (expiresAt === 0 || needsFlagging) return "Not Flagged";
+        if (needsFlagging) return "Pending Flag";
+        if (expiresAt === 0) return "—";
         const remaining = expiresAt - now;
         if (remaining <= 0) return "Expired";
         const hours = Math.floor(remaining / 3600);
@@ -307,8 +308,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     useEffect(() => {
         if (!readProvider) return;
         fetchDEAData();
-        // 3 second refresh for near-live activity display (1 sec would overload backend)
-        const refreshInterval = setInterval(fetchDEAData, 3000);
+        // 2 second refresh for near-live activity display
+        const refreshInterval = setInterval(fetchDEAData, 2000);
         return () => clearInterval(refreshInterval);
     }, [readProvider, userAddress, fetchDEAData]);
 
@@ -538,8 +539,31 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     </div>
                 </div>
 
-                {/* Subtitle with global stats */}
-                <div style={{ fontSize: 10, color: textMuted, marginBottom: 16 }}>{totalRaids} total raids • {totalSeized} seized</div>
+                {/* Stats Box with total raids, seized, and cooldown */}
+                <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
+                        <div>
+                            <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>TOTAL RAIDS</div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>{totalRaids}</div>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>TOTAL SEIZED</div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>{totalSeized}</div>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>YOUR COOLDOWN</div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: cooldownRemaining > 0 ? "#fbbf24" : "#10b981" }}>
+                                {cooldownRemaining > 0 ? formatCooldown(cooldownRemaining) : "Ready"}
+                            </div>
+                        </div>
+                    </div>
+                    {playerStats && (
+                        <div style={{ display: "flex", justifyContent: "center", gap: 16, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${borderColor}` }}>
+                            <span style={{ fontSize: 10, color: textMuted }}>🏆 {playerStats.wins}W / {playerStats.losses}L</span>
+                            <span style={{ fontSize: 10, color: "#10b981" }}>💰 {playerStats.stolen} seized</span>
+                        </div>
+                    )}
+                </div>
 
                 {/* Jeets List */}
                 {loading ? <div style={{ textAlign: "center", padding: 40, color: textMuted }}>Loading suspects...</div> : activeJeets.length === 0 ? <div style={{ textAlign: "center", padding: 40, color: textMuted }}>No active suspects found</div> : (
@@ -571,18 +595,13 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                             {/* Address line */}
                                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                                                 <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: textPrimary }}>{shortAddr(jeet.address)}</span>
-                                                {jeet.isCluster && (
-                                                    <span style={{ fontSize: 9, color: "#8b5cf6", background: "rgba(139,92,246,0.15)", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>
-                                                        📦 {jeet.farms.length} FARMS
-                                                    </span>
-                                                )}
                                                 {jeet.hasShield && <span style={{ fontSize: 10, color: "#3b82f6" }}>🛡️</span>}
                                             </div>
                                             
-                                            {/* Timer below address - show flag status if not flagged */}
-                                            <div style={{ fontSize: 10, color: jeet.needsFlagging ? "#f59e0b" : "#fbbf24", display: "flex", alignItems: "center", gap: 4, marginBottom: 6 }}>
-                                                <span>{jeet.needsFlagging ? "🏴" : "⏱️"}</span>
-                                                <span>{formatTimeRemaining(jeet.expiresAt, jeet.needsFlagging)}</span>
+                                            {/* Timer below address - simplified */}
+                                            <div style={{ fontSize: 10, color: "#fbbf24", display: "flex", alignItems: "center", gap: 4, marginBottom: 6 }}>
+                                                <span>⏱️</span>
+                                                <span>{formatTimeRemaining(jeet.expiresAt, false)}</span>
                                             </div>
                                             
                                             {/* Bottom stats row */}
@@ -612,12 +631,23 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                                 </span>
                                             </div>
                                             
-                                            {/* Farms Available */}
+                                            {/* Farms Available / Shielded */}
                                             <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10 }}>
-                                                <span style={{ color: farmsAvailable > 0 ? "#10b981" : "#ef4444" }}>⚔️</span>
-                                                <span style={{ color: farmsAvailable > 0 ? "#10b981" : "#ef4444", fontWeight: 600 }}>
-                                                    {farmsAvailable} Available
-                                                </span>
+                                                {farmsShielded > 0 ? (
+                                                    <>
+                                                        <span style={{ color: "#3b82f6" }}>🛡️</span>
+                                                        <span style={{ color: "#3b82f6", fontWeight: 600 }}>
+                                                            {farmsShielded} Protected
+                                                        </span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span style={{ color: farmsAvailable > 0 ? "#10b981" : "#ef4444" }}>⚔️</span>
+                                                        <span style={{ color: farmsAvailable > 0 ? "#10b981" : "#ef4444", fontWeight: 600 }}>
+                                                            {farmsAvailable} Available
+                                                        </span>
+                                                    </>
+                                                )}
                                             </div>
                                             
                                             {/* Total Pending */}
