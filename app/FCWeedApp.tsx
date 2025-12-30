@@ -237,6 +237,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
     const [theme, setTheme] = useState<"dark" | "light">("dark");
     const [displayName, setDisplayName] = useState<string | null>(null);
+    const [userAvatar, setUserAvatar] = useState<string | null>(null);
     const [showOnboarding, setShowOnboarding] = useState(false);
     const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
 
@@ -260,6 +261,14 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 setSigner(ethersProvider.getSigner());
                 setMiniAppEthProvider(anyWindow.ethereum);
             }
+        } else if (!wagmiConnected && userAddress && !usingMiniApp) {
+            // RainbowKit disconnected - clear state
+            setUserAddress(null);
+            setProvider(null);
+            setSigner(null);
+            setMiniAppEthProvider(null);
+            setDisplayName(null);
+            setUserAvatar(null);
         }
     }, [wagmiConnected, wagmiAddress, userAddress, usingMiniApp]);
 
@@ -1232,9 +1241,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const shortAddr = (addr?: string | null) =>
         addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connect Wallet";
 
-    // Avatar state
-    const [userAvatar, setUserAvatar] = useState<string | null>(null);
-    
     // Disconnect modal state
     const [showDisconnectModal, setShowDisconnectModal] = useState(false);
     
@@ -1323,17 +1329,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     
     // Fetch profile when address changes
     useEffect(() => {
-        if (!userAddress) {
+        const address = userAddress || wagmiAddress;
+        if (!address) {
             setDisplayName(null);
             setUserAvatar(null);
             return;
         }
         
-        resolveUserProfile(userAddress).then(({ name, avatar }) => {
+        resolveUserProfile(address).then(({ name, avatar }) => {
             setDisplayName(name);
             setUserAvatar(avatar);
         });
-    }, [userAddress, usingMiniApp]);
+    }, [userAddress, wagmiAddress, usingMiniApp]);
     
     // Disconnect wallet function
     const disconnectWallet = () => {
@@ -1351,8 +1358,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     
     // Get display name or shortened address
     const getDisplayName = () => {
+        if (!connected && !userAddress && !wagmiConnected) return "Connect";
         if (displayName) return displayName;
-        return shortAddr(userAddress);
+        if (userAddress) return shortAddr(userAddress);
+        if (wagmiAddress) return shortAddr(wagmiAddress);
+        return "Connect";
     };
     
     // Helper function for card/box styling based on theme
@@ -1563,28 +1573,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 
                 if (openConnectModal) {
                     console.log("[Wallet] No provider found, opening RainbowKit modal...");
-                    openConnectModal();
-                    
-                    // Wait for user to connect via RainbowKit
-                    const maxWait = 60000;
-                    const startTime = Date.now();
-                    
-                    while (Date.now() - startTime < maxWait) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        const anyWindow = window as any;
-                        if (wagmiConnected && wagmiAddress && anyWindow.ethereum) {
-                            const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
-                            setProvider(ethersProvider);
-                            setSigner(ethersProvider.getSigner());
-                            setUserAddress(wagmiAddress);
-                            setMiniAppEthProvider(anyWindow.ethereum);
-                            setConnecting(false);
-                            return { signer: ethersProvider.getSigner(), provider: ethersProvider, userAddress: wagmiAddress, isMini: false };
-                        }
-                    }
-                    
                     setConnecting(false);
-                    return null;
+                    openConnectModal();
+                    return null; // RainbowKit will handle connection, useEffect will sync state
                 }
 
                 const errorMsg = isMobile
@@ -3826,6 +3817,37 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
         console.log("[UI] Connect wallet button pressed");
 
+        // Check if we're in Farcaster context first
+        let inFarcaster = false;
+        try {
+            const context = await sdk.context;
+            if (context) {
+                inFarcaster = true;
+                console.log("[UI] In Farcaster context, using SDK wallet");
+            }
+        } catch {}
+
+        // If in Farcaster, use ensureWallet for SDK connection
+        if (inFarcaster) {
+            try {
+                await ensureWallet();
+            } catch (err) {
+                console.error("[UI] Wallet connection error:", err);
+            }
+            return;
+        }
+
+        // On web, check for wallet extension
+        const anyWindow = window as any;
+        const hasWalletExtension = anyWindow.ethereum || anyWindow.coinbaseWalletExtension;
+        
+        if (!hasWalletExtension && openConnectModal) {
+            console.log("[UI] No wallet extension, opening RainbowKit modal");
+            openConnectModal();
+            return;
+        }
+
+        // Has extension, use ensureWallet
         try {
             await ensureWallet();
         } catch (err) {
