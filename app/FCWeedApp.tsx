@@ -122,7 +122,9 @@ import {
     erc721Interface,
     v4StakingInterface, 
     v4BattlesInterface,
+    v3BattlesInterface,
     v5ItemShopInterface,
+    v11ItemShopInterface,
 } from "./lib/abis";
 
 // Screenshot and share to Twitter/Farcaster/Base
@@ -530,10 +532,10 @@ export default function FCWeedApp()
     useEffect(() => {
         const imagesToPreload = [
             ...GIFS,
-            '/images/items/ak47.png',
-            '/images/items/nuke.png',
-            '/images/items/rpg.png',
-            '/images/items/healthpack.png',
+            '/images/items/ak47.gif',
+            '/images/items/nuke.gif',
+            '/images/items/rpg.gif',
+            '/images/items/healthpack.gif',
         ];
         
         let loadedCount = 0;
@@ -3108,7 +3110,7 @@ export default function FCWeedApp()
     async function loadWarsPlayerStats() {
         if (!userAddress) return;
         try {
-            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
             
             // Get Cartel Wars stats
             const stats = await battlesContract.getCartelPlayerStats(userAddress);
@@ -3138,7 +3140,7 @@ export default function FCWeedApp()
             });
 
 
-            const canAttack = await battlesContract.canCartelAttack(userAddress);
+            const canAttack = await battlesContract.canCartel(userAddress);
             if (!canAttack) {
                 try {
                     const lastAttackTime = await battlesContract.lastCartelAttackTime(userAddress);
@@ -3156,7 +3158,7 @@ export default function FCWeedApp()
             }
 
 
-            const fee = await battlesContract.cartelSearchFee();
+            const fee = await battlesContract.cartelFee();
             const feeFormatted = parseFloat(ethers.utils.formatUnits(fee, 18));
             setWarsSearchFee(feeFormatted >= 1000 ? (feeFormatted / 1000).toFixed(0) + "K" : feeFormatted.toFixed(0));
 
@@ -3232,7 +3234,7 @@ export default function FCWeedApp()
                 return;
             }
 
-            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
 
             // Check if already have a LOCKED target on-chain
             const searchTarget = await battlesContract.activeSearchTarget(ctx.userAddress);
@@ -3430,10 +3432,10 @@ export default function FCWeedApp()
             }
 
             const { target, nonce, deadline, signature, stats } = warsPreviewData;
-            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
 
             setWarsStatus("Checking approval...");
-            const searchFee = await battlesContract.cartelSearchFee();
+            const searchFee = await battlesContract.cartelFee();
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             let allowance = await tokenContract.allowance(ctx.userAddress, V5_BATTLES_ADDRESS);
 
@@ -3450,7 +3452,7 @@ export default function FCWeedApp()
 
             const searchTx = await txAction().sendContractTx(
                 V5_BATTLES_ADDRESS,
-                v4BattlesInterface.encodeFunctionData("searchForTarget", [target, deadline, signature]),
+                v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]),
                 "0x4C4B40"
             );
 
@@ -3691,7 +3693,7 @@ export default function FCWeedApp()
                 setWarsStatus("Attacking...");
             }
 
-            const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cartelAttack", []), "0x4C4B40");
+            const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("cartelAttack", [warsTarget, warsPreviewData?.deadline || Math.floor(Date.now()/1000) + 600, warsPreviewData?.signature || "0x"]), "0x4C4B40");
             if (!tx) {
                 setWarsStatus("Transaction rejected");
                 setWarsAttacking(false);
@@ -3705,20 +3707,20 @@ export default function FCWeedApp()
             const receipt = await waitForTx(tx, readProvider);
 
 
-            const battleResultTopic = v4BattlesInterface.getEventTopic("CartelBattleResult");
+            const battleResultTopic = v3BattlesInterface.getEventTopic("CartelResult");
             let battleResult: any = null;
 
             if (receipt && receipt.logs) {
                 for (const log of receipt.logs) {
                     if (log.topics[0] === battleResultTopic) {
                         try {
-                            const parsed = v4BattlesInterface.parseLog(log);
+                            const parsed = v3BattlesInterface.parseLog(log);
                             battleResult = {
-                                attacker: parsed.args.attacker,
-                                defender: parsed.args.defender,
-                                won: parsed.args.attackerWon,
-                                damageDealt: parsed.args.damageDealt.toNumber(),
-                                rewardsTransferred: parsed.args.rewardsTransferred,
+                                attacker: parsed.args.a,
+                                defender: parsed.args.d,
+                                won: parsed.args.w,
+                                damageDealt: parsed.args.dmg.toNumber(),
+                                rewardsTransferred: parsed.args.s,
                             };
                             console.log("[Wars] Battle result:", battleResult);
                         } catch {}
@@ -3733,13 +3735,13 @@ export default function FCWeedApp()
                     if (fullReceipt && fullReceipt.logs) {
                         for (const log of fullReceipt.logs) {
                             if (log.address.toLowerCase() === V5_BATTLES_ADDRESS.toLowerCase() && log.topics[0] === battleResultTopic) {
-                                const parsed = v4BattlesInterface.parseLog(log);
+                                const parsed = v3BattlesInterface.parseLog(log);
                                 battleResult = {
-                                    attacker: parsed.args.attacker,
-                                    defender: parsed.args.defender,
-                                    won: parsed.args.attackerWon,
-                                    damageDealt: parsed.args.damageDealt.toNumber(),
-                                    rewardsTransferred: parsed.args.rewardsTransferred,
+                                    attacker: parsed.args.a,
+                                    defender: parsed.args.d,
+                                    won: parsed.args.w,
+                                    damageDealt: parsed.args.dmg.toNumber(),
+                                    rewardsTransferred: parsed.args.s,
                                 };
                             }
                         }
@@ -3825,7 +3827,7 @@ export default function FCWeedApp()
             const ctx = await ensureWallet();
             if (!ctx) return;
 
-            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
             const searchTarget = await battlesContract.activeSearchTarget(ctx.userAddress);
             const searchExpiry = await battlesContract.activeSearchExpiry(ctx.userAddress);
             const now = Math.floor(Date.now() / 1000);
@@ -5809,7 +5811,7 @@ export default function FCWeedApp()
                                     {/* AK-47 */}
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
                                         <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/ak47.png" alt="AK-47" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                            <img src="/images/items/ak47.gif" alt="AK-47" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>AK-47</div>
                                         <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>{inventoryAK47}</div>
@@ -5824,7 +5826,7 @@ export default function FCWeedApp()
                                     {/* Tactical Nuke */}
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(239,68,68,0.1)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", border: "1px solid rgba(239,68,68,0.3)", minHeight: 85 }}>
                                         <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/nuke.png" alt="Nuke" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                            <img src="/images/items/nuke.gif" alt="Nuke" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 6, color: "#ef4444", fontWeight: 600, marginBottom: 2 }}>NUKE</div>
                                         <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>{inventoryNuke}</div>
@@ -5839,7 +5841,7 @@ export default function FCWeedApp()
                                     {/* RPG */}
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
                                         <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/rpg.png" alt="RPG" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                            <img src="/images/items/rpg.gif" alt="RPG" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>RPG</div>
                                         <div style={{ fontSize: 12, fontWeight: 700, color: "#a855f7", marginBottom: 4 }}>{inventoryRPG}</div>
@@ -5854,7 +5856,7 @@ export default function FCWeedApp()
                                     {/* Health Packs */}
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
                                         <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/healthpack.png" alt="Health Pack" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                            <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 6, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>HEALTH</div>
                                         <div style={{ fontSize: 12, fontWeight: 700, color: "#10b981", marginBottom: 4 }}>{inventoryHealthPacks}</div>
@@ -6284,19 +6286,19 @@ export default function FCWeedApp()
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#60a5fa" }}>{v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18)).toFixed(1) : "0"}L</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
-                                    <img src="/images/items/ak47.png" alt="AK-47" style={{ width: 22, height: 22, objectFit: "contain" }} />
+                                    <img src="/images/items/ak47.gif" alt="AK-47" style={{ width: 22, height: 22, objectFit: "contain" }} />
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444" }}>{inventoryAK47}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(239,68,68,0.15)", borderRadius: 6, padding: "4px 8px", minWidth: 42, border: "1px solid rgba(239,68,68,0.4)" }}>
-                                    <img src="/images/items/nuke.png" alt="Nuke" style={{ width: 22, height: 22, objectFit: "contain" }} />
+                                    <img src="/images/items/nuke.gif" alt="Nuke" style={{ width: 22, height: 22, objectFit: "contain" }} />
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444" }}>{inventoryNuke}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
-                                    <img src="/images/items/rpg.png" alt="RPG" style={{ width: 22, height: 22, objectFit: "contain" }} />
+                                    <img src="/images/items/rpg.gif" alt="RPG" style={{ width: 22, height: 22, objectFit: "contain" }} />
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#a855f7" }}>{inventoryRPG}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
-                                    <img src="/images/items/healthpack.png" alt="Health Pack" style={{ width: 22, height: 22, objectFit: "contain" }} />
+                                    <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ width: 22, height: 22, objectFit: "contain" }} />
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#10b981" }}>{inventoryHealthPacks}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
@@ -6714,7 +6716,7 @@ export default function FCWeedApp()
                     <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 520, width: "100%", maxHeight: "calc(100vh - 100px)", overflow: "auto", border: "1px solid rgba(16,185,129,0.3)" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                             <h3 style={{ margin: 0, fontSize: 18, color: "#10b981", display: "flex", alignItems: "center", gap: 8 }}>
-                                <img src="/images/items/healthpack.png" alt="Health Pack" style={{ width: 28, height: 28, objectFit: "contain" }} />
+                                <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ width: 28, height: 28, objectFit: "contain" }} />
                                 Health Packs
                             </h3>
                             <button onClick={() => { setHealthPackModalOpen(false); setSelectedPlantsForHealthPack([]); setInventoryStatus(""); }} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
@@ -6866,7 +6868,7 @@ export default function FCWeedApp()
                                     gap: 8
                                 }}
                             >
-                                <img src="/images/items/healthpack.png" alt="" style={{ width: 20, height: 20, objectFit: "contain" }} />
+                                <img src="/images/items/healthpack.gif" alt="" style={{ width: 20, height: 20, objectFit: "contain" }} />
                                 {inventoryLoading ? "Healing..." : `Heal ${selectedPlantsForHealthPack.length} Plant${selectedPlantsForHealthPack.length !== 1 ? "s" : ""}`}
                             </button>
                             <button
@@ -6993,7 +6995,7 @@ export default function FCWeedApp()
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
                             <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1))", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 180 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
-                                    <img src="/images/items/ak47.png" alt="AK-47" style={{ width: 40, height: 40, objectFit: "contain" }} />
+                                    <img src="/images/items/ak47.gif" alt="AK-47" style={{ width: 40, height: 40, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>AK-47</div>
                                 <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+100% Combat</div>
@@ -7017,7 +7019,7 @@ export default function FCWeedApp()
                             </div>
                             <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.25), rgba(185,28,28,0.2))", border: "2px solid rgba(239,68,68,0.6)", borderRadius: 12, padding: 10, textAlign: "center", boxShadow: "0 0 20px rgba(239,68,68,0.25)", display: "flex", flexDirection: "column", minHeight: 180 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
-                                    <img src="/images/items/nuke.png" alt="Nuke" style={{ width: 40, height: 40, objectFit: "contain" }} />
+                                    <img src="/images/items/nuke.gif" alt="Nuke" style={{ width: 40, height: 40, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>TACTICAL NUKE</div>
                                 <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+10,000% Combat</div>
@@ -7041,7 +7043,7 @@ export default function FCWeedApp()
                             </div>
                             <div style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.15), rgba(139,92,246,0.1))", border: "1px solid rgba(168,85,247,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 180 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
-                                    <img src="/images/items/rpg.png" alt="RPG" style={{ width: 40, height: 40, objectFit: "contain" }} />
+                                    <img src="/images/items/rpg.gif" alt="RPG" style={{ width: 40, height: 40, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#a855f7", marginBottom: 2 }}>RPG</div>
                                 <div style={{ fontSize: 8, color: "#c4b5fd", marginBottom: 2 }}>+500% Combat</div>
@@ -7068,7 +7070,7 @@ export default function FCWeedApp()
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
                             <div style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.15), rgba(34,197,94,0.1))", border: "1px solid rgba(16,185,129,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 170 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
-                                    <img src="/images/items/healthpack.png" alt="Health Pack" style={{ width: 36, height: 36, objectFit: "contain" }} />
+                                    <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ width: 36, height: 36, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#10b981", marginBottom: 2 }}>HEALTH PACK</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>Heals one Plant Max to 80%<br/>Usage: 1 Per Plant</div>
