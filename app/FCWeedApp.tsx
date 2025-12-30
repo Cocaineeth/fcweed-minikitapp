@@ -813,7 +813,7 @@ export default function FCWeedApp()
         setInventoryStatus("Activating shield...");
         try {
             const iface = new ethers.utils.Interface(["function useItem(uint256 itemId, address target)"]);
-            const data = iface.encodeFunctionData("useItem", [2, ethers.constants.AddressZero]);
+            const data = iface.encodeFunctionData("useItem", [5, ethers.constants.AddressZero]); // Shield = ID 5
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
             if (tx) {
                 await tx.wait();
@@ -836,7 +836,7 @@ export default function FCWeedApp()
         setInventoryStatus("Activating boost...");
         try {
             const iface = new ethers.utils.Interface(["function useItem(uint256 itemId, address target)"]);
-            const data = iface.encodeFunctionData("useItem", [3, ethers.constants.AddressZero]);
+            const data = iface.encodeFunctionData("useItem", [6, ethers.constants.AddressZero]); // Attack Boost = ID 6
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
             if (tx) {
                 await tx.wait();
@@ -859,7 +859,7 @@ export default function FCWeedApp()
         setInventoryStatus("Activating AK-47...");
         try {
             const iface = new ethers.utils.Interface(["function useItem(uint256 itemId, address target)"]);
-            const data = iface.encodeFunctionData("useItem", [4, ethers.constants.AddressZero]);
+            const data = iface.encodeFunctionData("useItem", [1, ethers.constants.AddressZero]); // AK-47 = ID 1
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
             if (tx) {
                 await tx.wait();
@@ -882,7 +882,7 @@ export default function FCWeedApp()
         setInventoryStatus("Activating RPG...");
         try {
             const iface = new ethers.utils.Interface(["function useItem(uint256 itemId, address target)"]);
-            const data = iface.encodeFunctionData("useItem", [5, ethers.constants.AddressZero]);
+            const data = iface.encodeFunctionData("useItem", [2, ethers.constants.AddressZero]); // RPG = ID 2
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
             if (tx) {
                 await tx.wait();
@@ -906,7 +906,7 @@ export default function FCWeedApp()
         setInventoryStatus("Launching Tactical Nuke...");
         try {
             const iface = new ethers.utils.Interface(["function useItem(uint256 itemId, address target)"]);
-            const data = iface.encodeFunctionData("useItem", [6, ethers.constants.AddressZero]);
+            const data = iface.encodeFunctionData("useItem", [3, ethers.constants.AddressZero]); // Nuke = ID 3
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
             if (tx) {
                 await tx.wait();
@@ -3918,7 +3918,7 @@ export default function FCWeedApp()
         return () => clearInterval(globalStatsInterval);
     }, [activeTab, readProvider, userAddress]);
 
-    const crateIcon = (t: string) => t === 'DUST' ? '💨' : t === 'FCWEED' ? '🌿' : t === 'USDC' ? '💵' : '🏆';
+    const crateIcon = (t: string) => t === 'DUST' ? <img src="/images/items/dust.gif" alt="Dust" style={{ width: 14, height: 14, verticalAlign: 'middle' }} /> : t === 'FCWEED' ? '🌿' : t === 'USDC' ? '💵' : '🏆';
 
     const onCrateOpen = async () => {
         if (!connected) {
@@ -5494,7 +5494,9 @@ export default function FCWeedApp()
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                <div className="c-float" style={{ width: 100, height: 100, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 56 }}>📦</div>
+                                <div className="c-float" style={{ width: 100, height: 100, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <img src="/images/items/crate.gif" alt="Crate" style={{ width: 80, height: 80, objectFit: 'contain' }} />
+                                </div>
                                 <button
                                     type="button"
                                     onClick={onCrateOpen}
@@ -5519,8 +5521,9 @@ export default function FCWeedApp()
                             </div>
 
                             {crateUserStats.dust >= 1000 && dustConversionEnabled && (
-                                <div style={{ marginTop: 10, padding: 8, background: 'rgba(16,185,129,0.1)', borderRadius: 6, border: '1px solid rgba(16,185,129,0.2)', textAlign: 'center', fontSize: 9 }}>
-                                    <span style={{ color: '#34d399' }}>💨 {crateUserStats.dust.toLocaleString()} Dust = <b>{(Math.floor(crateUserStats.dust / 1000) * 60000).toLocaleString()}</b> $FCWEED</span>
+                                <div style={{ marginTop: 10, padding: 8, background: 'rgba(16,185,129,0.1)', borderRadius: 6, border: '1px solid rgba(16,185,129,0.2)', textAlign: 'center', fontSize: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                                    <img src="/images/items/dust.gif" alt="Dust" style={{ width: 14, height: 14 }} />
+                                    <span style={{ color: '#34d399' }}>{crateUserStats.dust.toLocaleString()} Dust = <b>{(Math.floor(crateUserStats.dust / 1000) * 60000).toLocaleString()}</b> $FCWEED</span>
                                 </div>
                             )}
                         </section>
@@ -5532,7 +5535,9 @@ export default function FCWeedApp()
                     <div className={styles.modalBackdrop}>
                         <div className={`${styles.modal} c-pop`} style={{ maxWidth: 300, padding: 16 }}>
                             <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 40, marginBottom: 8 }}>📦</div>
+                                <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'center' }}>
+                                    <img src="/images/items/crate.gif" alt="Crate" style={{ width: 48, height: 48, objectFit: 'contain' }} />
+                                </div>
                                 <h2 style={{ fontSize: 16, color: '#fff', margin: '0 0 6px' }}>Open Crate</h2>
                                 <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>Pay <span style={{ color: '#fbbf24', fontWeight: 600 }}>200,000 $FCWEED</span> to open?</p>
                                 <div style={{ display: 'flex', gap: 8 }}>
@@ -5713,7 +5718,7 @@ export default function FCWeedApp()
                                     {/* Shields */}
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
                                         <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <span style={{ fontSize: 20 }}>🛡️</span>
+                                            <img src="/images/items/shield.gif" alt="Shield" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>SHIELDS</div>
                                         <div style={{ fontSize: 12, fontWeight: 700, color: "#3b82f6", marginBottom: 4 }}>{inventoryShields}</div>
@@ -5728,7 +5733,7 @@ export default function FCWeedApp()
                                     {/* Attack Boost */}
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
                                         <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <span style={{ fontSize: 20 }}>⚡</span>
+                                            <img src="/images/items/attackboost.gif" alt="Attack Boost" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 6, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>BOOST</div>
                                         <div style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b", marginBottom: 4 }}>{inventoryBoosts}</div>
@@ -6128,7 +6133,7 @@ export default function FCWeedApp()
                             </div>
                             <div style={{ display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
                                 <div style={{ textAlign: "center", background: "rgba(96,165,250,0.15)", borderRadius: 6, padding: "4px 8px", minWidth: 42, border: "1px solid rgba(96,165,250,0.4)" }}>
-                                    <div style={{ fontSize: 16, lineHeight: "22px" }}>💧</div>
+                                    <img src="/images/items/water.gif" alt="Water" style={{ width: 22, height: 22, objectFit: "contain" }} />
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#60a5fa" }}>{v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18)).toFixed(1) : "0"}L</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
@@ -6148,18 +6153,18 @@ export default function FCWeedApp()
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#10b981" }}>{inventoryHealthPacks}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
-                                    <div style={{ fontSize: 16, lineHeight: "22px" }}>🛡️</div>
+                                    <img src="/images/items/shield.gif" alt="Shield" style={{ width: 22, height: 22, objectFit: "contain" }} />
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#3b82f6" }}>{inventoryShields}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
-                                    <div style={{ fontSize: 16, lineHeight: "22px" }}>⚡</div>
+                                    <img src="/images/items/attackboost.gif" alt="Attack Boost" style={{ width: 22, height: 22, objectFit: "contain" }} />
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b" }}>{inventoryBoosts}</div>
                                 </div>
                             </div>
                         </div>
                         <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
                             <button onClick={() => setWaterModalOpen(true)} style={{ flex: 1, padding: "16px 12px", borderRadius: 12, border: "1px solid rgba(96,165,250,0.4)", background: "linear-gradient(135deg, rgba(96,165,250,0.15), rgba(59,130,246,0.1))", color: "#60a5fa", cursor: "pointer", fontSize: 14, fontWeight: 700, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                                <span style={{ fontSize: 28 }}>💧</span>
+                                <img src="/images/items/water.gif" alt="Water" style={{ width: 32, height: 32, objectFit: "contain" }} />
                                 <span>WATER</span>
                             </button>
                             <button onClick={() => setItemsModalOpen(true)} style={{ flex: 1, padding: "16px 12px", borderRadius: 12, border: "1px solid rgba(245,158,11,0.4)", background: "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.1))", color: "#f59e0b", cursor: "pointer", fontSize: 14, fontWeight: 700, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
@@ -6491,7 +6496,9 @@ export default function FCWeedApp()
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 72, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }}>
                     <div style={{ background: "linear-gradient(135deg, #1a0000, #2d0a0a)", borderRadius: 16, padding: 24, maxWidth: 380, width: "100%", border: "2px solid #ef4444", boxShadow: "0 0 40px rgba(239,68,68,0.3)" }}>
                         <div style={{ textAlign: "center", marginBottom: 20 }}>
-                            <div style={{ fontSize: 48, marginBottom: 12 }}>☢️</div>
+                            <div style={{ marginBottom: 12 }}>
+                                <img src="/images/items/nuke.gif" alt="Nuke" style={{ width: 64, height: 64, objectFit: "contain" }} />
+                            </div>
                             <h3 style={{ margin: 0, fontSize: 22, color: "#ef4444", fontWeight: 700 }}>TACTICAL NUKE</h3>
                             <p style={{ fontSize: 12, color: "#fca5a5", margin: "8px 0 0" }}>+10,000% Combat Power</p>
                         </div>
@@ -6830,7 +6837,7 @@ export default function FCWeedApp()
                                 <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>{fcweedBalance} FCWEED</span>
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <span style={{ fontSize: 14 }}>💨</span>
+                                <img src="/images/items/dust.gif" alt="Dust" style={{ width: 18, height: 18, objectFit: "contain" }} />
                                 <span style={{ fontSize: 12, color: "#9ca3af", fontWeight: 700 }}>{crateUserStats.dust.toLocaleString()} DUST</span>
                             </div>
                         </div>

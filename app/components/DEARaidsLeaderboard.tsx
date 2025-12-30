@@ -52,6 +52,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     const [loading, setLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalRaids, setTotalRaids] = useState(0);
+    const [totalSeized, setTotalSeized] = useState("0");
     const [raidFee, setRaidFee] = useState("100K");
     const [raidFeeRaw, setRaidFeeRaw] = useState<ethers.BigNumber>(ethers.utils.parseUnits("100000", 18));
     const [showAttackModal, setShowAttackModal] = useState(false);
@@ -128,7 +129,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         return num;
     };
 
-    const formatTimeRemaining = (expiresAt: number): string => {
+    const formatTimeRemaining = (expiresAt: number, needsFlagging?: boolean): string => {
+        if (expiresAt === 0 || needsFlagging) return "Not Flagged";
         const remaining = expiresAt - now;
         if (remaining <= 0) return "Expired";
         const hours = Math.floor(remaining / 3600);
@@ -163,6 +165,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 // V3: deaFee() and getGlobal()
                 const [fee, globalStats] = await Promise.all([battlesContract.deaFee(), battlesContract.getGlobal()]);
                 setRaidFeeRaw(fee); setRaidFee(formatLargeNumber(fee)); setTotalRaids(globalStats[1].toNumber()); // dea is index 1
+                setTotalSeized(formatLargeNumber(globalStats[4])); // redist is index 4
             } catch (e) { console.error("[DEA] Stats error:", e); }
             
             if (userAddress) {
@@ -410,27 +413,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 </div>
 
                 {/* Subtitle with global stats */}
-                <div style={{ fontSize: 10, color: textMuted, marginBottom: 16 }}>{totalRaids} total raids • Fee: {raidFee}</div>
-
-                {/* Player Stats Box */}
-                {connected && playerStats && (
-                    <div style={{ background: cardBg, borderRadius: 10, padding: 12, marginBottom: 16, border: `1px solid ${borderColor}` }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, textAlign: "center" }}>
-                            <div>
-                                <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>WINS</div>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: "#10b981" }}>{playerStats.wins}</div>
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>LOSSES</div>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: "#ef4444" }}>{playerStats.losses}</div>
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>STOLEN</div>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: "#fbbf24" }}>{playerStats.stolen}</div>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                <div style={{ fontSize: 10, color: textMuted, marginBottom: 16 }}>{totalRaids} total raids • {totalSeized} seized</div>
 
                 {/* Jeets List */}
                 {loading ? <div style={{ textAlign: "center", padding: 40, color: textMuted }}>Loading suspects...</div> : activeJeets.length === 0 ? <div style={{ textAlign: "center", padding: 40, color: textMuted }}>No active suspects found</div> : (
@@ -440,10 +423,9 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                             const isBeingTargeted = targetingInfo.count > 0;
                             
                             // Calculate farm stats for the card
-                            const farmsOnCooldown = jeet.farms.filter(f => 
-                                f.myAttackCooldownEnds > now && f.plants > 0
-                            ).length;
-                            const farmsAvailable = jeet.farms.filter(f => f.canAttack && f.plants > 0).length;
+                            const totalFarms = jeet.farms.length;
+                            const farmsAvailable = jeet.farms.filter(f => f.canAttack && f.plants > 0 && !f.hasShield).length;
+                            const farmsShielded = jeet.farms.filter(f => f.hasShield).length;
                             const totalPending = jeet.farms.reduce((sum, f) => sum + (f.pendingRaw || parseFormattedNumber(f.pendingRewards)), 0);
                             
                             return (
@@ -471,10 +453,10 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                                 {jeet.hasShield && <span style={{ fontSize: 10, color: "#3b82f6" }}>🛡️</span>}
                                             </div>
                                             
-                                            {/* Timer below address */}
-                                            <div style={{ fontSize: 10, color: "#fbbf24", display: "flex", alignItems: "center", gap: 4, marginBottom: 6 }}>
-                                                <span>⏱️</span>
-                                                <span>{formatTimeRemaining(jeet.expiresAt)}</span>
+                                            {/* Timer below address - show flag status if not flagged */}
+                                            <div style={{ fontSize: 10, color: jeet.needsFlagging ? "#f59e0b" : "#fbbf24", display: "flex", alignItems: "center", gap: 4, marginBottom: 6 }}>
+                                                <span>{jeet.needsFlagging ? "🏴" : "⏱️"}</span>
+                                                <span>{formatTimeRemaining(jeet.expiresAt, jeet.needsFlagging)}</span>
                                             </div>
                                             
                                             {/* Bottom stats row */}
@@ -496,11 +478,11 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                         
                                         {/* Right side: Farm status & Total pending */}
                                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, minWidth: 95 }}>
-                                            {/* Farms on Cooldown */}
+                                            {/* Total Farms */}
                                             <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10 }}>
-                                                <span style={{ color: farmsOnCooldown > 0 ? "#fbbf24" : textMuted }}>⏳</span>
-                                                <span style={{ color: farmsOnCooldown > 0 ? "#fbbf24" : textMuted, fontWeight: 500 }}>
-                                                    {farmsOnCooldown} Cooldown
+                                                <span style={{ color: textMuted }}>📦</span>
+                                                <span style={{ color: textMuted, fontWeight: 500 }}>
+                                                    {totalFarms} Farm{totalFarms !== 1 ? "s" : ""}
                                                 </span>
                                             </div>
                                             
