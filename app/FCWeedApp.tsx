@@ -2,54 +2,9 @@
 
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import Image from "next/image";
-// import { useMiniKit, useComposeCast } from "@coinbase/onchainkit/minikit";
-// Using a safe wrapper since hooks can fail outside MiniKitProvider context
-
-// Safe hook that returns defaults if MiniKit is not available
-function useSafeMiniKit() {
-    const [state, setState] = useState({ 
-        setMiniAppReady: () => {}, 
-        isMiniAppReady: false,
-        context: null as any
-    });
-    
-    useEffect(() => {
-        // Try to dynamically check if we're in MiniKit context
-        const tryInit = async () => {
-            try {
-                // Signal frame ready via SDK directly
-                await sdk.actions.ready();
-                setState(prev => ({ ...prev, isMiniAppReady: true }));
-            } catch (e) {
-                // Not in frame context, that's OK
-                setState(prev => ({ ...prev, isMiniAppReady: true }));
-            }
-        };
-        tryInit();
-    }, []);
-    
-    return state;
-}
-
-function useSafeComposeCast() {
-    const composeCast = useCallback(async (options: { text?: string; embeds?: string[] }) => {
-        try {
-            // Try using Farcaster SDK directly
-            const context = await sdk.context;
-            if (context) {
-                await sdk.actions.openUrl(
-                    `https://warpcast.com/~/compose?text=${encodeURIComponent(options.text || '')}`
-                );
-            }
-        } catch (e) {
-            console.log("[FCWeed] composeCast not available");
-        }
-    }, []);
-    
-    return { composeCast };
-}
+import { useAccount, useDisconnect } from "wagmi";
+import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { ethers } from "ethers";
-import { sdk } from "@farcaster/miniapp-sdk";
 import styles from "./page.module.css";
 import { CrimeLadder } from "./components/CrimeLadder";
 import { loadOwnedTokens } from "./lib/tokens";
@@ -125,7 +80,17 @@ import {
     v11ItemShopInterface,
 } from "./lib/abis";
 
-// Screenshot and share to Twitter/Farcaster/Base
+const sdk = {
+    context: Promise.resolve(null),
+    actions: {
+        ready: () => Promise.resolve(),
+        composeCast: () => Promise.reject(new Error("Not available")),
+        openUrl: (opts: { url: string }) => { window.open(opts.url, '_blank'); return Promise.resolve(); },
+        addFrame: () => Promise.reject(new Error("Not available")),
+    },
+    wallet: { getEthereumProvider: () => Promise.resolve(null) }
+};
+
 async function captureAndShare(
     elementId: string, 
     fallbackText: string,
@@ -273,36 +238,51 @@ async function captureAndShare(
     }
 }
 
-export default function FCWeedApp()
+export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "dark" | "light") => void })
 {
-    // Use safe versions of MiniKit hooks
-    const { setMiniAppReady, isMiniAppReady } = useSafeMiniKit();
-    const { composeCast } = useSafeComposeCast();
+    const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount();
+    const { openConnectModal } = useConnectModal();
+    const { disconnect } = useDisconnect();
 
-    // Theme state (light/dark)
     const [theme, setTheme] = useState<"dark" | "light">("dark");
-    
-    // Username display state
     const [displayName, setDisplayName] = useState<string | null>(null);
-    
-    // Onboarding state
     const [showOnboarding, setShowOnboarding] = useState(false);
     const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
 
-    const [provider, setProvider] =
-        useState<ethers.providers.Web3Provider | null>(null);
+    const [provider, setProvider] = useState<ethers.providers.Web3Provider | null>(null);
     const [signer, setSigner] = useState<ethers.Signer | null>(null);
     const [userAddress, setUserAddress] = useState<string | null>(null);
-    const connected = !!userAddress; // Derived state - defined early for use throughout component
+    const connected = !!userAddress || wagmiConnected;
     const [usingMiniApp, setUsingMiniApp] = useState(false);
     const [connecting, setConnecting] = useState(false);
-    const [miniAppEthProvider, setMiniAppEthProvider] = useState<any | null>(
-        null
-    );
+    const [miniAppEthProvider, setMiniAppEthProvider] = useState<any | null>(null);
 
-    const [readProvider] = useState(
-        () => new ethers.providers.JsonRpcProvider(PUBLIC_BASE_RPC)
-    );
+    const [readProvider] = useState(() => new ethers.providers.JsonRpcProvider(PUBLIC_BASE_RPC));
+
+    useEffect(() => {
+        if (wagmiConnected && wagmiAddress) {
+            setUserAddress(wagmiAddress);
+            const anyWindow = window as any;
+            if (anyWindow.ethereum) {
+                const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
+                setProvider(ethersProvider);
+                setSigner(ethersProvider.getSigner());
+                setMiniAppEthProvider(anyWindow.ethereum);
+            }
+            setUsingMiniApp(false);
+        } else if (!wagmiConnected && userAddress) {
+            setUserAddress(null);
+            setProvider(null);
+            setSigner(null);
+            setMiniAppEthProvider(null);
+        }
+    }, [wagmiConnected, wagmiAddress]);
+
+    useEffect(() => { onThemeChange?.(theme); }, [theme, onThemeChange]);
+
+    const composeCast = useCallback(async (options: { text?: string }) => {
+        window.open(`https://warpcast.com/~/compose?text=${encodeURIComponent(options.text || '')}`, '_blank');
+    }, []);
 
     const [activeTab, setActiveTab] = useState<"info" | "mint" | "stake" | "wars" | "crates" | "referrals" | "shop">("info");
     const [mintModalOpen, setMintModalOpen] = useState(false);
@@ -995,9 +975,8 @@ export default function FCWeedApp()
                         const dustBalance = stats.dustBalance ?? stats[0];
                         
                         if (dustBalance.lt(dustPrice)) {
-                            // Dust prices are now raw numbers (not 18 decimals)
-                            const needed = dustPrice.toNumber();
-                            const have = dustBalance.toNumber();
+                            const needed = parseFloat(ethers.utils.formatUnits(dustPrice, 18));
+                            const have = parseFloat(ethers.utils.formatUnits(dustBalance, 18));
                             setShopStatus(`Insufficient Dust! Need ${needed.toLocaleString()}, have ${have.toLocaleString()}. Open crates to earn Dust.`);
                             setShopLoading(false);
                             return;
@@ -1364,7 +1343,8 @@ export default function FCWeedApp()
     
     // Disconnect wallet function
     const disconnectWallet = () => {
-        userDisconnected.current = true; // Prevent auto-reconnect
+        userDisconnected.current = true;
+        disconnect();
         setProvider(null);
         setSigner(null);
         setUserAddress(null);
@@ -1459,227 +1439,70 @@ export default function FCWeedApp()
     }, [theme]);
 
     async function ensureWallet(forceSelection: boolean = false) {
+        if (wagmiConnected && wagmiAddress) {
+            const anyWindow = window as any;
+            if (anyWindow.ethereum) {
+                const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
+                return { signer: ethersProvider.getSigner(), provider: ethersProvider, userAddress: wagmiAddress, isMini: false };
+            }
+        }
+
         if (signer && provider && userAddress && !forceSelection) {
             return { signer, provider, userAddress, isMini: usingMiniApp };
         }
-        
-        // Clear the disconnect flag when user explicitly connects
+
         userDisconnected.current = false;
+
+        if (openConnectModal) {
+            setConnecting(true);
+            openConnectModal();
+            
+            const maxWait = 60000;
+            const startTime = Date.now();
+            
+            while (Date.now() - startTime < maxWait) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+                const anyWindow = window as any;
+                if (wagmiConnected && wagmiAddress && anyWindow.ethereum) {
+                    const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
+                    setProvider(ethersProvider);
+                    setSigner(ethersProvider.getSigner());
+                    setUserAddress(wagmiAddress);
+                    setConnecting(false);
+                    return { signer: ethersProvider.getSigner(), provider: ethersProvider, userAddress: wagmiAddress, isMini: false };
+                }
+            }
+            
+            setConnecting(false);
+            return null;
+        }
 
         try {
             setConnecting(true);
-            setMintStatus("");
+            const anyWindow = window as any;
+            const browserProvider = anyWindow.ethereum;
 
-            let p: ethers.providers.Web3Provider;
-            let s: ethers.Signer;
-            let addr: string;
-            let isMini = false;
-            let ethProv: any | null = null;
-
-            const { isMiniApp: detectedMiniApp, isMobile, isBaseApp } = detectMiniAppEnvironment();
-
-            console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, isBaseApp, userAgent: navigator.userAgent });
-
-            // Mobile-only app - use Farcaster SDK which respects user's wallet preference
-            try {
-                console.log("[Wallet] Attempting SDK wallet connection...");
-
-                // Try SDK ready first
-                try {
-                    await sdk.actions.ready();
-                    console.log("[Wallet] SDK ready confirmed");
-                } catch (readyErr) {
-                    console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
-                }
-
-                // Farcaster SDK getEthereumProvider() returns the user's preferred wallet
-                // (Farcaster Wallet, Rabby, or External based on their settings)
-                try {
-                    ethProv = await sdk.wallet.getEthereumProvider();
-                    if (ethProv) {
-                        console.log("[Wallet] Got provider via Farcaster SDK");
-                        
-                        // Log provider details to debug which wallet is being used
-                        const providerInfo = {
-                            isRabby: !!(ethProv as any).isRabby,
-                            isMetaMask: !!(ethProv as any).isMetaMask,
-                            isCoinbaseWallet: !!(ethProv as any).isCoinbaseWallet,
-                            isFarcaster: !!(ethProv as any).isFarcaster,
-                        };
-                        console.log("[Wallet] Provider info:", providerInfo);
-                        
-                        isMini = true;
-                    }
-                } catch (err1) {
-                    console.warn("[Wallet] Farcaster SDK getEthereumProvider failed:", err1);
-                    
-                    // Try ethProvider property as fallback
-                    if ((sdk.wallet as any).ethProvider) {
-                        ethProv = (sdk.wallet as any).ethProvider;
-                        console.log("[Wallet] Got provider via ethProvider property");
-                        isMini = true;
-                    }
-                }
-
-                // If SDK didn't return a provider, check window.ethereum
-                // Farcaster may inject the selected wallet there
-                if (!ethProv) {
-                    const anyWindow = window as any;
-                    
-                    // Check what's available in window.ethereum
-                    if (anyWindow.ethereum) {
-                        const windowProviderInfo = {
-                            isRabby: !!anyWindow.ethereum.isRabby,
-                            isMetaMask: !!anyWindow.ethereum.isMetaMask,
-                            isCoinbaseWallet: !!anyWindow.ethereum.isCoinbaseWallet,
-                            isBase: !!anyWindow.ethereum.isBase,
-                        };
-                        console.log("[Wallet] window.ethereum info:", windowProviderInfo);
-                        
-                        ethProv = anyWindow.ethereum;
-                        console.log("[Wallet] Using window.ethereum as provider");
-                        isMini = true;
-                    } else if (anyWindow.coinbaseWalletExtension) {
-                        ethProv = anyWindow.coinbaseWalletExtension;
-                        console.log("[Wallet] Got provider via coinbaseWalletExtension");
-                        isMini = true;
-                    }
-                }
-
-                if (ethProv) {
-                    console.log("[Wallet] Got ethereum provider:", typeof ethProv);
-                }
-            } catch (err) {
-                console.warn("[Wallet] SDK wallet failed:", err);
-                ethProv = null;
+            if (!browserProvider) {
+                setMintStatus("No wallet found. Please install MetaMask.");
+                setConnecting(false);
+                return null;
             }
 
+            await browserProvider.request({ method: "eth_requestAccounts" });
+            const p = new ethers.providers.Web3Provider(browserProvider, "any");
+            const s = p.getSigner();
+            const addr = await s.getAddress();
 
-            if (ethProv) {
-                setUsingMiniApp(true);
-                setMiniAppEthProvider(ethProv);
-
-
+            const net = await p.getNetwork();
+            if (net.chainId !== CHAIN_ID) {
                 try {
-                    console.log("[Wallet] Requesting accounts from Farcaster provider...");
-                    const accounts = await ethProv.request({ method: "eth_requestAccounts" });
-                    console.log("[Wallet] Got accounts:", accounts);
-                } catch (err: any) {
-                    console.warn("[Wallet] eth_requestAccounts failed:", err);
-
-                    if (err?.code === 4001) {
-                        throw new Error("Wallet connection rejected. Please approve the connection request.");
-                    }
-
-                }
-
-                p = new ethers.providers.Web3Provider(ethProv as any, "any");
-                s = p.getSigner();
-
-                try {
-                    addr = await s.getAddress();
-                    console.log("[Wallet] Got address:", addr);
-                } catch (err) {
-                    console.error("[Wallet] Failed to get address from Farcaster provider:", err);
-
-
-                    try {
-                        const accounts = await ethProv.request({ method: "eth_accounts" });
-                        if (accounts && accounts.length > 0) {
-                            addr = accounts[0];
-                            console.log("[Wallet] Got address from eth_accounts:", addr);
-                        } else {
-                            throw new Error("No accounts available");
-                        }
-                    } catch (accErr) {
-                        throw new Error("Could not get wallet address. Please make sure you have a wallet connected.");
-                    }
-                }
-
-                console.log("[Wallet] Connected via Farcaster:", addr);
-            } else {
-
-                setUsingMiniApp(false);
-                const anyWindow = window as any;
-
-
-                const browserProvider = anyWindow.ethereum || anyWindow.web3?.currentProvider;
-
-                if (!browserProvider) {
-                    const errorMsg = isMobile
-                        ? "No wallet found. Please install Coinbase Wallet or MetaMask."
-                        : "No wallet found. Please install MetaMask or another Web3 wallet.";
-                    setMintStatus(errorMsg);
-                    setConnecting(false);
-                    return null;
-                }
-
-                console.log("[Wallet] Using browser ethereum provider");
-
-                try {
-                    await browserProvider.request({ method: "eth_requestAccounts" });
-                } catch (err: any) {
-                    if (err.code === 4001) {
-                        setMintStatus("Wallet connection rejected. Please approve the connection request.");
-                    } else {
-                        setMintStatus("Failed to connect wallet. Please try again.");
-                    }
-                    setConnecting(false);
-                    return null;
-                }
-
-                p = new ethers.providers.Web3Provider(browserProvider, "any");
-                s = p.getSigner();
-                addr = await s.getAddress();
-
-                console.log("[Wallet] Connected via browser wallet:", addr);
-            }
-
-            let currentChainId: number;
-            try {
-                const net = await p.getNetwork();
-                currentChainId = net.chainId;
-            } catch {
-                currentChainId = 0;
-            }
-
-            if (currentChainId !== CHAIN_ID) {
-                console.log("[Wallet] Wrong chain, attempting to switch to Base...");
-
-                const switchProvider = isMini ? ethProv : (window as any).ethereum;
-
-                if (switchProvider?.request) {
-                    try {
-                        await switchProvider.request({
-                            method: "wallet_switchEthereumChain",
-                            params: [{ chainId: "0x2105" }],
+                    await browserProvider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
+                } catch (e: any) {
+                    if (e.code === 4902) {
+                        await browserProvider.request({
+                            method: "wallet_addEthereumChain",
+                            params: [{ chainId: "0x2105", chainName: "Base", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] }],
                         });
-
-                        p = new ethers.providers.Web3Provider(switchProvider as any, "any");
-                        s = p.getSigner();
-                        console.log("[Wallet] Switched to Base");
-                    } catch (switchErr: any) {
-                        console.warn("[Wallet] Chain switch failed:", switchErr);
-
-
-                        if (switchErr.code === 4902 && !isMini) {
-                            try {
-                                await switchProvider.request({
-                                    method: "wallet_addEthereumChain",
-                                    params: [{
-                                        chainId: "0x2105",
-                                        chainName: "Base",
-                                        nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-                                        rpcUrls: ["https://mainnet.base.org"],
-                                        blockExplorerUrls: ["https://basescan.org"],
-                                    }],
-                                });
-                                p = new ethers.providers.Web3Provider(switchProvider, "any");
-                                s = p.getSigner();
-                            } catch {
-                                console.warn("[Wallet] Failed to add Base chain");
-                            }
-                        }
                     }
                 }
             }
@@ -1687,15 +1510,11 @@ export default function FCWeedApp()
             setProvider(p);
             setSigner(s);
             setUserAddress(addr);
+            setMiniAppEthProvider(browserProvider);
             setConnecting(false);
-
-            return { signer: s, provider: p, userAddress: addr, isMini };
+            return { signer: s, provider: p, userAddress: addr, isMini: false };
         } catch (err: any) {
-            console.error("[Wallet] Connection failed:", err);
-            const errorMessage = err?.message || "Wallet connection failed";
-            setMintStatus(
-                errorMessage.length > 100 ? errorMessage.substring(0, 100) + "..." : errorMessage
-            );
+            setMintStatus(err?.message?.slice(0, 80) || "Connection failed");
             setConnecting(false);
             return null;
         }
@@ -3862,15 +3681,11 @@ export default function FCWeedApp()
     const handleConnectWallet = async (e: React.MouseEvent | React.TouchEvent) => {
         e.preventDefault();
         e.stopPropagation();
-
         if (connecting) return;
-
-        console.log("[UI] Connect wallet button pressed");
-
-        try {
+        if (openConnectModal) {
+            openConnectModal();
+        } else {
             await ensureWallet();
-        } catch (err) {
-            console.error("[UI] Wallet connection error:", err);
         }
     };
 
