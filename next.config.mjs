@@ -1,9 +1,7 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  serverExternalPackages: ["pino-pretty", "lokijs", "encoding"],
+const nextConfig = {
   images: {
     domains: ['ipfs.io', 'gateway.pinata.cloud', 'cloudflare-ipfs.com'],
+    unoptimized: true,
   },
   eslint: {
     ignoreDuringBuilds: true,
