@@ -111,8 +111,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     }, [activeTargetings, userAddress]);
 
     const now = currentTime;
-    // Show jeets that are either: flagged (expiresAt > now) OR have plants (can be flagged)
-    const activeJeets = jeets.filter(j => j.totalPlants > 0 && (j.expiresAt > now || j.needsFlagging));
+    // Show jeets that have plants - they can always be flagged/raided if they have pending rewards
+    const activeJeets = jeets.filter(j => j.totalPlants > 0 && j.totalPendingRaw > 0);
     const totalPages = Math.ceil(activeJeets.length / ITEMS_PER_PAGE);
     const paginatedJeets = activeJeets.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
@@ -225,6 +225,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 const res = await fetch(`${WARS_BACKEND_URL}/api/dea/jeets`, { signal: controller.signal }); 
                 clearTimeout(timeoutId);
                 const data = await res.json(); 
+                console.log("[DEA] Backend response:", { success: data.success, jeetsCount: data.jeets?.length, immunities: Object.keys(data.immunities || {}).length });
                 if (data.success && Array.isArray(data.jeets)) backendData = data.jeets; 
             } catch (e: any) { 
                 if (e.name !== 'AbortError') console.error("[DEA] Backend error:", e); 
@@ -324,6 +325,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             
             // Sort by TOTAL PENDING REWARDS (highest loot first!)
             processedJeets.sort((a, b) => (b.totalPendingRaw || 0) - (a.totalPendingRaw || 0));
+            console.log("[DEA] Processed jeets:", processedJeets.length, "from backend:", backendData.length);
             setJeets(processedJeets);
             setLastRefresh(Math.floor(Date.now() / 1000));
         } catch (e) { console.error("[DEA] Fetch error:", e); }
