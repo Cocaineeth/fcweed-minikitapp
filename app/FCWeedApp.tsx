@@ -63,6 +63,8 @@ import { DEARaidsLeaderboard } from "./components/DEARaidsLeaderboard";
 import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS, WARS_BACKEND_URL } from "./lib/constants";
 
 import {
+    V3_BATTLES_ABI,
+    V11_ITEMSHOP_ABI,
     CHAIN_ID,
     TOKEN_SYMBOL,
     PLANT_ADDRESS,
@@ -98,6 +100,8 @@ import {
 } from "./lib/constants";
 
 import {
+    V3_BATTLES_ABI,
+    V11_ITEMSHOP_ABI,
     USDC_ABI,
     LAND_ABI,
     PLANT_ABI,
@@ -107,9 +111,7 @@ import {
     STAKING_ABI,
     V4_STAKING_ABI,
     V4_BATTLES_ABI,
-    V3_BATTLES_ABI,
     V5_ITEMSHOP_ABI,
-    V11_ITEMSHOP_ABI,
     CRATE_VAULT_ABI,
     usdcInterface,
     landInterface,
@@ -120,9 +122,7 @@ import {
     erc721Interface,
     v4StakingInterface, 
     v4BattlesInterface,
-    v3BattlesInterface,
     v5ItemShopInterface,
-    v11ItemShopInterface,
 } from "./lib/abis";
 
 // Screenshot and share to Twitter/Farcaster/Base
@@ -530,10 +530,10 @@ export default function FCWeedApp()
     useEffect(() => {
         const imagesToPreload = [
             ...GIFS,
-            '/images/items/ak47.gif',
-            '/images/items/nuke.gif',
-            '/images/items/rpg.gif',
-            '/images/items/healthpack.gif',
+            '/images/items/ak47.png',
+            '/images/items/nuke.png',
+            '/images/items/rpg.png',
+            '/images/items/healthpack.png',
         ];
         
         let loadedCount = 0;
@@ -3108,50 +3108,92 @@ export default function FCWeedApp()
     async function loadWarsPlayerStats() {
         if (!userAddress) return;
         try {
-            // V3 contract with slim ABI
-            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V4_BATTLES_ABI, readProvider);
             
-            // Get attack stats from V3 (wins, losses, stolen, nukes)
-            const atkStats = await battlesContract.getAtkStats(userAddress);
-            // Get defense stats from V3 (wins, losses, lost, hasShield)
-            const defStats = await battlesContract.getDefStats(userAddress);
+            // Get Cartel Wars stats
+            const stats = await battlesContract.getCartelPlayerStats(userAddress);
+            
+            // Get DEA stats
+            let deaStats = [0, 0, ethers.BigNumber.from(0), ethers.BigNumber.from(0), 0, false];
+            try {
+                deaStats = await battlesContract.getDeaAttackerStats(userAddress);
+            } catch {}
             
             setWarsPlayerStats({
-                wins: atkStats[0].toNumber(),
-                losses: atkStats[1].toNumber(),
-                defWins: defStats[0].toNumber(),
-                defLosses: defStats[1].toNumber(),
-                rewardsStolen: atkStats[2],
-                rewardsLost: defStats[2],
-                rewardsLostAttacking: ethers.BigNumber.from(0),
-                winStreak: 0,
-                bestStreak: 0,
-                nukesUsed: atkStats[3].toNumber(),
-                hasShield: defStats[3],
-                // DEA stats - same source in V3
-                deaRaidsWon: atkStats[0].toNumber(),
-                deaRaidsLost: atkStats[1].toNumber(),
-                deaRewardsStolen: atkStats[2],
+                wins: stats[0].toNumber(),
+                losses: stats[1].toNumber(),
+                defWins: stats[2].toNumber(),
+                defLosses: stats[3].toNumber(),
+                rewardsStolen: stats[4],
+                rewardsLost: stats[5],
+                rewardsLostAttacking: stats[6],
+                winStreak: stats[7].toNumber(),
+                bestStreak: stats[8].toNumber(),
+                nukesUsed: stats[9].toNumber(),
+                hasShield: stats[10],
+                // DEA stats
+                deaRaidsWon: deaStats[0].toNumber ? deaStats[0].toNumber() : 0,
+                deaRaidsLost: deaStats[1].toNumber ? deaStats[1].toNumber() : 0,
+                deaRewardsStolen: deaStats[2],
             });
 
-            // V3: canCartel returns if user can attack
-            const canAttack = await battlesContract.canCartel(userAddress);
+
+            const canAttack = await battlesContract.canCartelAttack(userAddress);
             if (!canAttack) {
-                // V3 has 30min cooldown hardcoded
-                setWarsCooldown(1800); // 30 minutes
+                try {
+                    const lastAttackTime = await battlesContract.lastCartelAttackTime(userAddress);
+                    const cooldownDuration = await battlesContract.cartelCooldown();
+                    const cooldownEnd = lastAttackTime.toNumber() + cooldownDuration.toNumber();
+                    const now = Math.floor(Date.now() / 1000);
+                    const remaining = cooldownEnd > now ? cooldownEnd - now : 0;
+                    setWarsCooldown(remaining);
+                } catch (e) {
+                    console.error("Cooldown fetch error:", e);
+                    setWarsCooldown(21600);
+                }
             } else {
                 setWarsCooldown(0);
             }
 
-            // V3: cartelFee() returns the search fee
-            const fee = await battlesContract.cartelFee();
+
+            const fee = await battlesContract.cartelSearchFee();
             const feeFormatted = parseFloat(ethers.utils.formatUnits(fee, 18));
             setWarsSearchFee(feeFormatted >= 1000 ? (feeFormatted / 1000).toFixed(0) + "K" : feeFormatted.toFixed(0));
 
-            // V3 doesn't have activeSearchTarget - it's a one-step process
-            // Clear any leftover target state
-            setWarsTarget(null);
-            setWarsSearchExpiry(0);
+
+            const searchTarget = await battlesContract.activeSearchTarget(userAddress);
+            const searchExpiry = await battlesContract.activeSearchExpiry(userAddress);
+            const now = Math.floor(Date.now() / 1000);
+            if (searchTarget !== ethers.constants.AddressZero && searchExpiry.toNumber() > now) {
+                setWarsTarget(searchTarget);
+                setWarsSearchExpiry(searchExpiry.toNumber());
+
+                const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
+                const targetStats = await v5Contract.getUserBattleStats(searchTarget);
+                const targetPower = await v5Contract.calculateBattlePower(searchTarget);
+                const hasShield = await v5Contract.hasRaidShield(searchTarget).catch(() => false);
+                
+                setWarsTargetStats({
+                    plants: targetStats[0].toNumber(),
+                    lands: targetStats[1].toNumber(),
+                    superLands: targetStats[2].toNumber(),
+                    avgHealth: targetStats[3].toNumber(),
+                    pendingRewards: targetStats[4],
+                    battlePower: targetPower.toNumber(),
+                    hasShield: hasShield,
+                });
+
+                const attackerPower = await v5Contract.calculateBattlePower(userAddress);
+                const defPower = targetPower.toNumber();
+                const atkPower = attackerPower.toNumber();
+                const total = atkPower + defPower;
+                const winChance = total > 0 ? Math.round((atkPower / total) * 100) : 50;
+                setWarsOdds({
+                    attackerPower: atkPower,
+                    defenderPower: defPower,
+                    estimatedWinChance: winChance,
+                });
+            }
 
         } catch (err) {
             console.error("[Wars] Failed to load player stats:", err);
@@ -3649,7 +3691,7 @@ export default function FCWeedApp()
                 setWarsStatus("Attacking...");
             }
 
-            const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("cartelAttack", [warsTarget, Math.floor(Date.now()/1000) + 600, warsPreviewData?.signature || "0x"]), "0x4C4B40");
+            const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cartelAttack", []), "0x4C4B40");
             if (!tx) {
                 setWarsStatus("Transaction rejected");
                 setWarsAttacking(false);
@@ -3663,14 +3705,14 @@ export default function FCWeedApp()
             const receipt = await waitForTx(tx, readProvider);
 
 
-            const battleResultTopic = v3BattlesInterface.getEventTopic("CartelResult");
+            const battleResultTopic = v4BattlesInterface.getEventTopic("CartelBattleResult");
             let battleResult: any = null;
 
             if (receipt && receipt.logs) {
                 for (const log of receipt.logs) {
                     if (log.topics[0] === battleResultTopic) {
                         try {
-                            const parsed = v3BattlesInterface.parseLog(log);
+                            const parsed = v4BattlesInterface.parseLog(log);
                             battleResult = {
                                 attacker: parsed.args.attacker,
                                 defender: parsed.args.defender,
@@ -3691,7 +3733,7 @@ export default function FCWeedApp()
                     if (fullReceipt && fullReceipt.logs) {
                         for (const log of fullReceipt.logs) {
                             if (log.address.toLowerCase() === V5_BATTLES_ADDRESS.toLowerCase() && log.topics[0] === battleResultTopic) {
-                                const parsed = v3BattlesInterface.parseLog(log);
+                                const parsed = v4BattlesInterface.parseLog(log);
                                 battleResult = {
                                     attacker: parsed.args.attacker,
                                     defender: parsed.args.defender,
@@ -5767,7 +5809,7 @@ export default function FCWeedApp()
                                     {/* AK-47 */}
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
                                         <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/ak47.gif" alt="AK-47" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                            <img src="/images/items/ak47.png" alt="AK-47" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>AK-47</div>
                                         <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>{inventoryAK47}</div>
@@ -5782,7 +5824,7 @@ export default function FCWeedApp()
                                     {/* Tactical Nuke */}
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(239,68,68,0.1)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", border: "1px solid rgba(239,68,68,0.3)", minHeight: 85 }}>
                                         <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/nuke.gif" alt="Nuke" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                            <img src="/images/items/nuke.png" alt="Nuke" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 6, color: "#ef4444", fontWeight: 600, marginBottom: 2 }}>NUKE</div>
                                         <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>{inventoryNuke}</div>
@@ -5797,7 +5839,7 @@ export default function FCWeedApp()
                                     {/* RPG */}
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
                                         <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/rpg.gif" alt="RPG" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                            <img src="/images/items/rpg.png" alt="RPG" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>RPG</div>
                                         <div style={{ fontSize: 12, fontWeight: 700, color: "#a855f7", marginBottom: 4 }}>{inventoryRPG}</div>
@@ -5812,7 +5854,7 @@ export default function FCWeedApp()
                                     {/* Health Packs */}
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
                                         <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                            <img src="/images/items/healthpack.png" alt="Health Pack" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 6, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>HEALTH</div>
                                         <div style={{ fontSize: 12, fontWeight: 700, color: "#10b981", marginBottom: 4 }}>{inventoryHealthPacks}</div>
@@ -6242,19 +6284,19 @@ export default function FCWeedApp()
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#60a5fa" }}>{v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18)).toFixed(1) : "0"}L</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
-                                    <img src="/images/items/ak47.gif" alt="AK-47" style={{ width: 22, height: 22, objectFit: "contain" }} />
+                                    <img src="/images/items/ak47.png" alt="AK-47" style={{ width: 22, height: 22, objectFit: "contain" }} />
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444" }}>{inventoryAK47}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(239,68,68,0.15)", borderRadius: 6, padding: "4px 8px", minWidth: 42, border: "1px solid rgba(239,68,68,0.4)" }}>
-                                    <img src="/images/items/nuke.gif" alt="Nuke" style={{ width: 22, height: 22, objectFit: "contain" }} />
+                                    <img src="/images/items/nuke.png" alt="Nuke" style={{ width: 22, height: 22, objectFit: "contain" }} />
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444" }}>{inventoryNuke}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
-                                    <img src="/images/items/rpg.gif" alt="RPG" style={{ width: 22, height: 22, objectFit: "contain" }} />
+                                    <img src="/images/items/rpg.png" alt="RPG" style={{ width: 22, height: 22, objectFit: "contain" }} />
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#a855f7" }}>{inventoryRPG}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
-                                    <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ width: 22, height: 22, objectFit: "contain" }} />
+                                    <img src="/images/items/healthpack.png" alt="Health Pack" style={{ width: 22, height: 22, objectFit: "contain" }} />
                                     <div style={{ fontSize: 10, fontWeight: 700, color: "#10b981" }}>{inventoryHealthPacks}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
@@ -6672,7 +6714,7 @@ export default function FCWeedApp()
                     <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 520, width: "100%", maxHeight: "calc(100vh - 100px)", overflow: "auto", border: "1px solid rgba(16,185,129,0.3)" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                             <h3 style={{ margin: 0, fontSize: 18, color: "#10b981", display: "flex", alignItems: "center", gap: 8 }}>
-                                <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ width: 28, height: 28, objectFit: "contain" }} />
+                                <img src="/images/items/healthpack.png" alt="Health Pack" style={{ width: 28, height: 28, objectFit: "contain" }} />
                                 Health Packs
                             </h3>
                             <button onClick={() => { setHealthPackModalOpen(false); setSelectedPlantsForHealthPack([]); setInventoryStatus(""); }} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
@@ -6824,7 +6866,7 @@ export default function FCWeedApp()
                                     gap: 8
                                 }}
                             >
-                                <img src="/images/items/healthpack.gif" alt="" style={{ width: 20, height: 20, objectFit: "contain" }} />
+                                <img src="/images/items/healthpack.png" alt="" style={{ width: 20, height: 20, objectFit: "contain" }} />
                                 {inventoryLoading ? "Healing..." : `Heal ${selectedPlantsForHealthPack.length} Plant${selectedPlantsForHealthPack.length !== 1 ? "s" : ""}`}
                             </button>
                             <button
@@ -6951,18 +6993,18 @@ export default function FCWeedApp()
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
                             <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1))", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 180 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
-                                    <img src="/images/items/ak47.gif" alt="AK-47" style={{ width: 40, height: 40, objectFit: "contain" }} />
+                                    <img src="/images/items/ak47.png" alt="AK-47" style={{ width: 40, height: 40, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>AK-47</div>
                                 <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+100% Combat</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 12 hours</div>
                                 <div style={{ marginTop: "auto" }}>
-                                {(shopSupply[1]?.remaining ?? 15) > 0 ? (
+                                {(shopSupply[4]?.remaining ?? 15) > 0 ? (
                                     <>
-                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[1]?.remaining ?? 15}/{shopSupply[1]?.total ?? 15}</span></div>
+                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[4]?.remaining ?? 15}/{shopSupply[4]?.total ?? 15}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                                            <button onClick={() => handleBuyItem(1, "dust")} disabled={shopLoading || crateUserStats.dust < 1000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 1000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 1000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 1000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 1K DUST</button>
-                                            <button onClick={() => handleBuyItem(1, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.ak47)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "linear-gradient(135deg, #ef4444, #dc2626)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 1M FCWEED</button>
+                                            <button onClick={() => handleBuyItem(4, "dust")} disabled={shopLoading || crateUserStats.dust < 1000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 1000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 1000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 1000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 1K DUST</button>
+                                            <button onClick={() => handleBuyItem(4, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.ak47)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "linear-gradient(135deg, #ef4444, #dc2626)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 1M FCWEED</button>
                                         </div>
                                     </>
                                 ) : (
@@ -6975,18 +7017,18 @@ export default function FCWeedApp()
                             </div>
                             <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.25), rgba(185,28,28,0.2))", border: "2px solid rgba(239,68,68,0.6)", borderRadius: 12, padding: 10, textAlign: "center", boxShadow: "0 0 20px rgba(239,68,68,0.25)", display: "flex", flexDirection: "column", minHeight: 180 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
-                                    <img src="/images/items/nuke.gif" alt="Nuke" style={{ width: 40, height: 40, objectFit: "contain" }} />
+                                    <img src="/images/items/nuke.png" alt="Nuke" style={{ width: 40, height: 40, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>TACTICAL NUKE</div>
                                 <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+10,000% Combat</div>
                                 <div style={{ fontSize: 7, color: "#fca5a5", marginBottom: 3 }}>10 min (1 attack)</div>
                                 <div style={{ marginTop: "auto" }}>
-                                {(shopSupply[3]?.remaining ?? 1) > 0 ? (
+                                {(shopSupply[6]?.remaining ?? 1) > 0 ? (
                                     <>
-                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[3]?.remaining ?? 1}/{shopSupply[3]?.total ?? 1}</span></div>
+                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[6]?.remaining ?? 1}/{shopSupply[6]?.total ?? 1}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                                            <button onClick={() => handleBuyItem(3, "dust")} disabled={shopLoading || crateUserStats.dust < 10000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 10000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 10000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 10000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 10K DUST</button>
-                                            <button onClick={() => handleBuyItem(3, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.nuke)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "linear-gradient(135deg, #dc2626, #b91c1c)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 10M FCWEED</button>
+                                            <button onClick={() => handleBuyItem(6, "dust")} disabled={shopLoading || crateUserStats.dust < 10000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 10000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 10000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 10000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 10K DUST</button>
+                                            <button onClick={() => handleBuyItem(6, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.nuke)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "linear-gradient(135deg, #dc2626, #b91c1c)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 10M FCWEED</button>
                                         </div>
                                     </>
                                 ) : (
@@ -6999,18 +7041,18 @@ export default function FCWeedApp()
                             </div>
                             <div style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.15), rgba(139,92,246,0.1))", border: "1px solid rgba(168,85,247,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 180 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
-                                    <img src="/images/items/rpg.gif" alt="RPG" style={{ width: 40, height: 40, objectFit: "contain" }} />
+                                    <img src="/images/items/rpg.png" alt="RPG" style={{ width: 40, height: 40, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#a855f7", marginBottom: 2 }}>RPG</div>
                                 <div style={{ fontSize: 8, color: "#c4b5fd", marginBottom: 2 }}>+500% Combat</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 3 hours</div>
                                 <div style={{ marginTop: "auto" }}>
-                                {(shopSupply[2]?.remaining ?? 3) > 0 ? (
+                                {(shopSupply[5]?.remaining ?? 3) > 0 ? (
                                     <>
-                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#a855f7", fontWeight: 600 }}>{shopSupply[2]?.remaining ?? 3}/{shopSupply[2]?.total ?? 3}</span></div>
+                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#a855f7", fontWeight: 600 }}>{shopSupply[5]?.remaining ?? 3}/{shopSupply[5]?.total ?? 3}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                                            <button onClick={() => handleBuyItem(2, "dust")} disabled={shopLoading || crateUserStats.dust < 4000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 4000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 4000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 4000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 4K DUST</button>
-                                            <button onClick={() => handleBuyItem(2, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.rpg)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 4M FCWEED</button>
+                                            <button onClick={() => handleBuyItem(5, "dust")} disabled={shopLoading || crateUserStats.dust < 4000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 4000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 4000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 4000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 4K DUST</button>
+                                            <button onClick={() => handleBuyItem(5, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.rpg)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 4M FCWEED</button>
                                         </div>
                                     </>
                                 ) : (
@@ -7026,17 +7068,17 @@ export default function FCWeedApp()
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
                             <div style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.15), rgba(34,197,94,0.1))", border: "1px solid rgba(16,185,129,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 170 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
-                                    <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ width: 36, height: 36, objectFit: "contain" }} />
+                                    <img src="/images/items/healthpack.png" alt="Health Pack" style={{ width: 36, height: 36, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#10b981", marginBottom: 2 }}>HEALTH PACK</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>Heals one Plant Max to 80%<br/>Usage: 1 Per Plant</div>
                                 <div style={{ marginTop: "auto" }}>
-                                {(shopSupply[4]?.remaining ?? 20) > 0 ? (
+                                {(shopSupply[1]?.remaining ?? 20) > 0 ? (
                                     <>
-                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#10b981", fontWeight: 600 }}>{shopSupply[4]?.remaining ?? 20}/{shopSupply[4]?.total ?? 20}</span></div>
+                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#10b981", fontWeight: 600 }}>{shopSupply[1]?.remaining ?? 20}/{shopSupply[1]?.total ?? 20}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                                            <button onClick={() => handleBuyItem(4, "dust")} disabled={shopLoading || crateUserStats.dust < 2000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 2K DUST</button>
-                                            <button onClick={() => handleBuyItem(4, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.healthPack)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 2M FCWEED</button>
+                                            <button onClick={() => handleBuyItem(1, "dust")} disabled={shopLoading || crateUserStats.dust < 2000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2000 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 2K DUST</button>
+                                            <button onClick={() => handleBuyItem(1, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.healthPack)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 2M FCWEED</button>
                                         </div>
                                     </>
                                 ) : (
@@ -7054,10 +7096,10 @@ export default function FCWeedApp()
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#3b82f6", marginBottom: 2 }}>RAID SHIELD</div>
                                 <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>24h Protection<br/>Purge Bypasses Shields</div>
                                 <div style={{ marginTop: "auto" }}>
-                                {(shopSupply[5]?.remaining ?? 25) > 0 ? (
+                                {(shopSupply[2]?.remaining ?? 25) > 0 ? (
                                     <>
-                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#3b82f6", fontWeight: 600 }}>{shopSupply[5]?.remaining ?? 25}/{shopSupply[5]?.total ?? 25}</span></div>
-                                        <button onClick={() => handleBuyItem(5, "dust")} disabled={shopLoading || crateUserStats.dust < 2500} style={{ width: "100%", padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2500 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2500 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2500 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 2.5K DUST</button>
+                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#3b82f6", fontWeight: 600 }}>{shopSupply[2]?.remaining ?? 25}/{shopSupply[2]?.total ?? 25}</span></div>
+                                        <button onClick={() => handleBuyItem(2, "dust")} disabled={shopLoading || crateUserStats.dust < 2500} style={{ width: "100%", padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2500 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2500 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2500 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 2.5K DUST</button>
                                     </>
                                 ) : (
                                     <div style={{ padding: "8px 0" }}>
@@ -7076,8 +7118,8 @@ export default function FCWeedApp()
                                 <div style={{ marginTop: "auto" }}>
                                 <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#f59e0b", fontWeight: 600 }}>∞</span></div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                                    <button onClick={() => handleBuyItem(6, "dust")} disabled={shopLoading || crateUserStats.dust < 200} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 200 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 200 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 200 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 200 DUST</button>
-                                    <button onClick={() => handleBuyItem(6, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.attackBoost)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "#000" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 200K FCWEED</button>
+                                    <button onClick={() => handleBuyItem(3, "dust")} disabled={shopLoading || crateUserStats.dust < 200} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 200 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 200 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 200 ? "pointer" : "not-allowed", fontSize: 8 }}>💨 200 DUST</button>
+                                    <button onClick={() => handleBuyItem(3, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.attackBoost)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "#000" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 200K FCWEED</button>
                                 </div>
                                 </div>
                             </div>
