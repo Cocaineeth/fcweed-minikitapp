@@ -498,7 +498,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                     <strong style={{ color: "#dc2626" }}>⚠️ CHAOS MODE</strong><br/>
                     During The Purge, <strong>ALL shields are bypassed</strong>.<br/>
                     Attack anyone regardless of protection!<br/>
-                    <span style={{ fontSize: 10, color: textMuted }}>Fee: {purgeFee} $FCWEED (100% burned) • Cooldown only on WIN</span>
+                    <span style={{ fontSize: 10, color: textMuted }}>Fee: {purgeFee} $FCWEED (100% burned)</span>
                 </div>
             </div>
 
