@@ -6775,7 +6775,7 @@ export default function FCWeedApp()
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 72, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
                     <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 420, width: "100%", maxHeight: "calc(100vh - 100px)", overflow: "auto", border: "1px solid rgba(96,165,250,0.3)" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                            <h3 style={{ margin: 0, fontSize: 18, color: "#60a5fa" }}>💧 Water Shop</h3>
+                            <h3 style={{ margin: 0, fontSize: 18, color: "#60a5fa", display: "flex", alignItems: "center", gap: 8 }}><img src="/images/items/water.gif" alt="Water" style={{ width: 24, height: 24 }} /> Water Shop</h3>
                             <button onClick={() => setWaterModalOpen(false)} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
                         </div>
                         {/* FCWEED Balance Display */}

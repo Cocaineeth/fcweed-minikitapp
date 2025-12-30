@@ -211,6 +211,11 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 if (j.farms && Array.isArray(j.farms) && j.farms.length > 0) {
                     farms = j.farms.map((f: any) => {
                         const pendingRaw = parseFloat(f.pendingRewards || "0");
+                        const hasPlants = (f.plants || 0) > 0;
+                        const hasPending = pendingRaw > 0;
+                        const noShield = !f.hasShield;
+                        // Allow attack if: has plants, has pending, no shield (auto-flag handles unflagged)
+                        const canAttackCalc = hasPlants && hasPending && noShield;
                         return { 
                             address: f.address, 
                             plants: f.plants || 0, 
@@ -218,7 +223,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                             pendingRewards: f.pendingRewards || "0", 
                             pendingRaw,
                             hasShield: f.hasShield || false, 
-                            canAttack: f.canBeRaided || f.canAttack || false, 
+                            canAttack: canAttackCalc, 
                             battlePower: f.battlePower || 0, 
                             targetImmunityEnds: 0, 
                             myAttackCooldownEnds: 0 
@@ -227,6 +232,10 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     for (const f of farms) { totalPlants += f.plants; avgHealthSum += f.avgHealth; }
                 } else {
                     const pendingRaw = parseFloat(j.pendingRewards || "0");
+                    const hasPlants = (j.plants || 0) > 0;
+                    const hasPending = pendingRaw > 0;
+                    const noShield = !j.hasShield;
+                    const canAttackCalc = hasPlants && hasPending && noShield;
                     farms = [{ 
                         address: j.address, 
                         plants: j.plants || 0, 
@@ -234,7 +243,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         pendingRewards: j.pendingRewards || "0", 
                         pendingRaw,
                         hasShield: j.hasShield || false, 
-                        canAttack: j.canBeRaided || true, 
+                        canAttack: canAttackCalc, 
                         battlePower: 0, 
                         targetImmunityEnds: 0, 
                         myAttackCooldownEnds: 0 
