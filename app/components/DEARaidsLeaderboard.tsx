@@ -74,7 +74,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     const [cooldownRemaining, setCooldownRemaining] = useState(0);
     const [currentTime, setCurrentTime] = useState(Math.floor(Date.now() / 1000));
     const [myBattlePower, setMyBattlePower] = useState(0);
-    const [lastRefresh, setLastRefresh] = useState(Date.now());
+    const [lastRefresh, setLastRefresh] = useState(Math.floor(Date.now() / 1000));
     const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
     const [activeTargetings, setActiveTargetings] = useState<ActiveTargeting[]>([]);
     const [playerStats, setPlayerStats] = useState<{ wins: number; losses: number; stolen: string } | null>(null);
@@ -165,6 +165,12 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         fetchingRef.current = true;
         setIsAutoRefreshing(true);
         
+        // Safety timeout - reset fetchingRef after 8 seconds max
+        const safetyTimeout = setTimeout(() => {
+            fetchingRef.current = false;
+            setIsAutoRefreshing(false);
+        }, 8000);
+        
         try {
             const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, BATTLES_ABI, readProvider);
             const stakingContract = new ethers.Contract(V5_STAKING_ADDRESS, STAKING_ABI, readProvider);
@@ -213,7 +219,16 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             }
             
             let backendData: any[] = [];
-            try { const res = await fetch(`${WARS_BACKEND_URL}/api/dea/jeets`); const data = await res.json(); if (data.success && Array.isArray(data.jeets)) backendData = data.jeets; } catch (e) { console.error("[DEA] Backend error:", e); }
+            try { 
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+                const res = await fetch(`${WARS_BACKEND_URL}/api/dea/jeets`, { signal: controller.signal }); 
+                clearTimeout(timeoutId);
+                const data = await res.json(); 
+                if (data.success && Array.isArray(data.jeets)) backendData = data.jeets; 
+            } catch (e: any) { 
+                if (e.name !== 'AbortError') console.error("[DEA] Backend error:", e); 
+            }
             
             const processedJeets: JeetEntry[] = [];
             for (const j of backendData) {
@@ -310,9 +325,10 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             // Sort by TOTAL PENDING REWARDS (highest loot first!)
             processedJeets.sort((a, b) => (b.totalPendingRaw || 0) - (a.totalPendingRaw || 0));
             setJeets(processedJeets);
-            setLastRefresh(Date.now());
+            setLastRefresh(Math.floor(Date.now() / 1000));
         } catch (e) { console.error("[DEA] Fetch error:", e); }
         
+        clearTimeout(safetyTimeout);
         setLoading(false);
         setIsAutoRefreshing(false);
         fetchingRef.current = false;
@@ -570,7 +586,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         <h2 style={{ fontSize: 18, fontWeight: 700, color: textPrimary, margin: 0 }}>🚔 DEA Raids</h2>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             {isAutoRefreshing && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", animation: "pulse 1s infinite" }} />}
-                            <span style={{ fontSize: 10, color: textMuted }}>Updated {Math.floor((Date.now() - lastRefresh) / 1000)}s ago</span>
+                            <span style={{ fontSize: 10, color: textMuted }}>Updated {Math.max(0, currentTime - lastRefresh)}s ago</span>
                         </div>
                     </div>
                 </div>
