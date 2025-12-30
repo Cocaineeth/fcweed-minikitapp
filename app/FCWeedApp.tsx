@@ -63,8 +63,6 @@ import { DEARaidsLeaderboard } from "./components/DEARaidsLeaderboard";
 import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS, WARS_BACKEND_URL } from "./lib/constants";
 
 import {
-    V3_BATTLES_ABI,
-    V11_ITEMSHOP_ABI,
     CHAIN_ID,
     TOKEN_SYMBOL,
     PLANT_ADDRESS,
@@ -673,48 +671,65 @@ export default function FCWeedApp()
         try {
             const itemShopAbi = [
                 "function inventory(address user, uint256 itemId) view returns (uint256)",
-                "function getActiveItems() view returns (tuple(uint256 id, string name, uint256 fcweedPrice, uint256 dustPrice, uint256 itemType, uint256 effectValue, uint256 duration, uint256 maxPerWallet, uint256 dailySupply, uint256 soldToday, uint256 lastResetDay, bool active, bool burnFcweed, uint256 startTime, uint256 endTime, bool requiresTarget)[])",
-                "function getRemainingDailySupply(uint256 itemId) view returns (uint256)",
-                "function getItem(uint256 itemId) view returns (tuple(uint256 id, string name, uint256 fcweedPrice, uint256 dustPrice, uint256 itemType, uint256 effectValue, uint256 duration, uint256 maxPerWallet, uint256 dailySupply, uint256 soldToday, uint256 lastResetDay, bool active, bool burnFcweed, uint256 startTime, uint256 endTime, bool requiresTarget))",
-                "function userPurchases(address user, uint256 itemId) view returns (uint256)",
-                "function userActiveEffects(address user, uint256 itemId) view returns (uint256)",
+                "function getUserInventory(address) view returns (uint256 ak47, uint256 rpg, uint256 nuke, uint256 healthPack, uint256 shield, uint256 attackBoost)",
+                "function getDailyStock(uint256 itemId) view returns (uint256 remaining, uint256 total)",
+                "function getItemConfig(uint256 itemId) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, uint256 soldToday, bool isWeapon)",
+                "function hasActiveShield(address) view returns (bool active, uint256 expiresAt)",
+                "function getUserActiveBoosts(address) view returns (uint256 ak47Boost, uint256 ak47Expires, uint256 rpgBoost, uint256 rpgExpires, uint256 attackBoostBps, uint256 attackBoostExpires, bool nukeReady, uint256 nukeExpires, bool shieldActive, uint256 shieldExpires, uint256 totalBoost)",
             ];
             const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
-            const [healthPacks, shields, boosts, ak47s, rpgs, nukes, activeItems, shieldExp, boostExp, ak47Exp, rpgExp, nukeExp] = await Promise.all([
-                itemShop.userPurchases(userAddress, 1).catch(() => ethers.BigNumber.from(0)),
-                itemShop.userPurchases(userAddress, 2).catch(() => ethers.BigNumber.from(0)),
-                itemShop.userPurchases(userAddress, 3).catch(() => ethers.BigNumber.from(0)),
-                itemShop.userPurchases(userAddress, 4).catch(() => ethers.BigNumber.from(0)),
-                itemShop.userPurchases(userAddress, 5).catch(() => ethers.BigNumber.from(0)),
-                itemShop.userPurchases(userAddress, 6).catch(() => ethers.BigNumber.from(0)),
-                itemShop.getActiveItems().catch(() => []),
-                itemShop.userActiveEffects(userAddress, 2).catch(() => ethers.BigNumber.from(0)),
-                itemShop.userActiveEffects(userAddress, 3).catch(() => ethers.BigNumber.from(0)),
-                itemShop.userActiveEffects(userAddress, 4).catch(() => ethers.BigNumber.from(0)),
-                itemShop.userActiveEffects(userAddress, 5).catch(() => ethers.BigNumber.from(0)),
-                itemShop.userActiveEffects(userAddress, 6).catch(() => ethers.BigNumber.from(0)),
-            ]);
-            setInventoryHealthPacks(healthPacks.toNumber());
-            setInventoryShields(shields.toNumber());
-            setInventoryBoosts(boosts.toNumber());
-            setInventoryAK47(ak47s.toNumber());
-            setInventoryRPG(rpgs.toNumber());
-            setInventoryNuke(nukes.toNumber());
-            setShopItems(activeItems);
-            setShieldExpiry(shieldExp.toNumber());
-            setBoostExpiry(boostExp.toNumber());
-            setAk47Expiry(ak47Exp.toNumber());
-            setRpgExpiry(rpgExp.toNumber());
-            setNukeExpiry(nukeExp.toNumber());
+            
+            // V11 uses getUserInventory for batch fetching
+            let inv = { ak47: 0, rpg: 0, nuke: 0, healthPack: 0, shield: 0, attackBoost: 0 };
+            let boosts = { ak47Expires: 0, rpgExpires: 0, attackBoostExpires: 0, nukeExpires: 0, shieldExpires: 0 };
+            
+            try {
+                const invResult = await itemShop.getUserInventory(userAddress);
+                inv = {
+                    ak47: invResult.ak47.toNumber(),
+                    rpg: invResult.rpg.toNumber(),
+                    nuke: invResult.nuke.toNumber(),
+                    healthPack: invResult.healthPack.toNumber(),
+                    shield: invResult.shield.toNumber(),
+                    attackBoost: invResult.attackBoost.toNumber(),
+                };
+            } catch (e) {
+                console.log("[Inventory] getUserInventory failed, trying individual calls");
+            }
+
+            try {
+                const boostResult = await itemShop.getUserActiveBoosts(userAddress);
+                boosts = {
+                    ak47Expires: boostResult.ak47Expires.toNumber(),
+                    rpgExpires: boostResult.rpgExpires.toNumber(),
+                    attackBoostExpires: boostResult.attackBoostExpires.toNumber(),
+                    nukeExpires: boostResult.nukeExpires.toNumber(),
+                    shieldExpires: boostResult.shieldExpires.toNumber(),
+                };
+            } catch {}
+
+            // V11 item IDs: 1=AK47, 2=RPG, 3=Nuke, 4=HealthPack, 5=Shield, 6=AttackBoost
+            setInventoryAK47(inv.ak47);
+            setInventoryRPG(inv.rpg);
+            setInventoryNuke(inv.nuke);
+            setInventoryHealthPacks(inv.healthPack);
+            setInventoryShields(inv.shield);
+            setInventoryBoosts(inv.attackBoost);
+            setAk47Expiry(boosts.ak47Expires);
+            setRpgExpiry(boosts.rpgExpires);
+            setBoostExpiry(boosts.attackBoostExpires);
+            setNukeExpiry(boosts.nukeExpires);
+            setShieldExpiry(boosts.shieldExpires);
+
+            // Get daily supply for each item
             const supplyData: Record<number, {remaining: number, total: number}> = {};
             const itemIds = [1, 2, 3, 4, 5, 6];
             for (const id of itemIds) {
                 try {
-                    const item = await itemShop.getItem(id);
-                    const dailySupply = item.dailySupply.toNumber();
-                    const soldToday = item.soldToday.toNumber();
-                    supplyData[id] = { remaining: dailySupply > 0 ? dailySupply - soldToday : 999, total: dailySupply > 0 ? dailySupply : 999 };
-                } catch { supplyData[id] = { remaining: 0, total: 0 }; }
+                    const [remaining, total] = await itemShop.getDailyStock(id);
+                    const remainingNum = remaining.gt(ethers.BigNumber.from(1000000)) ? 999 : remaining.toNumber();
+                    supplyData[id] = { remaining: remainingNum, total: total.toNumber() > 1000000 ? 999 : total.toNumber() };
+                } catch { supplyData[id] = { remaining: 999, total: 999 }; }
             }
             setShopSupply(supplyData);
         } catch (e) {
@@ -942,16 +957,15 @@ export default function FCWeedApp()
             const itemShopAbi = [
                 "function purchaseWithFcweed(uint256 itemId)",
                 "function purchaseWithDust(uint256 itemId)",
-                "function getItem(uint256 itemId) view returns (tuple(uint256 id, string name, uint256 fcweedPrice, uint256 dustPrice, uint256 itemType, uint256 effectValue, uint256 duration, uint256 maxPerWallet, uint256 dailySupply, uint256 soldToday, uint256 lastResetDay, bool active, bool burnFcweed, uint256 startTime, uint256 endTime, bool requiresTarget))",
+                "function getItemConfig(uint256 itemId) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, uint256 soldToday, bool isWeapon)",
+                "function shopEnabled() view returns (bool)",
             ];
             const itemShopInterface = new ethers.utils.Interface(itemShopAbi);
             const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
-            const item = await itemShop.getItem(itemId);
-            if (!item || !item.active) {
-                setShopStatus("Item not available");
-                setShopLoading(false);
-                return;
-            }
+            
+            // V11 getItemConfig returns: (name, fcweedPrice, dustPrice, boostBps, duration, dailySupply, soldToday, isWeapon)
+            const item = await itemShop.getItemConfig(itemId);
+            
             let data: string;
             if (currency === "fcweed") {
                 const fcweedPrice = item.fcweedPrice;
@@ -3112,40 +3126,36 @@ export default function FCWeedApp()
         try {
             const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
             
-            // Get Cartel Wars stats
-            const stats = await battlesContract.getCartelPlayerStats(userAddress);
-            
-            // Get DEA stats
-            let deaStats = [0, 0, ethers.BigNumber.from(0), ethers.BigNumber.from(0), 0, false];
-            try {
-                deaStats = await battlesContract.getDeaAttackerStats(userAddress);
-            } catch {}
+            // V3 uses getAtkStats and getDefStats instead of getCartelPlayerStats
+            // getAtkStats returns: (wins, losses, stolen, nukes)
+            // getDefStats returns: (wins, losses, lost, hasShield)
+            const atkStats = await battlesContract.getAtkStats(userAddress);
+            const defStats = await battlesContract.getDefStats(userAddress);
             
             setWarsPlayerStats({
-                wins: stats[0].toNumber(),
-                losses: stats[1].toNumber(),
-                defWins: stats[2].toNumber(),
-                defLosses: stats[3].toNumber(),
-                rewardsStolen: stats[4],
-                rewardsLost: stats[5],
-                rewardsLostAttacking: stats[6],
-                winStreak: stats[7].toNumber(),
-                bestStreak: stats[8].toNumber(),
-                nukesUsed: stats[9].toNumber(),
-                hasShield: stats[10],
-                // DEA stats
-                deaRaidsWon: deaStats[0].toNumber ? deaStats[0].toNumber() : 0,
-                deaRaidsLost: deaStats[1].toNumber ? deaStats[1].toNumber() : 0,
-                deaRewardsStolen: deaStats[2],
+                wins: atkStats[0].toNumber(),
+                losses: atkStats[1].toNumber(),
+                defWins: defStats[0].toNumber(),
+                defLosses: defStats[1].toNumber(),
+                rewardsStolen: atkStats[2],
+                rewardsLost: defStats[2],
+                rewardsLostAttacking: ethers.BigNumber.from(0), // Not tracked in V3
+                winStreak: 0, // Not tracked in V3
+                bestStreak: 0, // Not tracked in V3
+                nukesUsed: atkStats[3].toNumber(),
+                hasShield: defStats[3],
+                // DEA stats - same as attack stats in V3
+                deaRaidsWon: 0,
+                deaRaidsLost: 0,
+                deaRewardsStolen: ethers.BigNumber.from(0),
             });
-
 
             const canAttack = await battlesContract.canCartel(userAddress);
             if (!canAttack) {
                 try {
-                    const lastAttackTime = await battlesContract.lastCartelAttackTime(userAddress);
-                    const cooldownDuration = await battlesContract.cartelCooldown();
-                    const cooldownEnd = lastAttackTime.toNumber() + cooldownDuration.toNumber();
+                    const lastAttackTime = await battlesContract.lastCartel(userAddress);
+                    // V3 uses 6 hour cooldown (21600 seconds)
+                    const cooldownEnd = lastAttackTime.toNumber() + 21600;
                     const now = Math.floor(Date.now() / 1000);
                     const remaining = cooldownEnd > now ? cooldownEnd - now : 0;
                     setWarsCooldown(remaining);
@@ -3157,45 +3167,14 @@ export default function FCWeedApp()
                 setWarsCooldown(0);
             }
 
-
             const fee = await battlesContract.cartelFee();
             const feeFormatted = parseFloat(ethers.utils.formatUnits(fee, 18));
             setWarsSearchFee(feeFormatted >= 1000 ? (feeFormatted / 1000).toFixed(0) + "K" : feeFormatted.toFixed(0));
 
-
-            const searchTarget = await battlesContract.activeSearchTarget(userAddress);
-            const searchExpiry = await battlesContract.activeSearchExpiry(userAddress);
-            const now = Math.floor(Date.now() / 1000);
-            if (searchTarget !== ethers.constants.AddressZero && searchExpiry.toNumber() > now) {
-                setWarsTarget(searchTarget);
-                setWarsSearchExpiry(searchExpiry.toNumber());
-
-                const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
-                const targetStats = await v5Contract.getUserBattleStats(searchTarget);
-                const targetPower = await v5Contract.calculateBattlePower(searchTarget);
-                const hasShield = await v5Contract.hasRaidShield(searchTarget).catch(() => false);
-                
-                setWarsTargetStats({
-                    plants: targetStats[0].toNumber(),
-                    lands: targetStats[1].toNumber(),
-                    superLands: targetStats[2].toNumber(),
-                    avgHealth: targetStats[3].toNumber(),
-                    pendingRewards: targetStats[4],
-                    battlePower: targetPower.toNumber(),
-                    hasShield: hasShield,
-                });
-
-                const attackerPower = await v5Contract.calculateBattlePower(userAddress);
-                const defPower = targetPower.toNumber();
-                const atkPower = attackerPower.toNumber();
-                const total = atkPower + defPower;
-                const winChance = total > 0 ? Math.round((atkPower / total) * 100) : 50;
-                setWarsOdds({
-                    attackerPower: atkPower,
-                    defenderPower: defPower,
-                    estimatedWinChance: winChance,
-                });
-            }
+            // V3 doesn't track active search target on-chain - it's done via backend
+            // Clear any stale target state
+            setWarsTarget(null);
+            setWarsSearchExpiry(0);
 
         } catch (err) {
             console.error("[Wars] Failed to load player stats:", err);
@@ -3234,124 +3213,7 @@ export default function FCWeedApp()
                 return;
             }
 
-            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
-
-            // Check if already have a LOCKED target on-chain
-            const searchTarget = await battlesContract.activeSearchTarget(ctx.userAddress);
-            const searchExpiry = await battlesContract.activeSearchExpiry(ctx.userAddress);
-            const now = Math.floor(Date.now() / 1000);
-            if (searchTarget !== ethers.constants.AddressZero && searchExpiry.toNumber() > now) {
-                setWarsTarget(searchTarget);
-                setWarsTargetLocked(true); // Already paid
-                setWarsSearchExpiry(searchExpiry.toNumber());
-
-                // Fetch target stats directly from V5 staking (more reliable)
-                const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, [
-                    "function getUserBattleStats(address) external view returns (uint256, uint256, uint256, uint256, uint256)",
-                    "function hasRaidShield(address) external view returns (bool)",
-                    "function calculateBattlePower(address) external view returns (uint256)"
-                ], readProvider);
-
-                let tPlants = 0, tLands = 0, tSuperLands = 0, tAvgHealth = 100, tPending = ethers.BigNumber.from(0);
-                try {
-                    const targetStats = await v5Contract.getUserBattleStats(searchTarget);
-                    tPlants = targetStats[0].toNumber();
-                    tLands = targetStats[1].toNumber();
-                    tSuperLands = targetStats[2].toNumber();
-                    tAvgHealth = targetStats[3].toNumber();
-                    tPending = targetStats[4];
-                    console.log("[Wars] Target stats from V5 - Plants:", tPlants, "Lands:", tLands, "SuperLands:", tSuperLands, "AvgHealth:", tAvgHealth);
-                } catch (e) {
-                    console.error("[Wars] Failed to get target stats:", e);
-                }
-
-                let hasShield = false;
-                try {
-                    hasShield = await v5Contract.hasRaidShield(searchTarget);
-                } catch (e) {}
-
-                const defenderPower = await v5Contract.calculateBattlePower(searchTarget).then((p: any) => p.toNumber()).catch(() => Math.round((tPlants * 100 + tLands * 50 + tSuperLands * 150) * tAvgHealth / 100));
-
-                setWarsTargetStats({
-                    plants: tPlants,
-                    lands: tLands,
-                    superLands: tSuperLands,
-                    avgHealth: tAvgHealth,
-                    pendingRewards: tPending,
-                    battlePower: defenderPower,
-                    hasShield: hasShield,
-                });
-
-                // Get attacker power from V4 staking contract
-                let attackerPower = 0;
-                const attackerAddress = ctx.userAddress;
-                console.log("[Wars] Calculating attacker power for:", attackerAddress);
-                console.log("[Wars] Target address was:", warsTarget);
-                console.log("[Wars] V5_STAKING_ADDRESS:", V5_STAKING_ADDRESS);
-
-                // Method 1: Try V5 contract call
-                try {
-                    console.log("[Wars] Calling getUserBattleStats for attacker...");
-                    const userStats = await v5Contract.getUserBattleStats(attackerAddress);
-                    console.log("[Wars] Raw userStats response:", userStats);
-                    const aPlants = userStats[0].toNumber();
-                    const aLands = userStats[1].toNumber();
-                    const aSuperLands = userStats[2].toNumber();
-                    const aAvgHealth = userStats[3].toNumber();
-
-                    console.log("[Wars] Attacker stats from V5 - Plants:", aPlants, "Lands:", aLands, "SuperLands:", aSuperLands, "AvgHealth:", aAvgHealth);
-
-                    if (aPlants > 0 || aLands > 0 || aSuperLands > 0) {
-                        attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
-                        
-                        // Apply item boost multipliers (same as contract)
-                        const now = Math.floor(Date.now() / 1000);
-                        if (nukeExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 1000000) / 10000);
-                        else if (rpgExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 50000) / 10000);
-                        else if (ak47Expiry > now) attackerPower = Math.floor(attackerPower * (10000 + 10000) / 10000);
-                        else if (boostExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 2000) / 10000);
-                        
-                        console.log("[Wars] Calculated attacker power from V5:", attackerPower);
-                    }
-
-                } catch (e: any) {
-                    console.error("[Wars] Failed to get attacker power:", e.message || e);
-                }
-
-                // Method 2: If V5 returned 0, try using v5StakingStats from React state
-                if (attackerPower === 0 && v5StakingStats && v5StakingStats.plants > 0) {
-                    console.log("[Wars] Using cached v5StakingStats as fallback");
-                    const aPlants = v5StakingStats.plants || 0;
-                    const aLands = v5StakingStats.lands || 0;
-                    const aSuperLands = v5StakingStats.superLands || 0;
-                    const aAvgHealth = v5StakingStats.avgHealth || 100;
-                    attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
-                    
-                    // Apply item boost multipliers (same as contract)
-                    const now = Math.floor(Date.now() / 1000);
-                    if (nukeExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 1000000) / 10000);
-                    else if (rpgExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 50000) / 10000);
-                    else if (ak47Expiry > now) attackerPower = Math.floor(attackerPower * (10000 + 10000) / 10000);
-                    else if (boostExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 2000) / 10000);
-                    
-                    console.log("[Wars] Calculated attacker power from cache:", attackerPower);
-                }
-
-                console.log("[Wars] Final - Attacker:", attackerPower, "Defender:", defenderPower);
-
-                const total = attackerPower + defenderPower;
-                const estimatedWinChance = total > 0 ? Math.round((attackerPower * 100) / total) : 50;
-
-                setWarsOdds({
-                    attackerPower,
-                    defenderPower,
-                    estimatedWinChance,
-                });
-                setWarsStatus("");
-                setWarsSearching(false);
-                warsTransactionInProgress.current = false;
-                return;
-            }
+            // V7 doesn't have on-chain target tracking - go straight to backend search
 
             const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
             const hasShield = await v5Contract.hasRaidShield(ctx.userAddress).catch(() => false);
@@ -3822,23 +3684,7 @@ export default function FCWeedApp()
     async function handleNextOpponent() {
         if (warsTransactionInProgress.current) return;
 
-        // Only need to cancel on-chain if target is LOCKED (already paid)
-        if (warsTargetLocked) {
-            const ctx = await ensureWallet();
-            if (!ctx) return;
-
-            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
-            const searchTarget = await battlesContract.activeSearchTarget(ctx.userAddress);
-            const searchExpiry = await battlesContract.activeSearchExpiry(ctx.userAddress);
-            const now = Math.floor(Date.now() / 1000);
-            if (searchTarget !== ethers.constants.AddressZero && searchExpiry.toNumber() > now) {
-                setWarsStatus("Cancelling locked target...");
-                const cancelTx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v4BattlesInterface.encodeFunctionData("cancelSearch", []), "0x4C4B40");
-                if (cancelTx) await waitForTx(cancelTx, readProvider);
-            }
-        }
-
-        // Clear and search again (FREE!)
+        // V3 doesn't have on-chain target tracking - just clear local state and search again
         setWarsTarget(null);
         setWarsTargetStats(null);
         setWarsOdds(null);
