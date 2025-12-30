@@ -726,10 +726,10 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                                     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                                                         {farm.hasShield ? (
                                                             <span style={{ fontSize: 10, color: "#3b82f6", display: "flex", alignItems: "center", gap: 2 }}>🛡️ <span style={{ fontSize: 9 }}>Shield</span></span>
-                                                        ) : farm.hasImmunity ? (
-                                                            <span style={{ fontSize: 10, color: "#f59e0b", display: "flex", alignItems: "center", gap: 2 }}>🛡️ <span style={{ fontSize: 9 }}>Immune</span></span>
                                                         ) : cooldownLeft > 0 ? (
                                                             <span style={{ fontSize: 9, color: "#fbbf24" }}>⏳ {formatCooldown(cooldownLeft)}</span>
+                                                        ) : farm.hasImmunity ? (
+                                                            <span style={{ fontSize: 10, color: "#f59e0b", display: "flex", alignItems: "center", gap: 2 }}>🛡️ <span style={{ fontSize: 9 }}>&lt;2h</span></span>
                                                         ) : isSelected ? (
                                                             <span style={{ fontSize: 10, color: "#10b981" }}>✓</span>
                                                         ) : null}
@@ -747,7 +747,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         {!loadingTarget && selectedTarget && (
                             <>
                                 {selectedTarget.hasShield && <div style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 10, padding: 16, marginBottom: 16, textAlign: "center" }}><div style={{ fontSize: 28, marginBottom: 4 }}>🛡️</div><div style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600 }}>Target Protected</div></div>}
-                                {selectedTarget.hasImmunity && !selectedTarget.hasShield && <div style={{ background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 10, padding: 16, marginBottom: 16, textAlign: "center" }}><div style={{ fontSize: 28, marginBottom: 4 }}>🛡️</div><div style={{ fontSize: 12, color: "#f59e0b", fontWeight: 600 }}>Target Immune (2h)</div><div style={{ fontSize: 10, color: textMuted, marginTop: 4 }}>Recently raided - try another farm</div></div>}
+                                {selectedTarget.hasImmunity && !selectedTarget.hasShield && <div style={{ background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 10, padding: 16, marginBottom: 16, textAlign: "center" }}><div style={{ fontSize: 28, marginBottom: 4 }}>🛡️</div><div style={{ fontSize: 12, color: "#f59e0b", fontWeight: 600 }}>Target Immune (&lt;2h)</div><div style={{ fontSize: 10, color: textMuted, marginTop: 4 }}>Recently raided - try another farm</div></div>}
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
                                     <div style={{ background: "rgba(239,68,68,0.1)", borderRadius: 8, padding: 12, textAlign: "center" }}><div style={{ fontSize: 9, color: textMuted, marginBottom: 4 }}>THEIR POWER</div><div style={{ fontSize: 22, fontWeight: 700, color: "#ef4444" }}>{selectedTarget.battlePower}</div></div>
                                     <div style={{ background: "rgba(16,185,129,0.1)", borderRadius: 8, padding: 12, textAlign: "center" }}><div style={{ fontSize: 9, color: textMuted, marginBottom: 4 }}>PENDING LOOT</div><div style={{ fontSize: 22, fontWeight: 700, color: "#10b981" }}>{selectedTarget.pendingRewards}</div></div>

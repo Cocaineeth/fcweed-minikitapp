@@ -3304,46 +3304,117 @@ export default function FCWeedApp()
         }
     }
 
-    // Reveal target stats (no payment - just show backend data)
+    // Reveal & Lock target - PAY 50K and execute cartelAttack
     async function handleLockAndFight() {
         if (warsTransactionInProgress.current || !warsPreviewData) return;
         warsTransactionInProgress.current = true;
-        setWarsStatus("Loading target stats...");
+        setWarsSearching(true);
+        setWarsStatus("Preparing attack...");
 
         try {
             const ctx = await ensureWallet();
             if (!ctx) {
                 setWarsStatus("Wallet connection failed");
+                setWarsSearching(false);
                 warsTransactionInProgress.current = false;
                 return;
             }
 
             const { target, nonce, deadline, signature, stats } = warsPreviewData;
-
-            // Just reveal stats - NO transaction, NO payment
-            // The actual attack (and 50K fee) happens when user clicks ATTACK
-            // DON'T clear warsPreviewData - we need signature/deadline for attack!
-            setWarsTargetLocked(true);
             
-            // Backend returns pendingRewards as formatted string (e.g. "3434000.123")
-            // Convert back to BigNumber for display - with robust null/empty handling
+            // Check and request approval for attack fee
+            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            const attackFee = await battlesContract.cartelFee();
+            const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+            let allowance = await tokenContract.allowance(ctx.userAddress, V5_BATTLES_ADDRESS);
+
+            if (allowance.lt(attackFee)) {
+                setWarsStatus("Approving FCWEED (confirm in wallet)...");
+                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
+                if (!approveTx) {
+                    setWarsStatus("Approval rejected");
+                    setWarsSearching(false);
+                    warsTransactionInProgress.current = false;
+                    return;
+                }
+                setWarsStatus("Confirming approval...");
+                await waitForTx(approveTx, readProvider);
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+
+            // Check if we have an active shield - if so, remove it first
+            const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, V5_ITEMSHOP_ABI, readProvider);
+            const shieldInfo = await itemShopContract.hasActiveShield(ctx.userAddress);
+            
+            if (shieldInfo[0]) {
+                setWarsStatus("Removing your shield...");
+                const removeShieldTx = await txAction().sendContractTx(
+                    V5_ITEMSHOP_ADDRESS, 
+                    v5ItemShopInterface.encodeFunctionData("removeShieldSelf", []), 
+                    "0x4C4B40"
+                );
+                if (!removeShieldTx) {
+                    setWarsStatus("Shield removal rejected");
+                    setWarsSearching(false);
+                    warsTransactionInProgress.current = false;
+                    return;
+                }
+                await waitForTx(removeShieldTx, readProvider);
+                setWarsStatus("Shield removed! Attacking...");
+            }
+
+            setWarsStatus("Attacking (50K fee - confirm in wallet)...");
+
+            // Execute cartelAttack - this pays 50K AND executes the battle
+            const tx = await txAction().sendContractTx(
+                V5_BATTLES_ADDRESS,
+                v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]),
+                "0x4C4B40"
+            );
+
+            if (!tx) {
+                setWarsStatus("Transaction rejected");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
+            setWarsStatus("Battle in progress...");
+            const receipt = await waitForTx(tx, readProvider);
+
+            // Parse battle result from logs
+            const battleResultTopic = v3BattlesInterface.getEventTopic("CartelResult");
+            let battleResult: any = null;
+
+            if (receipt && receipt.logs) {
+                for (const log of receipt.logs) {
+                    if (log.topics[0] === battleResultTopic) {
+                        try {
+                            const parsed = v3BattlesInterface.parseLog(log);
+                            battleResult = {
+                                attacker: parsed.args.a,
+                                defender: parsed.args.d,
+                                won: parsed.args.w,
+                                damageDealt: parsed.args.dmg.toNumber(),
+                                rewardsTransferred: parsed.args.s,
+                            };
+                            console.log("[Wars] Battle result:", battleResult);
+                        } catch {}
+                    }
+                }
+            }
+
+            // Show target stats for display
             let pendingBN = ethers.BigNumber.from(0);
             const rawPending = stats?.pendingRewards;
             if (rawPending !== null && rawPending !== undefined && rawPending !== "" && rawPending !== "0") {
                 try {
-                    // Try parsing as decimal string first
                     const pendingStr = rawPending.toString().trim();
                     if (pendingStr && !isNaN(parseFloat(pendingStr))) {
                         pendingBN = ethers.utils.parseUnits(pendingStr, 18);
                     }
                 } catch {
-                    // If parseUnits fails, try BigNumber.from for raw wei values
-                    try {
-                        pendingBN = ethers.BigNumber.from(rawPending);
-                    } catch {
-                        console.warn("[Wars] Could not parse pendingRewards:", rawPending);
-                        pendingBN = ethers.BigNumber.from(0);
-                    }
+                    try { pendingBN = ethers.BigNumber.from(rawPending); } catch {}
                 }
             }
             
@@ -3355,73 +3426,63 @@ export default function FCWeedApp()
                 pendingRewards: pendingBN,
                 hasShield: stats.hasShield,
             });
-            setWarsSearchExpiry(Math.floor(Date.now() / 1000) + 600);
 
-            // Get BOTH attacker and defender power from Battles contract (includes ItemShop boosts)
-            let attackerPower = contractCombatPower; // Use cached contract power for attacker
+            // Get power for display
+            let attackerPower = contractCombatPower;
             let defenderPower = 0;
-            
             try {
-                const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, [
+                const battlesContractPower = new ethers.Contract(V5_BATTLES_ADDRESS, [
                     "function getPower(address) view returns (uint256 base, uint256 atk, uint256 def)"
                 ], readProvider);
-                const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, [
-                    "function hasActiveNukeReady(address) view returns (bool)"
-                ], readProvider);
-                
-                // Fetch attacker power if not cached, and always fetch defender power
-                const calls: Promise<any>[] = [
-                    battlesContract.getPower(target), // Defender's power
-                ];
-                if (!attackerPower) {
-                    calls.push(battlesContract.getPower(ctx.userAddress)); // Attacker's power
-                    calls.push(itemShopContract.hasActiveNukeReady(ctx.userAddress).catch(() => false));
-                }
-                
-                const results = await Promise.all(calls);
-                
-                // Defender power - use DEF (index 2) which includes their defense boosts
-                defenderPower = results[0][2].toNumber();
-                console.log("[Wars] Lock - Contract defender power:", defenderPower);
-                
-                // Attacker power if we needed to fetch it
-                if (!attackerPower && results.length > 1) {
-                    attackerPower = results[1][1].toNumber(); // ATK power (index 1)
-                    const hasNuke = results[2] || false;
-                    if (hasNuke) {
-                        attackerPower = Math.floor(attackerPower * 101); // Nuke = 101x
-                    }
-                    console.log("[Wars] Lock - Contract attacker power:", attackerPower, "hasNuke:", hasNuke);
-                }
-            } catch (e) {
-                console.error("[Wars] Lock - Failed to get contract power:", e);
-                // Fallback to backend stats for defender if contract call fails
+                const defPowerResult = await battlesContractPower.getPower(target);
+                defenderPower = defPowerResult[2].toNumber();
+            } catch {
                 defenderPower = Math.round((stats.plants * 100 + stats.lands * 50 + stats.superLands * 150) * stats.avgHealth / 100);
             }
 
-            console.log("[Wars] Lock - Final attacker power:", attackerPower, "defender power:", defenderPower);
-
-            // Calculate win chance
             const total = attackerPower + defenderPower;
             const estimatedWinChance = total > 0 ? Math.round((attackerPower * 100) / total) : 50;
-            console.log("[Wars] Lock - Win chance:", estimatedWinChance);
 
-            setWarsOdds({
-                attackerPower,
-                defenderPower,
-                estimatedWinChance,
-            });
+            setWarsOdds({ attackerPower, defenderPower, estimatedWinChance });
+            setWarsTargetLocked(true);
+            setWarsPreviewData(null); // Clear preview data - battle is done
 
-            setWarsStatus("Target locked! Ready to attack.");
+            // Show battle result
+            if (battleResult) {
+                setWarsResult(battleResult);
+                const rewards = battleResult.rewardsTransferred || ethers.BigNumber.from(0);
+                const rewardsAmount = ethers.BigNumber.isBigNumber(rewards) ? rewards : ethers.BigNumber.from(rewards || 0);
+                
+                if (battleResult.won) {
+                    const stolenAmount = parseFloat(ethers.utils.formatUnits(rewardsAmount, 18));
+                    const stolenFormatted = stolenAmount >= 1000 ? (stolenAmount / 1000).toFixed(1) + "K" : stolenAmount.toFixed(0);
+                    setWarsStatus(`🎉 VICTORY! Stole ${stolenFormatted} FCWEED!`);
+                } else {
+                    const lostAmount = parseFloat(ethers.utils.formatUnits(rewardsAmount, 18));
+                    const lostFormatted = lostAmount >= 1000 ? (lostAmount / 1000).toFixed(1) + "K" : lostAmount.toFixed(0);
+                    setWarsStatus(`💀 DEFEAT! Lost ${lostFormatted} FCWEED.`);
+                }
+            } else {
+                setWarsStatus("Battle complete! Check your rewards.");
+                setWarsResult({ won: true, rewardsTransferred: ethers.BigNumber.from(0), damageDealt: 0 });
+            }
+
+            // Refresh data
+            setTimeout(() => {
+                loadWarsPlayerStats();
+                refreshV5StakingRef.current = false;
+                refreshV5Staking();
+            }, 2000);
 
         } catch (err: any) {
-            console.error("[Wars] Lock failed:", err);
-            if (err.message?.includes("insufficient allowance")) {
-                setWarsStatus("Approval failed. Please try again.");
-            } else if (err.message?.includes("user rejected") || err.message?.includes("rejected")) {
+            console.error("[Wars] Attack failed:", err);
+            const errMsg = (err.reason || err.message || err).toString().toLowerCase();
+            if (errMsg.includes("cooldown") || errMsg.includes("!cd")) {
+                setWarsStatus("❌ Attack on cooldown! Wait before attacking again.");
+            } else if (errMsg.includes("user rejected") || errMsg.includes("rejected")) {
                 setWarsStatus("Transaction cancelled.");
             } else {
-                setWarsStatus("Lock failed: " + (err.reason || err.message || err).toString().slice(0, 60));
+                setWarsStatus("Attack failed: " + (err.reason || err.message || err).toString().slice(0, 60));
             }
         } finally {
             setWarsSearching(false);
@@ -3492,228 +3553,17 @@ export default function FCWeedApp()
         }
     }
 
-    async function handleWarsAttack() {
-        if (warsTransactionInProgress.current || !warsTarget) return;
-        await executeWarsAttack();
-    }
-    
-    async function executeWarsAttack() {
-        if (warsTransactionInProgress.current || !warsTarget) return;
-        warsTransactionInProgress.current = true;
-        setWarsAttacking(true);
-        setWarsStatus("Preparing attack...");
-
-        try {
-            const ctx = await ensureWallet();
-            if (!ctx) {
-                setWarsStatus("Wallet connection failed");
-                setWarsAttacking(false);
-                warsTransactionInProgress.current = false;
-                return;
-            }
-
-            // Check if we have an active shield - if so, remove it first
-            const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, V5_ITEMSHOP_ABI, readProvider);
-            const shieldInfo = await itemShopContract.hasActiveShield(ctx.userAddress);
-            
-            if (shieldInfo[0]) {
-                setWarsStatus("Removing your shield...");
-                const removeShieldTx = await txAction().sendContractTx(
-                    V5_ITEMSHOP_ADDRESS, 
-                    v5ItemShopInterface.encodeFunctionData("removeShieldSelf", []), 
-                    "0x4C4B40"
-                );
-                if (!removeShieldTx) {
-                    setWarsStatus("Shield removal rejected");
-                    setWarsAttacking(false);
-                    warsTransactionInProgress.current = false;
-                    return;
-                }
-                await waitForTx(removeShieldTx, readProvider);
-                setWarsStatus("Shield removed! Attacking...");
-            } else {
-                setWarsStatus("Attacking...");
-            }
-
-            // Validate signature exists and is valid
-            const signature = warsPreviewData?.signature;
-            const deadline = warsPreviewData?.deadline;
-            
-            if (!signature || signature === "0x" || signature.length < 130) {
-                console.error("[Wars] Invalid signature:", signature);
-                setWarsStatus("Invalid signature - please search again");
-                setWarsAttacking(false);
-                warsTransactionInProgress.current = false;
-                return;
-            }
-            
-            if (!deadline || deadline < Math.floor(Date.now() / 1000)) {
-                console.error("[Wars] Deadline expired:", deadline);
-                setWarsStatus("Search expired - please search again");
-                setWarsAttacking(false);
-                warsTransactionInProgress.current = false;
-                return;
-            }
-            
-            console.log("[Wars] Attacking with signature:", signature.slice(0, 20) + "...", "deadline:", deadline);
-
-            // Check and request approval for attack fee
-            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
-            const attackFee = await battlesContract.cartelFee();
-            const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            let allowance = await tokenContract.allowance(ctx.userAddress, V5_BATTLES_ADDRESS);
-
-            if (allowance.lt(attackFee)) {
-                setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
-                if (!approveTx) {
-                    setWarsStatus("Approval rejected");
-                    setWarsAttacking(false);
-                    warsTransactionInProgress.current = false;
-                    return;
-                }
-                setWarsStatus("Confirming approval...");
-                await waitForTx(approveTx, readProvider);
-                await new Promise(resolve => setTimeout(resolve, 1500));
-            }
-
-            setWarsStatus("Attacking (confirm in wallet)...");
-            const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("cartelAttack", [warsTarget, deadline, signature]), "0x4C4B40");
-            if (!tx) {
-                setWarsStatus("Transaction rejected");
-                setWarsAttacking(false);
-                warsTransactionInProgress.current = false;
-                return;
-            }
-
-            setWarsStatus("Battle in progress...");
-
-
-            const receipt = await waitForTx(tx, readProvider);
-
-
-            const battleResultTopic = v3BattlesInterface.getEventTopic("CartelResult");
-            let battleResult: any = null;
-
-            if (receipt && receipt.logs) {
-                for (const log of receipt.logs) {
-                    if (log.topics[0] === battleResultTopic) {
-                        try {
-                            const parsed = v3BattlesInterface.parseLog(log);
-                            battleResult = {
-                                attacker: parsed.args.a,
-                                defender: parsed.args.d,
-                                won: parsed.args.w,
-                                damageDealt: parsed.args.dmg.toNumber(),
-                                rewardsTransferred: parsed.args.s,
-                            };
-                            console.log("[Wars] Battle result:", battleResult);
-                        } catch {}
-                    }
-                }
-            }
-
-
-            if (!battleResult && tx.hash) {
-                try {
-                    const fullReceipt = await readProvider.getTransactionReceipt(tx.hash);
-                    if (fullReceipt && fullReceipt.logs) {
-                        for (const log of fullReceipt.logs) {
-                            if (log.address.toLowerCase() === V5_BATTLES_ADDRESS.toLowerCase() && log.topics[0] === battleResultTopic) {
-                                const parsed = v3BattlesInterface.parseLog(log);
-                                battleResult = {
-                                    attacker: parsed.args.a,
-                                    defender: parsed.args.d,
-                                    won: parsed.args.w,
-                                    damageDealt: parsed.args.dmg.toNumber(),
-                                    rewardsTransferred: parsed.args.s,
-                                };
-                            }
-                        }
-                    }
-                } catch {}
-            }
-
-            if (battleResult) {
-                setWarsResult(battleResult);
-                // Safely handle rewardsTransferred - it might be undefined or a BigNumber
-                const rewards = battleResult.rewardsTransferred || ethers.BigNumber.from(0);
-                const rewardsAmount = ethers.BigNumber.isBigNumber(rewards) ? rewards : ethers.BigNumber.from(rewards || 0);
-                
-                if (battleResult.won) {
-                    const stolenAmount = parseFloat(ethers.utils.formatUnits(rewardsAmount, 18));
-                    const stolenFormatted = stolenAmount >= 1000 ? (stolenAmount / 1000).toFixed(1) + "K" : stolenAmount.toFixed(0);
-                    setWarsStatus(`🎉 VICTORY! Stole ${stolenFormatted} FCWEED! Their plants took ${battleResult.damageDealt}% damage.`);
-                } else {
-                    const lostAmount = parseFloat(ethers.utils.formatUnits(rewardsAmount, 18));
-                    const lostFormatted = lostAmount >= 1000 ? (lostAmount / 1000).toFixed(1) + "K" : lostAmount.toFixed(0);
-                    setWarsStatus(`💀 DEFEAT! Lost ${lostFormatted} FCWEED. Your plants took ${battleResult.damageDealt}% damage.`);
-                }
-            } else {
-                setWarsStatus("Battle complete! Check your rewards.");
-                setWarsResult({ won: true, rewardsTransferred: ethers.BigNumber.from(0), damageDealt: 0 });
-            }
-
-            setWarsTarget(null);
-            setWarsTargetStats(null);
-            setWarsOdds(null);
-            setWarsSearchExpiry(0);
-            setWarsTargetLocked(false);
-            setWarsPreviewData(null);
-
-            // Refresh V5 staking data to show updated health and pending rewards
-            setTimeout(() => {
-                loadWarsPlayerStats();
-                refreshV5StakingRef.current = false;
-                refreshV5Staking();
-            }, 2000);
-
-            // Refresh again after a bit more time for blockchain to settle
-            setTimeout(() => {
-                refreshV5StakingRef.current = false;
-                refreshV5Staking();
-            }, 5000);
-
-        } catch (err: any) {
-            console.error("[Wars] Attack failed:", err);
-            const errMsg = (err.reason || err.message || err).toString().toLowerCase();
-            if (errMsg.includes("no attack power")) {
-                setWarsStatus("❌ No attack power! Your plants may be at 0% health. Water them first!");
-            } else if (errMsg.includes("no defense power")) {
-                setWarsStatus("❌ Target has no defense power. Try a different opponent.");
-            } else if (errMsg.includes("search expired")) {
-                setWarsStatus("❌ Search expired! Please search for a new target.");
-                setWarsTarget(null);
-                setWarsTargetStats(null);
-                setWarsTargetLocked(false);
-            } else if (errMsg.includes("no active search")) {
-                setWarsStatus("❌ No active search. Please search for a target first.");
-                setWarsTarget(null);
-                setWarsTargetStats(null);
-                setWarsTargetLocked(false);
-            } else if (errMsg.includes("target has immunity")) {
-                setWarsStatus("❌ Target has immunity! They were recently attacked.");
-            } else if (errMsg.includes("target has shield")) {
-                setWarsStatus("❌ Target has a raid shield active!");
-            } else {
-                setWarsStatus("Attack failed: " + (err.reason || err.message || err).toString().slice(0, 60));
-            }
-        } finally {
-            setWarsAttacking(false);
-            warsTransactionInProgress.current = false;
-        }
-    }
-
     async function handleNextOpponent() {
         if (warsTransactionInProgress.current) return;
 
-        // V3 doesn't have on-chain target tracking - just clear local state and search again
+        // Clear state and search again
         setWarsTarget(null);
         setWarsTargetStats(null);
         setWarsOdds(null);
         setWarsSearchExpiry(0);
         setWarsPreviewData(null);
         setWarsTargetLocked(false);
+        setWarsResult(null);
         setWarsStatus("");
 
         handleWarsSearch();
@@ -5908,7 +5758,7 @@ export default function FCWeedApp()
                                         className={styles.btnPrimary}
                                         style={{ padding: "10px 24px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}
                                     >
-                                        {warsSearching ? "🔍 Searching..." : `🔍 Search for Opponent (${warsSearchFee})`}
+                                        {warsSearching ? "🔍 Searching..." : "🔍 Search for Opponent"}
                                     </button>
                                     {warsStatus && <p style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24", marginTop: 8 }}>{warsStatus}</p>}
                                 </div>
@@ -5928,7 +5778,7 @@ export default function FCWeedApp()
                                         {!warsTargetLocked && (
                                             <div style={{ background: "rgba(251,191,36,0.1)", border: "1px dashed rgba(251,191,36,0.5)", borderRadius: 8, padding: 12, marginBottom: 12 }}>
                                                 <div style={{ fontSize: 24, marginBottom: 8 }}>❓</div>
-                                                <p style={{ fontSize: 11, color: "#fbbf24", margin: 0 }}>Pay {warsSearchFee} FCWEED to reveal stats and fight!</p>
+                                                <p style={{ fontSize: 11, color: "#fbbf24", margin: 0 }}>Click Lock & Attack to pay {warsSearchFee} and battle!</p>
                                             </div>
                                         )}
 
@@ -6032,12 +5882,12 @@ export default function FCWeedApp()
 
                                         <div style={{ display: "flex", gap: 8 }}>
                                             {!warsTargetLocked ? (
-                                                <button type="button" onClick={handleLockAndFight} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #f59e0b, #fbbf24)" }}>
-                                                    {warsSearching ? "Processing..." : "🔍 Reveal Stats"}
+                                                <button type="button" onClick={handleLockAndFight} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}>
+                                                    {warsSearching ? "Attacking..." : `🔓 Lock & Attack (${warsSearchFee})`}
                                                 </button>
                                             ) : (
-                                                <button type="button" onClick={handleWarsAttack} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}>
-                                                    {warsSearching ? "Attacking..." : `⚔️ ATTACK (${warsSearchFee})`}
+                                                <button type="button" onClick={handleNextOpponent} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #f59e0b, #fbbf24)" }}>
+                                                    {warsSearching ? "Searching..." : "🔍 Search Again"}
                                                 </button>
                                             )}
                                             <button type="button" onClick={handleNextOpponent} disabled={warsSearching} style={{ padding: "10px 14px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(239,68,68,0.5)", background: "transparent", color: "#ef4444", cursor: warsSearching ? "not-allowed" : "pointer" }}>
