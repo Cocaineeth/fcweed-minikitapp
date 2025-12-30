@@ -387,7 +387,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             const tx = await sendContractTx(
                 V5_BATTLES_ADDRESS,
                 battlesInterface.encodeFunctionData("purgeAttack", [selectedTarget.address]),
-                "0x7A120" // 500k gas
+                "0x1E8480" // 2M gas - battles do multiple cross-contract calls
             );
             
             if (!tx) {
@@ -474,7 +474,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
 
             {/* Stats */}
             <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
                     <div>
                         <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>PURGED</div>
                         <div style={{ fontSize: 14, fontWeight: 700, color: "#dc2626" }}>{totalPurged}</div>
@@ -482,10 +482,6 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                     <div>
                         <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>BURNED</div>
                         <div style={{ fontSize: 14, fontWeight: 700, color: "#f97316" }}>{totalBurned}</div>
-                    </div>
-                    <div>
-                        <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>LOOTED</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>{totalLooted}</div>
                     </div>
                     <div>
                         <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>COOLDOWN</div>

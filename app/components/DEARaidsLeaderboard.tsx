@@ -653,8 +653,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             // Step 3: Execute the raid
             setStatus("Initiating DEA Raid...");
             const data = battlesInterface.encodeFunctionData("deaRaid", [selectedTarget.address]);
-            // Increased gas limit from 500k to 800k - DEA raids are gas intensive
-            const tx = await sendContractTx(V5_BATTLES_ADDRESS, data, "0xC3500");
+            // Increased gas limit to 2M - DEA raids do multiple cross-contract calls
+            const tx = await sendContractTx(V5_BATTLES_ADDRESS, data, "0x1E8480");
             if (!tx) { setStatus("Transaction rejected"); setRaiding(false); return; }
             setStatus("Raid in progress...");
             const receipt = await tx.wait();
@@ -745,16 +745,12 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     </div>
                 )}
 
-                {/* Stats Box with total raids, seized, and cooldown */}
+                {/* Stats Box with total raids and cooldown */}
                 <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, textAlign: "center" }}>
                         <div>
                             <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>TOTAL RAIDS</div>
                             <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>{totalRaids}</div>
-                        </div>
-                        <div>
-                            <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>TOTAL SEIZED</div>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>{totalSeized}</div>
                         </div>
                         <div>
                             <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>YOUR COOLDOWN</div>

@@ -3590,7 +3590,7 @@ export default function FCWeedApp()
             const tx = await txAction().sendContractTx(
                 V5_BATTLES_ADDRESS,
                 v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]),
-                "0x7A120" // 500k gas - increased for safety
+                "0x1E8480" // 2M gas - battles do multiple cross-contract calls
             );
 
             if (!tx) {
@@ -5777,14 +5777,14 @@ export default function FCWeedApp()
                         {connected && (
                             <div style={{ background: theme === "light" ? "rgba(99,102,241,0.05)" : "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 10, padding: 10, marginBottom: 10 }}>
                                 <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 700, marginBottom: 8, textAlign: "center" }}>🎒 INVENTORY</div>
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 4 }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>
                                     {/* AK-47 */}
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
-                                        <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/ak47.gif" alt="AK-47" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95 }}>
+                                        <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
+                                            <img src="/images/items/ak47.gif" alt="AK-47" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>AK-47</div>
-                                        <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>{inventoryAK47}</div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>{inventoryAK47}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
                                             {ak47Expiry > Math.floor(Date.now() / 1000) ? (
                                                 <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((ak47Expiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((ak47Expiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
@@ -5794,12 +5794,12 @@ export default function FCWeedApp()
                                         </div>
                                     </div>
                                     {/* Tactical Nuke */}
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(239,68,68,0.1)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", border: "1px solid rgba(239,68,68,0.3)", minHeight: 85 }}>
-                                        <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/nuke.gif" alt="Nuke" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(239,68,68,0.1)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", border: "1px solid rgba(239,68,68,0.3)", minHeight: 95 }}>
+                                        <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
+                                            <img src="/images/items/nuke.gif" alt="Nuke" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 6, color: "#ef4444", fontWeight: 600, marginBottom: 2 }}>NUKE</div>
-                                        <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>{inventoryNuke}</div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>{inventoryNuke}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
                                             {nukeExpiry > Math.floor(Date.now() / 1000) ? (
                                                 <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((nukeExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(nukeExpiry - Math.floor(Date.now() / 1000)) % 60}s</div>
@@ -5809,12 +5809,12 @@ export default function FCWeedApp()
                                         </div>
                                     </div>
                                     {/* RPG */}
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
-                                        <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/rpg.gif" alt="RPG" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95 }}>
+                                        <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
+                                            <img src="/images/items/rpg.gif" alt="RPG" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>RPG</div>
-                                        <div style={{ fontSize: 12, fontWeight: 700, color: "#a855f7", marginBottom: 4 }}>{inventoryRPG}</div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: "#a855f7", marginBottom: 4 }}>{inventoryRPG}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
                                             {rpgExpiry > Math.floor(Date.now() / 1000) ? (
                                                 <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((rpgExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(rpgExpiry - Math.floor(Date.now() / 1000)) % 60}s</div>
@@ -5824,23 +5824,23 @@ export default function FCWeedApp()
                                         </div>
                                     </div>
                                     {/* Health Packs */}
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
-                                        <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95 }}>
+                                        <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
+                                            <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 6, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>HEALTH</div>
-                                        <div style={{ fontSize: 12, fontWeight: 700, color: "#10b981", marginBottom: 4 }}>{inventoryHealthPacks}</div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: "#10b981", marginBottom: 4 }}>{inventoryHealthPacks}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
                                             <button onClick={() => setHealthPackModalOpen(true)} disabled={inventoryHealthPacks === 0 || v5StakedPlants.length === 0} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryHealthPacks > 0 && v5StakedPlants.length > 0 ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: "#fff", cursor: inventoryHealthPacks > 0 && v5StakedPlants.length > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Use</button>
                                         </div>
                                     </div>
                                     {/* Shields */}
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
-                                        <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/shield.gif" alt="Shield" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95 }}>
+                                        <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
+                                            <img src="/images/items/shield.gif" alt="Shield" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>SHIELDS</div>
-                                        <div style={{ fontSize: 12, fontWeight: 700, color: "#3b82f6", marginBottom: 4 }}>{inventoryShields}</div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: "#3b82f6", marginBottom: 4 }}>{inventoryShields}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
                                             {shieldExpiry > Math.floor(Date.now() / 1000) ? (
                                                 <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((shieldExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((shieldExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
@@ -5850,12 +5850,12 @@ export default function FCWeedApp()
                                         </div>
                                     </div>
                                     {/* Attack Boost */}
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 6, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 85 }}>
-                                        <div style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
-                                            <img src="/images/items/attackboost.gif" alt="Attack Boost" style={{ maxWidth: 24, maxHeight: 24, objectFit: "contain" }} />
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95 }}>
+                                        <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
+                                            <img src="/images/items/attackboost.gif" alt="Attack Boost" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain" }} />
                                         </div>
                                         <div style={{ fontSize: 6, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>BOOST</div>
-                                        <div style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b", marginBottom: 4 }}>{inventoryBoosts}</div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b", marginBottom: 4 }}>{inventoryBoosts}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
                                             {boostExpiry > Math.floor(Date.now() / 1000) ? (
                                                 <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((boostExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((boostExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
@@ -6223,34 +6223,34 @@ export default function FCWeedApp()
                                     <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24" }}>{crateUserStats.dust.toLocaleString()}</div>
                                 </div>
                             </div>
-                            <div style={{ display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-                                <div style={{ textAlign: "center", background: "rgba(96,165,250,0.15)", borderRadius: 6, padding: "4px 8px", minWidth: 42, border: "1px solid rgba(96,165,250,0.4)" }}>
-                                    <img src="/images/items/water.gif" alt="Water" style={{ width: 22, height: 22, objectFit: "contain" }} />
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#60a5fa" }}>{v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18)).toFixed(1) : "0"}L</div>
+                            <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+                                <div style={{ textAlign: "center", background: "rgba(96,165,250,0.15)", borderRadius: 8, padding: "6px 10px", minWidth: 50, border: "1px solid rgba(96,165,250,0.4)" }}>
+                                    <img src="/images/items/water.gif" alt="Water" style={{ width: 32, height: 32, objectFit: "contain" }} />
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#60a5fa" }}>{v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18)).toFixed(1) : "0"}L</div>
                                 </div>
-                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
-                                    <img src="/images/items/ak47.gif" alt="AK-47" style={{ width: 22, height: 22, objectFit: "contain" }} />
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444" }}>{inventoryAK47}</div>
+                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 10px", minWidth: 50 }}>
+                                    <img src="/images/items/ak47.gif" alt="AK-47" style={{ width: 32, height: 32, objectFit: "contain" }} />
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#ef4444" }}>{inventoryAK47}</div>
                                 </div>
-                                <div style={{ textAlign: "center", background: "rgba(239,68,68,0.15)", borderRadius: 6, padding: "4px 8px", minWidth: 42, border: "1px solid rgba(239,68,68,0.4)" }}>
-                                    <img src="/images/items/nuke.gif" alt="Nuke" style={{ width: 22, height: 22, objectFit: "contain" }} />
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444" }}>{inventoryNuke}</div>
+                                <div style={{ textAlign: "center", background: "rgba(239,68,68,0.15)", borderRadius: 8, padding: "6px 10px", minWidth: 50, border: "1px solid rgba(239,68,68,0.4)" }}>
+                                    <img src="/images/items/nuke.gif" alt="Nuke" style={{ width: 32, height: 32, objectFit: "contain" }} />
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#ef4444" }}>{inventoryNuke}</div>
                                 </div>
-                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
-                                    <img src="/images/items/rpg.gif" alt="RPG" style={{ width: 22, height: 22, objectFit: "contain" }} />
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#a855f7" }}>{inventoryRPG}</div>
+                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 10px", minWidth: 50 }}>
+                                    <img src="/images/items/rpg.gif" alt="RPG" style={{ width: 32, height: 32, objectFit: "contain" }} />
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#a855f7" }}>{inventoryRPG}</div>
                                 </div>
-                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
-                                    <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ width: 22, height: 22, objectFit: "contain" }} />
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#10b981" }}>{inventoryHealthPacks}</div>
+                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 10px", minWidth: 50 }}>
+                                    <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ width: 32, height: 32, objectFit: "contain" }} />
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#10b981" }}>{inventoryHealthPacks}</div>
                                 </div>
-                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
-                                    <img src="/images/items/shield.gif" alt="Shield" style={{ width: 22, height: 22, objectFit: "contain" }} />
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#3b82f6" }}>{inventoryShields}</div>
+                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 10px", minWidth: 50 }}>
+                                    <img src="/images/items/shield.gif" alt="Shield" style={{ width: 32, height: 32, objectFit: "contain" }} />
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#3b82f6" }}>{inventoryShields}</div>
                                 </div>
-                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 6, padding: "4px 8px", minWidth: 42 }}>
-                                    <img src="/images/items/attackboost.gif" alt="Attack Boost" style={{ width: 22, height: 22, objectFit: "contain" }} />
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b" }}>{inventoryBoosts}</div>
+                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 10px", minWidth: 50 }}>
+                                    <img src="/images/items/attackboost.gif" alt="Attack Boost" style={{ width: 32, height: 32, objectFit: "contain" }} />
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#f59e0b" }}>{inventoryBoosts}</div>
                                 </div>
                             </div>
                         </div>
