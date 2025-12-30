@@ -3256,7 +3256,7 @@ export default function FCWeedApp()
                 setWarsTargetLocked(false); // Not locked yet - just preview
                 setWarsTargetStats(null); // Don't show stats until they pay
                 setWarsOdds(null);
-                setWarsStatus("Opponent found! Pay 50K FCWEED to reveal stats and fight.");
+                setWarsStatus("Opponent found! Click Reveal to see stats.");
             } catch (fetchErr: any) {
                 clearTimeout(timeoutId);
                 console.error("[Wars] Fetch error:", fetchErr);
@@ -3279,11 +3279,11 @@ export default function FCWeedApp()
         }
     }
 
-    // NEW: Pay 50K to lock target and reveal stats
+    // Reveal target stats (no payment - just show backend data)
     async function handleLockAndFight() {
         if (warsTransactionInProgress.current || !warsPreviewData) return;
         warsTransactionInProgress.current = true;
-        setWarsStatus("Locking target...");
+        setWarsStatus("Loading target stats...");
 
         try {
             const ctx = await ensureWallet();
@@ -3294,43 +3294,11 @@ export default function FCWeedApp()
             }
 
             const { target, nonce, deadline, signature, stats } = warsPreviewData;
-            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
 
-            setWarsStatus("Checking approval...");
-            const searchFee = await battlesContract.cartelFee();
-            const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            let allowance = await tokenContract.allowance(ctx.userAddress, V5_BATTLES_ADDRESS);
-
-            if (allowance.lt(searchFee)) {
-                setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
-                if (!approveTx) throw new Error("Approval rejected");
-                setWarsStatus("Confirming approval...");
-                await waitForTx(approveTx, readProvider);
-                await new Promise(resolve => setTimeout(resolve, 1500));
-            }
-
-            setWarsStatus("Paying 50K FCWEED (confirm in wallet)...");
-
-            const searchTx = await txAction().sendContractTx(
-                V5_BATTLES_ADDRESS,
-                v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]),
-                "0x4C4B40"
-            );
-
-            if (!searchTx) {
-                setWarsStatus("Transaction rejected");
-                warsTransactionInProgress.current = false;
-                return;
-            }
-
-            setWarsStatus("Confirming transaction...");
-            await waitForTx(searchTx, readProvider);
-            await new Promise(resolve => setTimeout(resolve, 1500));
-
-            // NOW show stats - they paid!
+            // Just reveal stats - NO transaction, NO payment
+            // The actual attack (and 50K fee) happens when user clicks ATTACK
+            // DON'T clear warsPreviewData - we need signature/deadline for attack!
             setWarsTargetLocked(true);
-            setWarsPreviewData(null);
             
             // Backend returns pendingRewards as formatted string (e.g. "3434000.123")
             // Convert back to BigNumber for display - with robust null/empty handling
@@ -3393,12 +3361,19 @@ export default function FCWeedApp()
                 if (aPlants > 0 || aLands > 0 || aSuperLands > 0) {
                     attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
                     
-                    // Apply item boost multipliers (same as contract)
+                    // Apply item boost multipliers - ADD all boosts (matches contract)
                     const now = Math.floor(Date.now() / 1000);
-                    if (nukeExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 1000000) / 10000);
-                    else if (rpgExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 50000) / 10000);
-                    else if (ak47Expiry > now) attackerPower = Math.floor(attackerPower * (10000 + 10000) / 10000);
-                    else if (boostExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 2000) / 10000);
+                    let totalBoostBps = 0;
+                    if (boostExpiry > now) totalBoostBps += 2000;   // +20%
+                    if (ak47Expiry > now) totalBoostBps += 10000;   // +100%
+                    if (rpgExpiry > now) totalBoostBps += 50000;    // +500%
+                    
+                    if (totalBoostBps > 0) {
+                        attackerPower = Math.floor(attackerPower * (10000 + totalBoostBps) / 10000);
+                    }
+                    if (nukeExpiry > now) {
+                        attackerPower = Math.floor(attackerPower * 101); // +10000%
+                    }
                     
                     console.log("[Wars] Lock - Calculated attacker power from V5:", attackerPower);
                 }
@@ -3415,12 +3390,19 @@ export default function FCWeedApp()
                 const aAvgHealth = v5StakingStats.avgHealth || 100;
                 attackerPower = Math.round((aPlants * 100 + aLands * 50 + aSuperLands * 150) * aAvgHealth / 100);
                 
-                // Apply item boost multipliers (same as contract)
+                // Apply item boost multipliers - ADD all boosts (matches contract)
                 const now = Math.floor(Date.now() / 1000);
-                if (nukeExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 1000000) / 10000);
-                else if (rpgExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 50000) / 10000);
-                else if (ak47Expiry > now) attackerPower = Math.floor(attackerPower * (10000 + 10000) / 10000);
-                else if (boostExpiry > now) attackerPower = Math.floor(attackerPower * (10000 + 2000) / 10000);
+                let totalBoostBps = 0;
+                if (boostExpiry > now) totalBoostBps += 2000;   // +20%
+                if (ak47Expiry > now) totalBoostBps += 10000;   // +100%
+                if (rpgExpiry > now) totalBoostBps += 50000;    // +500%
+                
+                if (totalBoostBps > 0) {
+                    attackerPower = Math.floor(attackerPower * (10000 + totalBoostBps) / 10000);
+                }
+                if (nukeExpiry > now) {
+                    attackerPower = Math.floor(attackerPower * 101); // +10000%
+                }
                 
                 console.log("[Wars] Lock - Calculated attacker power from cache:", attackerPower);
             }
@@ -3583,6 +3565,27 @@ export default function FCWeedApp()
             
             console.log("[Wars] Attacking with signature:", signature.slice(0, 20) + "...", "deadline:", deadline);
 
+            // Check and request approval for attack fee
+            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            const attackFee = await battlesContract.cartelFee();
+            const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+            let allowance = await tokenContract.allowance(ctx.userAddress, V5_BATTLES_ADDRESS);
+
+            if (allowance.lt(attackFee)) {
+                setWarsStatus("Approving FCWEED (confirm in wallet)...");
+                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
+                if (!approveTx) {
+                    setWarsStatus("Approval rejected");
+                    setWarsAttacking(false);
+                    warsTransactionInProgress.current = false;
+                    return;
+                }
+                setWarsStatus("Confirming approval...");
+                await waitForTx(approveTx, readProvider);
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+
+            setWarsStatus("Attacking (confirm in wallet)...");
             const tx = await txAction().sendContractTx(V5_BATTLES_ADDRESS, v3BattlesInterface.encodeFunctionData("cartelAttack", [warsTarget, deadline, signature]), "0x4C4B40");
             if (!tx) {
                 setWarsStatus("Transaction rejected");
@@ -5792,39 +5795,39 @@ export default function FCWeedApp()
                                 
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                                     {/* Defense Box */}
-                                    <div style={{ background: theme === "light" ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 10, padding: 10, overflow: "hidden" }}>
-                                        <div style={{ fontSize: 12, color: "#60a5fa", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>🛡️ Defense</div>
+                                    <div style={{ background: theme === "light" ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 10, padding: 10 }}>
+                                        <div style={{ fontSize: 11, color: "#60a5fa", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>🛡️ Defense</div>
                                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 }}>
-                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>WINS</div>
-                                                <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.defWins || 0}</div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: "6px 4px", textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2, textTransform: "uppercase" }}>WINS</div>
+                                                <div style={{ fontSize: 16, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.defWins || 0}</div>
                                             </div>
-                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>LOSSES</div>
-                                                <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.defLosses || 0}</div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: "6px 4px", textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2, textTransform: "uppercase" }}>LOSSES</div>
+                                                <div style={{ fontSize: 16, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.defLosses || 0}</div>
                                             </div>
-                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>LOST</div>
-                                                <div style={{ fontSize: 14, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.rewardsLost ? formatLargeNumber(warsPlayerStats.rewardsLost) : "0"}</div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: "6px 4px", textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2, textTransform: "uppercase" }}>LOST</div>
+                                                <div style={{ fontSize: 16, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.rewardsLost ? formatLargeNumber(warsPlayerStats.rewardsLost) : "0"}</div>
                                             </div>
                                         </div>
                                     </div>
                                     
                                     {/* Attack Box */}
-                                    <div style={{ background: theme === "light" ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 10, overflow: "hidden" }}>
-                                        <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>⚔️ Attack</div>
+                                    <div style={{ background: theme === "light" ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: 10 }}>
+                                        <div style={{ fontSize: 11, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 8 }}>⚔️ Attack</div>
                                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 }}>
-                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>WINS</div>
-                                                <div style={{ fontSize: 18, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: "6px 4px", textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2, textTransform: "uppercase" }}>WINS</div>
+                                                <div style={{ fontSize: 16, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.wins || 0}</div>
                                             </div>
-                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>LOSSES</div>
-                                                <div style={{ fontSize: 18, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: "6px 4px", textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2, textTransform: "uppercase" }}>LOSSES</div>
+                                                <div style={{ fontSize: 16, color: "#ef4444", fontWeight: 700 }}>{warsPlayerStats.losses || 0}</div>
                                             </div>
-                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
-                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>STOLEN</div>
-                                                <div style={{ fontSize: 14, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.rewardsStolen ? formatLargeNumber(warsPlayerStats.rewardsStolen) : "0"}</div>
+                                            <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: "6px 4px", textAlign: "center" }}>
+                                                <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2, textTransform: "uppercase" }}>STOLEN</div>
+                                                <div style={{ fontSize: 16, color: "#10b981", fontWeight: 700 }}>{warsPlayerStats.rewardsStolen ? formatLargeNumber(warsPlayerStats.rewardsStolen) : "0"}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -5886,38 +5889,38 @@ export default function FCWeedApp()
                                 <div style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.2), rgba(168,85,247,0.15))", border: "1px solid rgba(139,92,246,0.4)", borderRadius: 8, padding: 8, textAlign: "center" }}>
                                     <div style={{ fontSize: 9, color: "#a78bfa", marginBottom: 2 }}>TOTAL COMBAT POWER</div>
                                     <div style={{ fontSize: 22, color: "#a78bfa", fontWeight: 800 }}>
-                                        {(() => {
-                                            // Contract formula: (plants * 100 + lands * 50 + superLands * 150) * avgHealth / 100
-                                            const plants = v5StakedPlants?.length || 0;
-                                            const lands = v5StakedLands?.length || 0;
-                                            const superLands = v5StakedSuperLands?.length || 0;
-                                            const avgHealth = v5StakingStats?.avgHealth || 100;
-                                            
-                                            let basePower = Math.round((plants * 100 + lands * 50 + superLands * 150) * avgHealth / 100);
-                                            
-                                            // Match contract's getTotalAttackBoost: ADD all boosts together!
-                                            // ItemShop.getTotalAttackBoost() returns sum of all active boosts
-                                            const now = Math.floor(Date.now() / 1000);
-                                            let totalBoostBps = 0;
-                                            
-                                            // Add each active boost (stackable - matches contract behavior)
-                                            if (boostExpiry > now) totalBoostBps += 2000;   // Attack Boost: +20%
-                                            if (ak47Expiry > now) totalBoostBps += 10000;  // AK-47: +100%
-                                            if (rpgExpiry > now) totalBoostBps += 50000;   // RPG: +500%
-                                            
-                                            // Apply combined boost: power * (BPS + totalBoost) / BPS
-                                            if (totalBoostBps > 0) {
-                                                basePower = Math.floor(basePower * (10000 + totalBoostBps) / 10000);
-                                            }
-                                            
-                                            // Nuke is special - guaranteed win, displayed separately
-                                            // (getPower doesn't include nuke, DEA Raids multiplies by 101x)
-                                            if (nukeExpiry > now) {
-                                                basePower = Math.floor(basePower * 101); // +10000% = 101x
-                                            }
-                                            
-                                            return basePower >= 1000 ? (basePower / 1000).toFixed(1) + "K" : basePower;
-                                        })()}
+                                                                            {(() => {
+                                                                                // Contract formula: (plants * 100 + lands * 50 + superLands * 150) * avgHealth / 100
+                                                                                const plants = v5StakedPlants?.length || 0;
+                                                                                const lands = v5StakedLands?.length || 0;
+                                                                                const superLands = v5StakedSuperLands?.length || 0;
+                                                                                const avgHealth = v5StakingStats?.avgHealth || 100;
+
+                                                                                let basePower = Math.round((plants * 100 + lands * 50 + superLands * 150) * avgHealth / 100);
+
+                                                                                // Match contract's getTotalAttackBoost: ADD all boosts together!
+                                                                                // ItemShop.getTotalAttackBoost() returns sum of all active boosts
+                                                                                const now = Math.floor(Date.now() / 1000);
+                                                                                let totalBoostBps = 0;
+
+                                                                                // Add each active boost (stackable - matches contract behavior)
+                                                                                if (boostExpiry > now) totalBoostBps += 2000;   // Attack Boost: +20%
+                                                                                if (ak47Expiry > now) totalBoostBps += 10000;  // AK-47: +100%
+                                                                                if (rpgExpiry > now) totalBoostBps += 50000;   // RPG: +500%
+
+                                                                                // Apply combined boost: power * (BPS + totalBoost) / BPS
+                                                                                if (totalBoostBps > 0) {
+                                                                                    basePower = Math.floor(basePower * (10000 + totalBoostBps) / 10000);
+                                                                                }
+
+                                                                                // Nuke is special - guaranteed win, displayed separately
+                                                                                // (getPower doesn't include nuke, DEA Raids multiplies by 101x)
+                                                                                if (nukeExpiry > now) {
+                                                                                    basePower = Math.floor(basePower * 101); // +10000% = 101x
+                                                                                }
+
+                                                                                return basePower >= 1000 ? (basePower / 1000).toFixed(1) + "K" : basePower;
+                                                                            })()}
                                                                         </div>
                                 </div>
                             </div>
@@ -6069,11 +6072,11 @@ export default function FCWeedApp()
                                         <div style={{ display: "flex", gap: 8 }}>
                                             {!warsTargetLocked ? (
                                                 <button type="button" onClick={handleLockAndFight} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #f59e0b, #fbbf24)" }}>
-                                                    {warsSearching ? "Processing..." : `🔓 Lock & Reveal (${warsSearchFee})`}
+                                                    {warsSearching ? "Processing..." : "🔍 Reveal Stats"}
                                                 </button>
                                             ) : (
                                                 <button type="button" onClick={handleWarsAttack} disabled={warsSearching} className={styles.btnPrimary} style={{ flex: 1, padding: "10px 16px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}>
-                                                    {warsSearching ? "Attacking..." : "⚔️ ATTACK"}
+                                                    {warsSearching ? "Attacking..." : `⚔️ ATTACK (${warsSearchFee})`}
                                                 </button>
                                             )}
                                             <button type="button" onClick={handleNextOpponent} disabled={warsSearching} style={{ padding: "10px 14px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(239,68,68,0.5)", background: "transparent", color: "#ef4444", cursor: warsSearching ? "not-allowed" : "pointer" }}>
