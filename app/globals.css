@@ -1,7 +1,8 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
-  /* Dark theme (default) */
   --background: #050814;
   --foreground: #ffffff;
   --card-bg: rgba(5, 8, 20, 0.9);
@@ -13,9 +14,6 @@
   --accent-blue: #3b82f6;
   --accent-purple: #8b5cf6;
   --accent-yellow: #fbbf24;
-  --btn-primary-bg: linear-gradient(90deg, #2df19b, #35a4ff);
-  --btn-secondary-bg: transparent;
-  --btn-secondary-border: rgba(255, 255, 255, 0.2);
 }
 
 [data-theme="light"] {
@@ -26,30 +24,20 @@
   --text-primary: #1e293b;
   --text-secondary: #475569;
   --text-muted: #64748b;
-  --accent-green: #16a34a;
-  --accent-blue: #2563eb;
-  --accent-purple: #7c3aed;
-  --accent-yellow: #d97706;
-  --btn-primary-bg: linear-gradient(90deg, #16a34a, #2563eb);
-  --btn-secondary-bg: #f1f5f9;
-  --btn-secondary-border: #cbd5e1;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
-  transition: background 0.3s ease, color 0.3s ease;
 }
 
-/* Light mode comprehensive overrides */
 [data-theme="light"] .page {
   background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%) !important;
   color: #1e293b !important;
@@ -59,7 +47,6 @@ body {
   background: #ffffff !important;
   border-color: #e2e8f0 !important;
   color: #1e293b !important;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
 }
 
 [data-theme="light"] .modal {
@@ -73,36 +60,14 @@ body {
   color: #1e293b !important;
 }
 
-[data-theme="light"] .btnPrimary {
-  background: linear-gradient(90deg, #16a34a, #2563eb) !important;
-}
-
-[data-theme="light"] .heading {
-  color: #1e293b !important;
-}
-
 [data-theme="light"] .heroCard {
   background: #ffffff !important;
   border-color: #e2e8f0 !important;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
 }
 
 [data-theme="light"] .headerWrapper {
   background: rgba(255,255,255,0.98) !important;
   border-bottom: 1px solid #e2e8f0 !important;
-}
-
-[data-theme="light"] .radioPill {
-  background: #f1f5f9 !important;
-  border-color: #cbd5e1 !important;
-}
-
-[data-theme="light"] .radioLabel {
-  color: #475569 !important;
-}
-
-[data-theme="light"] .radioTitleInner {
-  color: #1e293b !important;
 }
 
 [data-theme="light"] .iconButton,
@@ -112,39 +77,13 @@ body {
   color: #1e293b !important;
 }
 
-[data-theme="light"] .bulletList {
-  color: #475569 !important;
-}
-
-[data-theme="light"] .bulletList li {
-  color: #475569 !important;
-}
-
 [data-theme="light"] table {
   color: #1e293b !important;
-}
-
-[data-theme="light"] table th,
-[data-theme="light"] table td {
-  color: #1e293b !important;
-  border-color: #e2e8f0 !important;
 }
 
 [data-theme="light"] .statCard {
   background: #f8fafc !important;
   border-color: #e2e8f0 !important;
-}
-
-[data-theme="light"] .statLabel {
-  color: #64748b !important;
-}
-
-[data-theme="light"] .statValue {
-  color: #1e293b !important;
-}
-
-[data-theme="light"] .modalBackdrop {
-  background: rgba(0,0,0,0.5) !important;
 }
 
 [data-theme="light"] select,
@@ -152,65 +91,4 @@ body {
   background: #f8fafc !important;
   border-color: #cbd5e1 !important;
   color: #1e293b !important;
-}
-
-[data-theme="light"] .brand,
-[data-theme="light"] .brandText {
-  color: #1e293b !important;
-}
-
-/* Scrolling animation */
-@keyframes scrollText {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-100%); }
-}
-
-/* Modal light mode styles */
-[data-theme="light"] .modalBackdrop {
-  background: rgba(0,0,0,0.4) !important;
-}
-
-[data-theme="light"] .modal {
-  background: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  color: #1e293b !important;
-}
-
-[data-theme="light"] .modalTitle {
-  color: #1e293b !important;
-}
-
-[data-theme="light"] .modalClose {
-  background: #f1f5f9 !important;
-  border-color: #e2e8f0 !important;
-  color: #64748b !important;
-}
-
-[data-theme="light"] .modalHeader {
-  border-color: #e2e8f0 !important;
-}
-
-[data-theme="light"] .statCard {
-  background: #f8fafc !important;
-  border: 1px solid #e2e8f0 !important;
-}
-
-[data-theme="light"] .statLabel {
-  color: #64748b !important;
-}
-
-[data-theme="light"] .statValue {
-  color: #1e293b !important;
-}
-
-/* Fix text visibility in light mode modals */
-[data-theme="light"] .modal p,
-[data-theme="light"] .modal span,
-[data-theme="light"] .modal div,
-[data-theme="light"] .modal label {
-  color: #1e293b;
-}
-
-[data-theme="light"] .modal input[type="checkbox"] {
-  accent-color: #2563eb;
 }
