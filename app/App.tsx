@@ -3,7 +3,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import { base } from "wagmi/chains";
 import { OnchainKitProvider } from "@coinbase/onchainkit";
-import "@coinbase/onchainkit/styles.css";
+// Removed: import "@coinbase/onchainkit/styles.css"; - conflicts with Tailwind v3
 import { sdk } from "@farcaster/miniapp-sdk";
 import FCWeedApp from "./FCWeedApp";
 import { autoRefreshManager } from "./lib/autoRefresh";
