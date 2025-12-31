@@ -267,7 +267,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             if (anyWindow.ethereum) {
                 const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
                 setProvider(ethersProvider);
-                setSigner(ethersProvider.getSigner());
+                // Pass address explicitly - fixes Phantom/Base App compatibility
+                setSigner(ethersProvider.getSigner(wagmiAddress));
                 setMiniAppEthProvider(anyWindow.ethereum);
             }
         } else if (!wagmiConnected && userAddress && !usingMiniApp) {
@@ -696,7 +697,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             if (anyWindow.ethereum) {
                 try {
                     const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
-                    const signer = ethersProvider.getSigner();
+                    // Pass address explicitly - fixes Phantom/Base App compatibility
+                    const signer = ethersProvider.getSigner(wagmiAddress);
                     const txRequest: any = { to, data, chainId: CHAIN_ID };
                     if (gasLimit) txRequest.gasLimit = gasLimit;
                     return await signer.sendTransaction(txRequest);
@@ -1543,7 +1545,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const anyWindow = window as any;
             if (anyWindow.ethereum) {
                 const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
-                return { signer: ethersProvider.getSigner(), provider: ethersProvider, userAddress: wagmiAddress, isMini: false };
+                // Pass address explicitly to getSigner() - fixes Phantom/Base App wallet compatibility
+                return { signer: ethersProvider.getSigner(wagmiAddress), provider: ethersProvider, userAddress: wagmiAddress, isMini: false };
             }
         }
 
@@ -1662,27 +1665,33 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 }
 
                 p = new ethers.providers.Web3Provider(ethProv as any, "any");
-                s = p.getSigner();
-
+                
+                // Get address FIRST from provider - this works with all wallets
                 try {
-                    addr = await s.getAddress();
-                    console.log("[Wallet] Got address:", addr);
-                } catch (err) {
-                    console.error("[Wallet] Failed to get address:", err);
+                    const accounts = await ethProv.request({ method: "eth_accounts" });
+                    if (accounts && accounts.length > 0) {
+                        addr = accounts[0];
+                        console.log("[Wallet] Got address from eth_accounts:", addr);
+                    } else {
+                        throw new Error("No accounts available");
+                    }
+                } catch (accErr) {
+                    console.warn("[Wallet] eth_accounts failed, trying getSigner fallback:", accErr);
+                    // Fallback for legacy providers
                     try {
-                        const accounts = await ethProv.request({ method: "eth_accounts" });
-                        if (accounts && accounts.length > 0) {
-                            addr = accounts[0];
-                            console.log("[Wallet] Got address from eth_accounts:", addr);
-                        } else {
-                            throw new Error("No accounts available");
-                        }
-                    } catch (accErr) {
+                        const tempSigner = p.getSigner();
+                        addr = await tempSigner.getAddress();
+                        console.log("[Wallet] Got address from getSigner fallback:", addr);
+                    } catch (signerErr) {
                         throw new Error("Could not get wallet address. Please make sure you have a wallet connected.");
                     }
                 }
 
-                console.log("[Wallet] Connected:", addr, "isMini:", isMini);
+                // Get signer with EXPLICIT address - this fixes Phantom/Base App/Rabby compatibility
+                // The key fix: passing the address to getSigner() ensures it works with wallets
+                // that don't support the default getSigner() behavior
+                s = p.getSigner(addr);
+                console.log("[Wallet] Created signer for address:", addr, "isMini:", isMini);
             } else {
                 // No provider found - use RainbowKit modal as fallback for web users
                 setUsingMiniApp(false);
@@ -1723,7 +1732,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         });
 
                         p = new ethers.providers.Web3Provider(switchProvider as any, "any");
-                        s = p.getSigner();
+                        // Pass address explicitly after chain switch
+                        s = p.getSigner(addr);
                         console.log("[Wallet] Switched to Base");
                     } catch (switchErr: any) {
                         console.warn("[Wallet] Chain switch failed:", switchErr);
@@ -1741,7 +1751,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     }],
                                 });
                                 p = new ethers.providers.Web3Provider(switchProvider, "any");
-                                s = p.getSigner();
+                                // Pass address explicitly after adding chain
+                                s = p.getSigner(addr);
                             } catch {
                                 console.warn("[Wallet] Failed to add Base chain");
                             }
