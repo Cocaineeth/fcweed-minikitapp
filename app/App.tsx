@@ -17,39 +17,64 @@ import {
   connectorsForWallets,
 } from "@rainbow-me/rainbowkit";
 import {
+  // Generic fallbacks (ALWAYS include these per RainbowKit docs)
+  injectedWallet,      // Catches ANY wallet's in-app browser (Rabby mobile, Phantom mobile, etc)
+  walletConnectWallet, // Fallback for all WalletConnect-compatible wallets
+  
+  // Popular wallets
   metaMaskWallet,
   coinbaseWallet,
   rainbowWallet,
-  walletConnectWallet,
   phantomWallet,
   rabbyWallet,
   trustWallet,
-  injectedWallet,
+  okxWallet,
+  zerionWallet,
+  ledgerWallet,
+  braveWallet,
+  argentWallet,
+  omniWallet,
 } from "@rainbow-me/rainbowkit/wallets";
 import { WagmiProvider, http, createConfig } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "3a8170812b534d0ff9d794f19a901d64";
 
-// Custom wallet configuration with Phantom and Rabby
+// =============================================================================
+// CUSTOM WALLET LIST - Per RainbowKit docs
+// https://rainbowkit.com/docs/custom-wallet-list
+// =============================================================================
 const connectors = connectorsForWallets(
   [
     {
-      groupName: "Recommended",
+      // This group auto-detects installed wallets
+      // injectedWallet will show when user is in ANY wallet's in-app browser
+      groupName: "Installed",
+      wallets: [
+        injectedWallet,  // Auto-detects Rabby mobile, Phantom mobile, Rainbow browser, etc.
+      ],
+    },
+    {
+      groupName: "Popular",
       wallets: [
         metaMaskWallet,
         coinbaseWallet,
         rabbyWallet,
         phantomWallet,
+        rainbowWallet,
+        trustWallet,
       ],
     },
     {
-      groupName: "Other",
+      groupName: "More",
       wallets: [
-        rainbowWallet,
-        walletConnectWallet,
-        trustWallet,
-        injectedWallet,
+        okxWallet,
+        zerionWallet,
+        ledgerWallet,
+        braveWallet,
+        argentWallet,
+        omniWallet,
+        walletConnectWallet,  // Fallback for ANY WalletConnect-compatible wallet
       ],
     },
   ],
@@ -78,6 +103,7 @@ function Providers({ children, theme }: { children: ReactNode; theme: "dark" | "
         <RainbowKitProvider 
           theme={theme === "dark" ? darkTheme() : lightTheme()}
           modalSize="compact"
+          initialChain={base}
         >
           <OnchainKitProvider
             apiKey={process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY}
