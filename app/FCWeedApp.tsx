@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import Image from "next/image";
-import { useAccount, useDisconnect } from "wagmi";
+import { useAccount, useDisconnect, useWalletClient } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { ethers } from "ethers";
 import { sdk } from "@farcaster/miniapp-sdk";
@@ -232,6 +232,7 @@ async function captureAndShare(
 export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "dark" | "light") => void })
 {
     const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount();
+    const { data: walletClient } = useWalletClient();
     const { openConnectModal } = useConnectModal();
     const { disconnect: wagmiDisconnect } = useDisconnect();
 
@@ -650,7 +651,46 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
 
     async function sendContractTx(to: string, data: string, gasLimit?: string): Promise<ethers.providers.TransactionResponse | null> {
-        // NEW: Handle RainbowKit/desktop connections directly
+        // NEW: Handle RainbowKit/desktop connections using walletClient
+        if (wagmiConnected && wagmiAddress && !usingMiniApp && walletClient) {
+            try {
+                // Use walletClient from wagmi - this is the correct provider for ANY connected wallet
+                // Works with Phantom, Rabby, MetaMask, Coinbase, etc.
+                const hash = await walletClient.sendTransaction({
+                    to: to as `0x${string}`,
+                    data: data as `0x${string}`,
+                    chain: walletClient.chain,
+                    account: walletClient.account,
+                });
+                
+                // Get a provider to fetch the transaction response
+                const anyWindow = window as any;
+                const provider = anyWindow.ethereum 
+                    ? new ethers.providers.Web3Provider(anyWindow.ethereum, "any")
+                    : readProvider;
+                    
+                if (provider) {
+                    // Wait a moment for tx to propagate, then fetch
+                    await new Promise(r => setTimeout(r, 500));
+                    const txResponse = await provider.getTransaction(hash);
+                    return txResponse;
+                }
+                
+                // Fallback: return a minimal response with the hash
+                return { hash } as any;
+            } catch (e: any) {
+                console.error("[TX] WalletClient failed:", e);
+                const msg = e?.shortMessage || e?.message || "Transaction failed";
+                if (msg.includes("rejected") || msg.includes("denied") || e?.code === 4001) {
+                    setMintStatus("Transaction canceled");
+                } else {
+                    setMintStatus(msg.slice(0, 60));
+                }
+                return null;
+            }
+        }
+        
+        // Fallback to window.ethereum for cases where walletClient isn't ready
         if (wagmiConnected && wagmiAddress && !usingMiniApp) {
             const anyWindow = window as any;
             if (anyWindow.ethereum) {
@@ -661,7 +701,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     if (gasLimit) txRequest.gasLimit = gasLimit;
                     return await signer.sendTransaction(txRequest);
                 } catch (e: any) {
-                    console.error("[TX] RainbowKit failed:", e);
+                    console.error("[TX] RainbowKit fallback failed:", e);
                     setMintStatus(e?.reason || e?.message || "Transaction failed");
                     return null;
                 }
