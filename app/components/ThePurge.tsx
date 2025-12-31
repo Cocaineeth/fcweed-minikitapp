@@ -545,7 +545,6 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                                             </div>
                                             <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: textMuted }}>
                                                 <span>{target.plants} 🌿</span>
-                                                <span>{target.lands} 🏞️</span>
                                                 <span style={{ color: getHealthColor(target.avgHealth) }}>{target.avgHealth}% ❤️</span>
                                             </div>
                                         </div>
