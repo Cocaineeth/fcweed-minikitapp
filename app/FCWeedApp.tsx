@@ -650,6 +650,23 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
 
     async function sendContractTx(to: string, data: string, gasLimit?: string): Promise<ethers.providers.TransactionResponse | null> {
+        // NEW: Handle RainbowKit/desktop connections directly
+        if (wagmiConnected && wagmiAddress && !usingMiniApp) {
+            const anyWindow = window as any;
+            if (anyWindow.ethereum) {
+                try {
+                    const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
+                    const signer = ethersProvider.getSigner();
+                    const txRequest: any = { to, data, chainId: CHAIN_ID };
+                    if (gasLimit) txRequest.gasLimit = gasLimit;
+                    return await signer.sendTransaction(txRequest);
+                } catch (e: any) {
+                    console.error("[TX] RainbowKit failed:", e);
+                    setMintStatus(e?.reason || e?.message || "Transaction failed");
+                    return null;
+                }
+            }
+        }
         return txAction().sendContractTx(to, data, gasLimit);
     }
 
