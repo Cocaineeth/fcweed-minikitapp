@@ -684,19 +684,42 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 setStatus("Flagging target as suspect...");
                 try {
                     // Get signature from backend
-                    const sigRes = await fetch(`${WARS_BACKEND_URL}/api/flag/signature`, {
+                    const sigRes = await fetch(`${WARS_BACKEND_URL}/api/dea/flag-signature`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ suspect: selectedTarget.address, caller: userAddress })
+                        body: JSON.stringify({ suspect: selectedTarget.address })
                     });
                     const sigData = await sigRes.json();
+                    console.log("[DEA] Flag signature response:", sigData);
                     if (!sigData.success) throw new Error(sigData.error || "Failed to get flag signature");
+                    
+                    // Ensure soldAmount is properly formatted as BigNumber
+                    let soldAmount = sigData.soldAmount;
+                    if (typeof soldAmount === 'number') {
+                        soldAmount = ethers.utils.parseUnits(soldAmount.toString(), 0);
+                    } else if (typeof soldAmount === 'string' && !soldAmount.startsWith('0x')) {
+                        // If it's a decimal string, convert to BigNumber
+                        soldAmount = ethers.BigNumber.from(soldAmount);
+                    }
+                    
+                    // Ensure signature is properly formatted as bytes
+                    let signature = sigData.signature;
+                    if (typeof signature === 'string' && !signature.startsWith('0x')) {
+                        signature = '0x' + signature;
+                    }
+                    
+                    console.log("[DEA] Formatted flag params:", { 
+                        suspect: selectedTarget.address, 
+                        soldAmount: soldAmount.toString(), 
+                        deadline: sigData.deadline, 
+                        signature: signature.slice(0, 20) + '...' 
+                    });
                     
                     const flagData = battlesInterface.encodeFunctionData("flagWithSig", [
                         selectedTarget.address,
-                        sigData.soldAmount,
+                        soldAmount,
                         sigData.deadline,
-                        sigData.signature
+                        signature
                     ]);
                     const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagData, "0x186A0");
                     if (!flagTx) throw new Error("Flag transaction rejected");
@@ -866,6 +889,18 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         </div>
                     </div>
                 </div>
+
+                {/* Player stats if connected */}
+                {playerStats && (
+                    <div style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 10, padding: 10, marginBottom: 16 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, textAlign: "center", fontSize: 10 }}>
+                            <div><span style={{ color: textMuted }}>Wins:</span> <span style={{ color: "#10b981", fontWeight: 600 }}>{playerStats.wins}</span></div>
+                            <div><span style={{ color: textMuted }}>Losses:</span> <span style={{ color: "#ef4444", fontWeight: 600 }}>{playerStats.losses}</span></div>
+                            <div><span style={{ color: textMuted }}>Stolen:</span> <span style={{ color: "#fbbf24", fontWeight: 600 }}>{playerStats.stolen}</span></div>
+                            <div><span style={{ color: textMuted }}>Power:</span> <span style={{ color: "#8b5cf6", fontWeight: 600 }}>{myBattlePower}</span></div>
+                        </div>
+                    </div>
+                )}
 
                 {loading ? (
                     <div style={{ textAlign: "center", padding: 40, color: textMuted }}>Loading suspects...</div>
