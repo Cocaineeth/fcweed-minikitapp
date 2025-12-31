@@ -2640,16 +2640,37 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
     async function handleV4WaterPlants() {
         if (selectedV4PlantsToWater.length === 0) return;
+        
         try {
-            setActionLoading(true); setV4ActionStatus("Watering plants...");
+            setActionLoading(true);
+            setV4ActionStatus("Watering plants...");
             
-            // Calculate total water needed vs available
-            const totalNeeded = selectedV4PlantsToWater.reduce((sum, id) => sum + (v4CustomWaterAmounts[id] ?? Math.ceil(v4WaterNeeded[id] || 1)), 0);
+            // Get user's water balance
             const userWaterBalance = v4StakingStats?.water 
                 ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18))
                 : 0;
             
-            console.log("[V4 Water] Total needed:", totalNeeded, "User balance:", userWaterBalance);
+            // Check if user has ANY custom amounts set (via +/- buttons)
+            const hasCustomAmounts = selectedV4PlantsToWater.some(id => 
+                v4CustomWaterAmounts[id] !== undefined && 
+                v4CustomWaterAmounts[id] !== Math.ceil(v4WaterNeeded[id] || 1)
+            );
+            
+            // Calculate total water user wants to use
+            const totalWaterToUse = selectedV4PlantsToWater.reduce((sum, id) => {
+                const customAmt = v4CustomWaterAmounts[id];
+                const neededAmt = Math.ceil(v4WaterNeeded[id] || 1);
+                return sum + (customAmt !== undefined ? customAmt : neededAmt);
+            }, 0);
+            
+            console.log("[V4 Water] Total to use:", totalWaterToUse, "User balance:", userWaterBalance);
+            
+            // VALIDATION: User must have enough water
+            if (userWaterBalance < totalWaterToUse) {
+                setV4ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterToUse.toFixed(2)}L`);
+                setActionLoading(false);
+                return;
+            }
             
             // Create interface for water functions
             const waterInterface = new ethers.utils.Interface([
@@ -2660,38 +2681,87 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             let tx;
             
-            if (userWaterBalance >= totalNeeded) {
-                // User has enough water - use normal waterPlants
-                tx = await txAction().sendContractTx(
-                    V4_STAKING_ADDRESS, 
-                    waterInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater])
-                );
-            } else if (selectedV4PlantsToWater.length === 1) {
-                // Single plant with partial water - use waterPlantWithAmount
+            if (hasCustomAmounts || selectedV4PlantsToWater.length === 1) {
+                // Use waterPlantWithAmount for precise control
                 const plantId = selectedV4PlantsToWater[0];
-                const amountToUse = Math.min(userWaterBalance, (v4CustomWaterAmounts[plantId] ?? v4WaterNeeded[plantId]) || 1);
-                const amountWei = ethers.utils.parseUnits(amountToUse.toFixed(18), 18);
                 
-                tx = await txAction().sendContractTx(
-                    V4_STAKING_ADDRESS, 
-                    waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei])
-                );
+                if (selectedV4PlantsToWater.length === 1) {
+                    const amountToUse = v4CustomWaterAmounts[plantId] !== undefined 
+                        ? v4CustomWaterAmounts[plantId] 
+                        : Math.ceil(v4WaterNeeded[plantId] || 1);
+                    const finalAmount = Math.min(amountToUse, userWaterBalance);
+                    const amountWei = ethers.utils.parseUnits(finalAmount.toFixed(18), 18);
+                    
+                    tx = await txAction().sendContractTx(
+                        V4_STAKING_ADDRESS, 
+                        waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei])
+                    );
+                } else {
+                    // Multiple plants with custom amounts - water one by one
+                    for (let i = 0; i < selectedV4PlantsToWater.length; i++) {
+                        const pid = selectedV4PlantsToWater[i];
+                        const amountToUse = v4CustomWaterAmounts[pid] !== undefined 
+                            ? v4CustomWaterAmounts[pid] 
+                            : Math.ceil(v4WaterNeeded[pid] || 1);
+                        
+                        if (amountToUse <= 0) continue;
+                        
+                        const amountWei = ethers.utils.parseUnits(amountToUse.toFixed(18), 18);
+                        setV4ActionStatus(`Watering plant ${i+1}/${selectedV4PlantsToWater.length}...`);
+                        
+                        tx = await txAction().sendContractTx(
+                            V4_STAKING_ADDRESS, 
+                            waterInterface.encodeFunctionData("waterPlantWithAmount", [pid, amountWei])
+                        );
+                        
+                        if (!tx) throw new Error("Transaction rejected");
+                        await waitForTx(tx);
+                    }
+                    
+                    setV4ActionStatus("All plants watered!");
+                    setSelectedV4PlantsToWater([]);
+                    setV4CustomWaterAmounts({});
+                    setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
+                    return;
+                }
             } else {
-                // Multiple plants but not enough water - use waterPlantsWithBalance
-                tx = await txAction().sendContractTx(
-                    V4_STAKING_ADDRESS, 
-                    waterInterface.encodeFunctionData("waterPlantsWithBalance", [selectedV4PlantsToWater])
+                // No custom amounts, multiple plants
+                const totalNeededFor100 = selectedV4PlantsToWater.reduce((sum, id) => 
+                    sum + Math.ceil(v4WaterNeeded[id] || 1), 0
                 );
+                
+                if (userWaterBalance >= totalNeededFor100) {
+                    tx = await txAction().sendContractTx(
+                        V4_STAKING_ADDRESS, 
+                        waterInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater])
+                    );
+                } else {
+                    tx = await txAction().sendContractTx(
+                        V4_STAKING_ADDRESS, 
+                        waterInterface.encodeFunctionData("waterPlantsWithBalance", [selectedV4PlantsToWater])
+                    );
+                }
             }
             
-            if (!tx) throw new Error("Tx rejected");
+            if (!tx) throw new Error("Transaction rejected");
             await waitForTx(tx);
             setV4ActionStatus("Plants watered!");
             setSelectedV4PlantsToWater([]);
             setV4CustomWaterAmounts({});
             setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
-        } catch (err: any) { setV4ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
+            
+        } catch (err: any) {
+            const msg = err.message || String(err);
+            if (msg.includes("!water") || msg.includes("Not enough water")) {
+                setV4ActionStatus("Error: Not enough water! Buy more from the shop.");
+            } else if (msg.includes("rejected") || msg.includes("canceled")) {
+                setV4ActionStatus("Transaction canceled");
+            } else {
+                setV4ActionStatus("Error: " + msg.slice(0, 60));
+            }
+        } finally {
+            setActionLoading(false);
+        }
     }
 
     // ==================== V5 STAKING ====================
@@ -3132,16 +3202,40 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
     async function handleV5WaterPlants() {
         if (selectedV5PlantsToWater.length === 0) return;
+        
         try {
-            setActionLoading(true); setV5ActionStatus("Watering plants...");
+            setActionLoading(true);
+            setV5ActionStatus("Watering plants...");
             
-            // Calculate total water needed vs available
-            const totalNeeded = selectedV5PlantsToWater.reduce((sum, id) => sum + (v5CustomWaterAmounts[id] ?? Math.ceil(v5WaterNeeded[id] || 1)), 0);
+            // Get user's water balance
             const userWaterBalance = v5StakingStats?.water 
                 ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18))
                 : 0;
             
-            console.log("[Water] Total needed:", totalNeeded, "User balance:", userWaterBalance);
+            // Check if user has ANY custom amounts set (via +/- buttons)
+            const hasCustomAmounts = selectedV5PlantsToWater.some(id => 
+                v5CustomWaterAmounts[id] !== undefined && 
+                v5CustomWaterAmounts[id] !== Math.ceil(v5WaterNeeded[id] || 1)
+            );
+            
+            // Calculate total water user wants to use
+            const totalWaterToUse = selectedV5PlantsToWater.reduce((sum, id) => {
+                const customAmt = v5CustomWaterAmounts[id];
+                const neededAmt = Math.ceil(v5WaterNeeded[id] || 1);
+                return sum + (customAmt !== undefined ? customAmt : neededAmt);
+            }, 0);
+            
+            console.log("[Water] Plants:", selectedV5PlantsToWater);
+            console.log("[Water] Custom amounts:", v5CustomWaterAmounts);
+            console.log("[Water] Has custom amounts:", hasCustomAmounts);
+            console.log("[Water] Total to use:", totalWaterToUse, "User balance:", userWaterBalance);
+            
+            // VALIDATION: User must have enough water for what they're trying to use
+            if (userWaterBalance < totalWaterToUse) {
+                setV5ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterToUse.toFixed(2)}L`);
+                setActionLoading(false);
+                return;
+            }
             
             // Create interface for water functions
             const waterInterface = new ethers.utils.Interface([
@@ -3152,41 +3246,104 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             let tx;
             
-            if (userWaterBalance >= totalNeeded) {
-                // User has enough water - use normal waterPlants
-                console.log("[Water] Using waterPlants - have enough water");
-                tx = await txAction().sendContractTx(
-                    V5_STAKING_ADDRESS, 
-                    waterInterface.encodeFunctionData("waterPlants", [selectedV5PlantsToWater])
-                );
-            } else if (selectedV5PlantsToWater.length === 1) {
-                // Single plant with partial water - use waterPlantWithAmount
+            // DECISION LOGIC:
+            // 1. If user has custom amounts set OR single plant → use waterPlantWithAmount for precise control
+            // 2. If multiple plants, no custom, and enough water for all → use waterPlants (batch)
+            
+            if (hasCustomAmounts || selectedV5PlantsToWater.length === 1) {
+                // Use waterPlantWithAmount for precise control
                 const plantId = selectedV5PlantsToWater[0];
-                const amountToUse = Math.min(userWaterBalance, (v5CustomWaterAmounts[plantId] ?? v5WaterNeeded[plantId]) || 1);
-                const amountWei = ethers.utils.parseUnits(amountToUse.toFixed(18), 18);
                 
-                console.log("[Water] Using waterPlantWithAmount - partial water for plant", plantId, "amount:", amountToUse);
-                tx = await txAction().sendContractTx(
-                    V5_STAKING_ADDRESS, 
-                    waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei])
-                );
+                if (selectedV5PlantsToWater.length === 1) {
+                    // Single plant - use exact amount user specified
+                    const amountToUse = v5CustomWaterAmounts[plantId] !== undefined 
+                        ? v5CustomWaterAmounts[plantId] 
+                        : Math.ceil(v5WaterNeeded[plantId] || 1);
+                    
+                    // Cap at user's balance (safety check)
+                    const finalAmount = Math.min(amountToUse, userWaterBalance);
+                    const amountWei = ethers.utils.parseUnits(finalAmount.toFixed(18), 18);
+                    
+                    console.log("[Water] Single plant", plantId, "amount:", finalAmount, "L");
+                    
+                    tx = await txAction().sendContractTx(
+                        V5_STAKING_ADDRESS, 
+                        waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei])
+                    );
+                } else {
+                    // Multiple plants with custom amounts - water them one by one
+                    setV5ActionStatus(`Watering ${selectedV5PlantsToWater.length} plants...`);
+                    
+                    for (let i = 0; i < selectedV5PlantsToWater.length; i++) {
+                        const pid = selectedV5PlantsToWater[i];
+                        const amountToUse = v5CustomWaterAmounts[pid] !== undefined 
+                            ? v5CustomWaterAmounts[pid] 
+                            : Math.ceil(v5WaterNeeded[pid] || 1);
+                        
+                        if (amountToUse <= 0) continue;
+                        
+                        const amountWei = ethers.utils.parseUnits(amountToUse.toFixed(18), 18);
+                        
+                        console.log(`[Water] Plant ${i+1}/${selectedV5PlantsToWater.length}:`, pid, "amount:", amountToUse, "L");
+                        setV5ActionStatus(`Watering plant ${i+1}/${selectedV5PlantsToWater.length}...`);
+                        
+                        tx = await txAction().sendContractTx(
+                            V5_STAKING_ADDRESS, 
+                            waterInterface.encodeFunctionData("waterPlantWithAmount", [pid, amountWei])
+                        );
+                        
+                        if (!tx) throw new Error("Transaction rejected");
+                        await waitForTx(tx);
+                    }
+                    
+                    setV5ActionStatus("All plants watered!");
+                    setSelectedV5PlantsToWater([]);
+                    setV5CustomWaterAmounts({});
+                    setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+                    return;
+                }
             } else {
-                // Multiple plants but not enough water - use waterPlantsWithBalance to spread available water
-                console.log("[Water] Using waterPlantsWithBalance - spreading", userWaterBalance, "across", selectedV5PlantsToWater.length, "plants");
-                tx = await txAction().sendContractTx(
-                    V5_STAKING_ADDRESS, 
-                    waterInterface.encodeFunctionData("waterPlantsWithBalance", [selectedV5PlantsToWater])
+                // No custom amounts, multiple plants, user wants to water all to 100%
+                const totalNeededFor100 = selectedV5PlantsToWater.reduce((sum, id) => 
+                    sum + Math.ceil(v5WaterNeeded[id] || 1), 0
                 );
+                
+                if (userWaterBalance >= totalNeededFor100) {
+                    // User has enough for full 100% on all plants - use batch waterPlants
+                    console.log("[Water] Batch watering to 100% - total needed:", totalNeededFor100);
+                    tx = await txAction().sendContractTx(
+                        V5_STAKING_ADDRESS, 
+                        waterInterface.encodeFunctionData("waterPlants", [selectedV5PlantsToWater])
+                    );
+                } else {
+                    // Not enough for 100% - use waterPlantsWithBalance to spread available water
+                    console.log("[Water] Using waterPlantsWithBalance - spreading", userWaterBalance, "across", selectedV5PlantsToWater.length, "plants");
+                    tx = await txAction().sendContractTx(
+                        V5_STAKING_ADDRESS, 
+                        waterInterface.encodeFunctionData("waterPlantsWithBalance", [selectedV5PlantsToWater])
+                    );
+                }
             }
             
-            if (!tx) throw new Error("Tx rejected");
+            if (!tx) throw new Error("Transaction rejected");
             await waitForTx(tx);
             setV5ActionStatus("Plants watered!");
             setSelectedV5PlantsToWater([]);
             setV5CustomWaterAmounts({});
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
-        finally { setActionLoading(false); }
+            
+        } catch (err: any) {
+            const msg = err.message || String(err);
+            if (msg.includes("!water") || msg.includes("Not enough water")) {
+                setV5ActionStatus("Error: Not enough water! Buy more from the shop.");
+            } else if (msg.includes("rejected") || msg.includes("canceled")) {
+                setV5ActionStatus("Transaction canceled");
+            } else {
+                setV5ActionStatus("Error: " + msg.slice(0, 60));
+            }
+        } finally {
+            setActionLoading(false);
+        }
     }
     // ==================== END V5 STAKING ====================
 

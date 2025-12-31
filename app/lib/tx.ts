@@ -59,7 +59,7 @@ export function makeTxActions(deps: TxDeps) {
     from: string,
     to: string,
     data: string,
-    gasLimit: string = "0x4C4B40" // 5,000,000 - increased for complex operations
+    gasLimit: string = "0x4C4B40" // 5,000,000
   ): Promise<ethers.providers.TransactionResponse> {
     if (!miniAppEthProvider) {
       throw new Error("Mini app provider not available");
@@ -104,8 +104,8 @@ export function makeTxActions(deps: TxDeps) {
       if (txHash) console.log("[TX] Success:", txHash);
     } catch (err1: any) {
       console.warn("[TX] eth_sendTransaction failed:", err1?.message || err1?.code);
-      if (err1?.code === 4001 || err1?.message?.includes("rejected")) {
-        throw new Error("Transaction rejected");
+      if (err1?.code === 4001 || err1?.message?.includes("rejected") || err1?.message?.includes("canceled")) {
+        throw new Error("Transaction canceled");
       }
     }
 
@@ -147,8 +147,8 @@ export function makeTxActions(deps: TxDeps) {
         if (txHash) console.log("[TX] Success:", txHash);
       } catch (err2: any) {
         console.warn("[TX] wallet_sendCalls failed:", err2?.message || err2?.code);
-        if (err2?.code === 4001 || err2?.message?.includes("rejected")) {
-          throw new Error("Transaction rejected");
+        if (err2?.code === 4001 || err2?.message?.includes("rejected") || err2?.message?.includes("canceled")) {
+          throw new Error("Transaction canceled");
         }
       }
     }
@@ -167,8 +167,8 @@ export function makeTxActions(deps: TxDeps) {
         }
       } catch (err3: any) {
         console.warn("[TX] Minimal failed:", err3?.message || err3?.code);
-        if (err3?.code === 4001 || err3?.message?.includes("rejected")) {
-          throw new Error("Transaction rejected");
+        if (err3?.code === 4001 || err3?.message?.includes("rejected") || err3?.message?.includes("canceled")) {
+          throw new Error("Transaction canceled");
         }
       }
     }
@@ -184,29 +184,78 @@ export function makeTxActions(deps: TxDeps) {
   async function sendContractTx(
     to: string,
     data: string,
-    gasLimit: string = "0x4C4B40" // 5,000,000 - increased for complex operations
+    gasLimit: string = "0x4C4B40" // 5,000,000 default
   ): Promise<ethers.providers.TransactionResponse | null> {
     const ctx = await ensureWallet();
     if (!ctx) return null;
 
     try {
+      // For Farcaster mini-app
       if (ctx.isMini && miniAppEthProvider) {
         return await sendWalletCalls(ctx.userAddress, to, data, gasLimit);
       }
+      
+      // =====================================================
+      // EXTERNAL WALLETS (RainbowKit, injected, WalletConnect)
+      // =====================================================
+      console.log("[TX] External wallet transaction...");
+      console.log("[TX] To:", to);
+      console.log("[TX] From:", ctx.userAddress);
+      
+      // Try to estimate gas first for better UX
+      let estimatedGas: ethers.BigNumber;
+      try {
+        estimatedGas = await ctx.provider.estimateGas({
+          from: ctx.userAddress,
+          to,
+          data,
+          value: 0,
+        });
+        // Add 20% buffer
+        estimatedGas = estimatedGas.mul(120).div(100);
+        console.log("[TX] Estimated gas:", estimatedGas.toString());
+      } catch (estErr: any) {
+        console.warn("[TX] Gas estimation failed:", estErr?.message);
+        // Fall back to provided gas limit
+        estimatedGas = ethers.BigNumber.from(gasLimit);
+      }
+      
+      // Cap at reasonable max (2M for most operations, 5M for complex)
+      const maxGas = ethers.BigNumber.from("0x1E8480"); // 2,000,000
+      if (estimatedGas.gt(maxGas)) {
+        estimatedGas = ethers.BigNumber.from(gasLimit); // Use provided limit for complex ops
+      }
+      
       const tx = await ctx.signer.sendTransaction({
         to,
         data,
         value: 0,
-        gasLimit: ethers.BigNumber.from(gasLimit),
+        gasLimit: estimatedGas,
       });
+      
+      console.log("[TX] Transaction submitted:", tx.hash);
       return tx;
+      
     } catch (err: any) {
       const errMsg = err?.message || err?.reason || String(err);
       console.error("[TX] sendContractTx error:", errMsg);
-      if (errMsg.includes("rejected") || errMsg.includes("denied") || err?.code === 4001) {
-        setMintStatus("Transaction rejected");
-      } else if (errMsg.includes("insufficient")) {
-        setMintStatus("Insufficient funds");
+      
+      // Better error messages
+      if (errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("canceled") || err?.code === 4001 || err?.code === "ACTION_REJECTED") {
+        setMintStatus("Transaction canceled");
+        throw new Error("Transaction canceled");
+      } else if (errMsg.includes("insufficient") || errMsg.includes("gas")) {
+        setMintStatus("Insufficient ETH for gas");
+        throw new Error("Insufficient ETH for gas");
+      } else if (errMsg.includes("!water") || errMsg.includes("Not enough water")) {
+        setMintStatus("Not enough water! Buy more in the shop.");
+        throw new Error("Not enough water");
+      } else if (errMsg.includes("nonce")) {
+        setMintStatus("Transaction pending - please wait");
+        throw new Error("Transaction pending");
+      } else if (errMsg.includes("network") || errMsg.includes("disconnected")) {
+        setMintStatus("Wallet disconnected - please reconnect");
+        throw new Error("Wallet disconnected");
       } else {
         setMintStatus(errMsg.slice(0, 80));
       }
@@ -253,6 +302,7 @@ export function makeTxActions(deps: TxDeps) {
         setMintStatus("Approval may not have confirmed");
         return false;
       } else {
+        // External wallet approval
         const usdcWrite = new ethers.Contract(USDC_ADDRESS, USDC_ABI, ctx.signer);
         const tx = await usdcWrite.approve(spender, required);
         setMintStatus("Confirming approval...");
@@ -261,7 +311,12 @@ export function makeTxActions(deps: TxDeps) {
         return true;
       }
     } catch (err: any) {
-      setMintStatus(err?.message?.slice(0, 60) || "Approval failed");
+      const errMsg = err?.message || "";
+      if (errMsg.includes("rejected") || errMsg.includes("canceled") || err?.code === 4001) {
+        setMintStatus("Approval canceled");
+      } else {
+        setMintStatus(err?.message?.slice(0, 60) || "Approval failed");
+      }
       return false;
     }
   }
