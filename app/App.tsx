@@ -10,14 +10,58 @@ import { autoRefreshManager } from "./lib/autoRefresh";
 
 // RainbowKit imports
 import "@rainbow-me/rainbowkit/styles.css";
-import { RainbowKitProvider, getDefaultConfig, darkTheme, lightTheme } from "@rainbow-me/rainbowkit";
-import { WagmiProvider, http } from "wagmi";
+import { 
+  RainbowKitProvider, 
+  darkTheme, 
+  lightTheme,
+  connectorsForWallets,
+} from "@rainbow-me/rainbowkit";
+import {
+  metaMaskWallet,
+  coinbaseWallet,
+  rainbowWallet,
+  walletConnectWallet,
+  phantomWallet,
+  rabbyWallet,
+  trustWallet,
+  injectedWallet,
+} from "@rainbow-me/rainbowkit/wallets";
+import { WagmiProvider, http, createConfig } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-// Configure wagmi for RainbowKit
-const config = getDefaultConfig({
-  appName: "FCWEED",
-  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "3a8170812b534d0ff9d794f19a901d64",
+const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "3a8170812b534d0ff9d794f19a901d64";
+
+// Custom wallet configuration with Phantom and Rabby
+const connectors = connectorsForWallets(
+  [
+    {
+      groupName: "Recommended",
+      wallets: [
+        metaMaskWallet,
+        coinbaseWallet,
+        rabbyWallet,
+        phantomWallet,
+      ],
+    },
+    {
+      groupName: "Other",
+      wallets: [
+        rainbowWallet,
+        walletConnectWallet,
+        trustWallet,
+        injectedWallet,
+      ],
+    },
+  ],
+  {
+    appName: "FCWEED",
+    projectId,
+  }
+);
+
+// Create wagmi config with custom connectors
+const config = createConfig({
+  connectors,
   chains: [base],
   transports: {
     [base.id]: http("https://base.publicnode.com"),
@@ -31,7 +75,10 @@ function Providers({ children, theme }: { children: ReactNode; theme: "dark" | "
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider theme={theme === "dark" ? darkTheme() : lightTheme()}>
+        <RainbowKitProvider 
+          theme={theme === "dark" ? darkTheme() : lightTheme()}
+          modalSize="compact"
+        >
           <OnchainKitProvider
             apiKey={process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY}
             chain={base}
