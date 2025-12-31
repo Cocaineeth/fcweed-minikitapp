@@ -867,18 +867,6 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     </div>
                 </div>
 
-                {/* Player stats if connected */}
-                {playerStats && (
-                    <div style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 10, padding: 10, marginBottom: 16 }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, textAlign: "center", fontSize: 10 }}>
-                            <div><span style={{ color: textMuted }}>Wins:</span> <span style={{ color: "#10b981", fontWeight: 600 }}>{playerStats.wins}</span></div>
-                            <div><span style={{ color: textMuted }}>Losses:</span> <span style={{ color: "#ef4444", fontWeight: 600 }}>{playerStats.losses}</span></div>
-                            <div><span style={{ color: textMuted }}>Stolen:</span> <span style={{ color: "#fbbf24", fontWeight: 600 }}>{playerStats.stolen}</span></div>
-                            <div><span style={{ color: textMuted }}>Power:</span> <span style={{ color: "#8b5cf6", fontWeight: 600 }}>{myBattlePower}</span></div>
-                        </div>
-                    </div>
-                )}
-
                 {loading ? (
                     <div style={{ textAlign: "center", padding: 40, color: textMuted }}>Loading suspects...</div>
                 ) : activeJeets.length === 0 ? (
