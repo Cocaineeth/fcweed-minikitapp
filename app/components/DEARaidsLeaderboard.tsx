@@ -721,18 +721,42 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         sigData.deadline,
                         signature
                     ]);
-                    const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagData, "0x186A0");
+                    const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagData, "0xF4240"); // 1,000,000 gas
                     if (!flagTx) throw new Error("Flag transaction rejected");
-                    await flagTx.wait();
+                    const flagReceipt = await flagTx.wait();
                     
-                    // Verify flag was successful
-                    const newSuspectInfo = await battlesContract.getSuspect(selectedTarget.address);
-                    if (!newSuspectInfo[0]) {
-                        setStatus("Flag failed to register. Try again.");
+                    // Check if tx was successful
+                    if (flagReceipt.status === 0) {
+                        setStatus("Flag transaction failed on-chain");
                         setRaiding(false);
                         return;
                     }
-                    setStatus("Target flagged! Proceeding to raid...");
+                    
+                    console.log("[DEA] Flag tx confirmed:", flagTx.hash);
+                    
+                    // Wait a moment for RPC to sync, then verify with retries
+                    let flagVerified = false;
+                    for (let attempt = 0; attempt < 3; attempt++) {
+                        await new Promise(r => setTimeout(r, 1500)); // 1.5 second delay
+                        try {
+                            const newSuspectInfo = await battlesContract.getSuspect(selectedTarget.address);
+                            console.log("[DEA] Flag verification attempt", attempt + 1, ":", newSuspectInfo[0]);
+                            if (newSuspectInfo[0]) {
+                                flagVerified = true;
+                                break;
+                            }
+                        } catch (e) {
+                            console.warn("[DEA] Flag verify read failed:", e);
+                        }
+                    }
+                    
+                    // If tx succeeded but verification failed, trust the tx and proceed anyway
+                    if (!flagVerified) {
+                        console.warn("[DEA] Flag verification failed but tx succeeded - proceeding anyway");
+                        setStatus("Flag tx confirmed, proceeding to raid...");
+                    } else {
+                        setStatus("Target flagged! Proceeding to raid...");
+                    }
                 } catch (flagErr: any) {
                     console.error("[DEA] Flagging failed:", flagErr);
                     // If flagging fails with "already flagged" or similar, continue to raid
