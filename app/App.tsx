@@ -15,9 +15,9 @@ import {
   darkTheme, 
   lightTheme,
   connectorsForWallets,
-  getDefaultWallets,
 } from "@rainbow-me/rainbowkit";
 import {
+  injectedWallet,      // Auto-detects when INSIDE wallet app browser (Rabby, Phantom, etc)
   metaMaskWallet,
   coinbaseWallet,
   walletConnectWallet,
@@ -35,10 +35,17 @@ const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "3a8170812
 
 // =============================================================================
 // WALLET CONFIGURATION
-// Per RainbowKit docs: https://rainbowkit.com/docs/custom-wallet-list
 // =============================================================================
 const connectors = connectorsForWallets(
   [
+    {
+      // injectedWallet auto-shows ONLY when inside a wallet's in-app browser
+      // It hides itself on regular browsers with no injected provider
+      groupName: "Detected",
+      wallets: [
+        injectedWallet,
+      ],
+    },
     {
       groupName: "Popular",
       wallets: [
@@ -55,7 +62,7 @@ const connectors = connectorsForWallets(
         trustWallet,
         okxWallet,
         zerionWallet,
-        walletConnectWallet, // Generic fallback - works with any WC-compatible wallet
+        walletConnectWallet,
       ],
     },
   ],
