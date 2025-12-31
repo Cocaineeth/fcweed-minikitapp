@@ -196,76 +196,97 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                 try {
                     const stakingContract = new ethers.Contract(V5_STAKING_ADDRESS, STAKING_ABI, readProvider);
                     const totalStakers = await stakingContract.getTotalStakers();
-                    const count = Math.min(totalStakers.toNumber(), 50); // Limit to 50
+                    const totalCount = totalStakers.toNumber();
+                    console.log("[Purge] Total stakers to fetch:", totalCount);
                     
                     const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
-                    const calls: any[] = [];
-                    
-                    for (let i = 0; i < count; i++) {
-                        calls.push({ target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("getStakerAtIndex", [i]) });
-                    }
-                    
-                    const results = await mc.tryAggregate(false, calls);
                     const addresses: string[] = [];
                     
-                    for (const r of results) {
-                        if (r.success) {
-                            try {
-                                const addr = stakingInterface.decodeFunctionResult("getStakerAtIndex", r.returnData)[0];
-                                if (addr && addr !== ethers.constants.AddressZero && addr.toLowerCase() !== userAddress?.toLowerCase()) {
-                                    addresses.push(addr);
+                    // Batch fetch addresses in groups of 100 to avoid gas limits
+                    const BATCH_SIZE = 100;
+                    for (let batchStart = 0; batchStart < totalCount; batchStart += BATCH_SIZE) {
+                        const batchEnd = Math.min(batchStart + BATCH_SIZE, totalCount);
+                        const calls: any[] = [];
+                        
+                        for (let i = batchStart; i < batchEnd; i++) {
+                            calls.push({ target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("getStakerAtIndex", [i]) });
+                        }
+                        
+                        try {
+                            const results = await mc.tryAggregate(false, calls);
+                            
+                            for (const r of results) {
+                                if (r.success) {
+                                    try {
+                                        const addr = stakingInterface.decodeFunctionResult("getStakerAtIndex", r.returnData)[0];
+                                        if (addr && addr !== ethers.constants.AddressZero && addr.toLowerCase() !== userAddress?.toLowerCase()) {
+                                            addresses.push(addr);
+                                        }
+                                    } catch {}
                                 }
-                            } catch {}
+                            }
+                        } catch (batchErr) {
+                            console.warn("[Purge] Batch fetch error at", batchStart, batchErr);
                         }
                     }
                     
-                    // Fetch stats for each address
-                    const statsCalls: any[] = [];
-                    const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, BATTLES_ABI, readProvider);
+                    console.log("[Purge] Found", addresses.length, "valid addresses");
                     
-                    for (const addr of addresses) {
-                        statsCalls.push(
-                            { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("getUserBattleStats", [addr]) },
-                            { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("pending", [addr]) },
-                            { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getPower", [addr]) }
-                        );
-                    }
+                    // Fetch stats for each address in batches (3 calls per address)
+                    const STATS_BATCH_SIZE = 30; // 30 addresses = 90 calls per batch
                     
-                    const statsResults = await mc.tryAggregate(false, statsCalls);
-                    
-                    for (let i = 0; i < addresses.length; i++) {
-                        const baseIdx = i * 3;
-                        let plants = 0, lands = 0, superLands = 0, avgHealth = 0, pendingRaw = 0, power = 0;
+                    for (let batchStart = 0; batchStart < addresses.length; batchStart += STATS_BATCH_SIZE) {
+                        const batchAddresses = addresses.slice(batchStart, batchStart + STATS_BATCH_SIZE);
+                        const statsCalls: any[] = [];
                         
-                        if (statsResults[baseIdx]?.success) {
-                            const stats = stakingInterface.decodeFunctionResult("getUserBattleStats", statsResults[baseIdx].returnData);
-                            plants = stats[0].toNumber();
-                            lands = stats[1].toNumber();
-                            superLands = stats[2].toNumber();
-                            avgHealth = stats[3].toNumber();
+                        for (const addr of batchAddresses) {
+                            statsCalls.push(
+                                { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("getUserBattleStats", [addr]) },
+                                { target: V5_STAKING_ADDRESS, callData: stakingInterface.encodeFunctionData("pending", [addr]) },
+                                { target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getPower", [addr]) }
+                            );
                         }
                         
-                        if (statsResults[baseIdx + 1]?.success) {
-                            const pending = stakingInterface.decodeFunctionResult("pending", statsResults[baseIdx + 1].returnData)[0];
-                            pendingRaw = parseFloat(ethers.utils.formatUnits(pending, 18));
-                        }
-                        
-                        if (statsResults[baseIdx + 2]?.success) {
-                            const powerResult = battlesInterface.decodeFunctionResult("getPower", statsResults[baseIdx + 2].returnData);
-                            power = powerResult[2].toNumber(); // DEF power
-                        }
-                        
-                        if (plants > 0) {
-                            backendTargets.push({
-                                address: addresses[i],
-                                plants,
-                                lands,
-                                superLands,
-                                avgHealth,
-                                pendingRewards: formatLargeNumber(pendingRaw),
-                                pendingRaw,
-                                battlePower: power
-                            });
+                        try {
+                            const statsResults = await mc.tryAggregate(false, statsCalls);
+                            
+                            for (let i = 0; i < batchAddresses.length; i++) {
+                                const baseIdx = i * 3;
+                                let plants = 0, lands = 0, superLands = 0, avgHealth = 0, pendingRaw = 0, power = 0;
+                                
+                                if (statsResults[baseIdx]?.success) {
+                                    const stats = stakingInterface.decodeFunctionResult("getUserBattleStats", statsResults[baseIdx].returnData);
+                                    plants = stats[0].toNumber();
+                                    lands = stats[1].toNumber();
+                                    superLands = stats[2].toNumber();
+                                    avgHealth = stats[3].toNumber();
+                                }
+                                
+                                if (statsResults[baseIdx + 1]?.success) {
+                                    const pending = stakingInterface.decodeFunctionResult("pending", statsResults[baseIdx + 1].returnData)[0];
+                                    pendingRaw = parseFloat(ethers.utils.formatUnits(pending, 18));
+                                }
+                                
+                                if (statsResults[baseIdx + 2]?.success) {
+                                    const powerResult = battlesInterface.decodeFunctionResult("getPower", statsResults[baseIdx + 2].returnData);
+                                    power = powerResult[2].toNumber(); // DEF power
+                                }
+                                
+                                if (plants > 0) {
+                                    backendTargets.push({
+                                        address: batchAddresses[i],
+                                        plants,
+                                        lands,
+                                        superLands,
+                                        avgHealth,
+                                        pendingRewards: formatLargeNumber(pendingRaw),
+                                        pendingRaw,
+                                        battlePower: power
+                                    });
+                                }
+                            }
+                        } catch (statsBatchErr) {
+                            console.warn("[Purge] Stats batch error at", batchStart, statsBatchErr);
                         }
                     }
                 } catch (e) {
@@ -275,6 +296,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             
             // Sort by pending rewards (highest first)
             backendTargets.sort((a, b) => (b.pendingRaw || 0) - (a.pendingRaw || 0));
+            console.log("[Purge] Total targets loaded:", backendTargets.length);
             setTargets(backendTargets);
             
         } catch (e) {

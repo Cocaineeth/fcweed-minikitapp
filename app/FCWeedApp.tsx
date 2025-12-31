@@ -684,27 +684,62 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 const msg = e?.shortMessage || e?.message || "Transaction failed";
                 if (msg.includes("rejected") || msg.includes("denied") || e?.code === 4001) {
                     setMintStatus("Transaction canceled");
-                } else {
-                    setMintStatus(msg.slice(0, 60));
+                    return null;
                 }
-                return null;
+                // Don't return null yet - try the raw provider fallback
+                console.log("[TX] WalletClient failed, trying raw provider fallback...");
             }
         }
         
-        // Fallback to window.ethereum for cases where walletClient isn't ready
+        // Fallback to raw eth_sendTransaction for better Phantom/Base App compatibility
         if (wagmiConnected && wagmiAddress && !usingMiniApp) {
             const anyWindow = window as any;
             if (anyWindow.ethereum) {
                 try {
-                    const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
-                    // Pass address explicitly - fixes Phantom/Base App compatibility
-                    const signer = ethersProvider.getSigner(wagmiAddress);
-                    const txRequest: any = { to, data, chainId: CHAIN_ID };
-                    if (gasLimit) txRequest.gasLimit = gasLimit;
-                    return await signer.sendTransaction(txRequest);
+                    console.log("[TX] Using raw eth_sendTransaction for:", wagmiAddress);
+                    const txParams: any = {
+                        from: wagmiAddress,
+                        to: to,
+                        data: data,
+                        value: "0x0",
+                    };
+                    if (gasLimit) {
+                        txParams.gas = gasLimit;
+                    }
+                    
+                    // Use raw provider request - most compatible with all wallets
+                    const txHash = await anyWindow.ethereum.request({
+                        method: "eth_sendTransaction",
+                        params: [txParams],
+                    });
+                    
+                    console.log("[TX] Raw tx hash:", txHash);
+                    
+                    if (txHash && typeof txHash === "string" && txHash.startsWith("0x")) {
+                        // Return a minimal response object
+                        return { 
+                            hash: txHash,
+                            wait: async () => {
+                                // Poll for receipt
+                                for (let i = 0; i < 30; i++) {
+                                    await new Promise(r => setTimeout(r, 2000));
+                                    try {
+                                        const receipt = await readProvider.getTransactionReceipt(txHash);
+                                        if (receipt && receipt.confirmations > 0) return receipt;
+                                    } catch {}
+                                }
+                                return null;
+                            }
+                        } as any;
+                    }
                 } catch (e: any) {
-                    console.error("[TX] RainbowKit fallback failed:", e);
-                    setMintStatus(e?.reason || e?.message || "Transaction failed");
+                    console.error("[TX] Raw provider fallback failed:", e);
+                    const msg = e?.message || "Transaction failed";
+                    if (msg.includes("rejected") || msg.includes("denied") || msg.includes("canceled") || e?.code === 4001) {
+                        setMintStatus("Transaction canceled");
+                    } else {
+                        setMintStatus(msg.slice(0, 60));
+                    }
                     return null;
                 }
             }
@@ -4518,10 +4553,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     );
                 } else {
 
-                    console.log("[Crate] Using external wallet for approval");
+                    console.log("[Crate] Using external wallet for approval via sendContractTx");
                     try {
-                        const fcweedWrite = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, ctx.signer);
-                        approveTx = await fcweedWrite.approve(CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256);
+                        // Use sendContractTx for proper Phantom/Base App wallet compatibility
+                        const approveData = erc20Interface.encodeFunctionData("approve", [CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256]);
+                        approveTx = await sendContractTx(FCWEED_ADDRESS, approveData);
                     } catch (approveErr: any) {
                         clearTimeout(timeoutId);
                         crateTransactionInProgress.current = false;
@@ -4601,15 +4637,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 );
             } else {
 
-                console.log("[Crate] Using external wallet for openCrate");
+                console.log("[Crate] Using external wallet for openCrate via sendContractTx");
                 try {
-
-                    tx = await ctx.signer.sendTransaction({
-                        to: CRATE_VAULT_ADDRESS,
-                        data: openCrateData,
-                        value: 0,
-                        gasLimit: 5000000, // 5M gas for crate opening
-                    });
+                    // Use sendContractTx which properly handles wagmi walletClient for Phantom/Base App
+                    tx = await sendContractTx(CRATE_VAULT_ADDRESS, openCrateData, "0x4C4B40");
                 } catch (openErr: any) {
                     clearTimeout(timeoutId);
                     crateTransactionInProgress.current = false;
