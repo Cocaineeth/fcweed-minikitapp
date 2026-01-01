@@ -396,7 +396,12 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             }
             
             // Sort by TOTAL PENDING REWARDS (highest loot first!)
-            processedJeets.sort((a, b) => (b.totalPendingRaw || 0) - (a.totalPendingRaw || 0));
+            // Sort by total sold (highest first)
+            processedJeets.sort((a, b) => {
+                const aSold = parseFloat(a.totalSold || "0");
+                const bSold = parseFloat(b.totalSold || "0");
+                return bSold - aSold;
+            });
             console.log("[DEA] Processed jeets:", processedJeets.length, "from backend:", backendData.length);
             setJeets(processedJeets);
             setLastRefresh(Math.floor(Date.now() / 1000));

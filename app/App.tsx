@@ -52,17 +52,18 @@ const connectors = connectorsForWallets(
         metaMaskWallet,
         coinbaseWallet,
         rabbyWallet,
-        phantomWallet,
         rainbowWallet,
+        // Phantom uses WalletConnect on desktop - moved to More Wallets
       ],
     },
     {
       groupName: "More Wallets",
       wallets: [
+        phantomWallet,  // Phantom works via WalletConnect on desktop
         trustWallet,
         okxWallet,
         zerionWallet,
-        walletConnectWallet,
+        walletConnectWallet,  // Generic WalletConnect - keep last
       ],
     },
   ],

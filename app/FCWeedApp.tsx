@@ -2736,16 +2736,19 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18))
                 : 0;
             
+            // Helper function to calculate default water amount (rounded up to 0.1L)
+            const getDefaultWater = (needed: number) => Math.max(0.1, Math.ceil((needed || 0.1) * 10) / 10);
+            
             // Check if user has ANY custom amounts set (via +/- buttons)
             const hasCustomAmounts = selectedV4PlantsToWater.some(id => 
                 v4CustomWaterAmounts[id] !== undefined && 
-                v4CustomWaterAmounts[id] !== Math.ceil(v4WaterNeeded[id] || 1)
+                Math.abs(v4CustomWaterAmounts[id] - getDefaultWater(v4WaterNeeded[id])) > 0.01
             );
             
             // Calculate total water user wants to use
             const totalWaterToUse = selectedV4PlantsToWater.reduce((sum, id) => {
                 const customAmt = v4CustomWaterAmounts[id];
-                const neededAmt = Math.ceil(v4WaterNeeded[id] || 1);
+                const neededAmt = getDefaultWater(v4WaterNeeded[id]);
                 return sum + (customAmt !== undefined ? customAmt : neededAmt);
             }, 0);
             
@@ -2774,7 +2777,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 if (selectedV4PlantsToWater.length === 1) {
                     const amountToUse = v4CustomWaterAmounts[plantId] !== undefined 
                         ? v4CustomWaterAmounts[plantId] 
-                        : Math.ceil(v4WaterNeeded[plantId] || 1);
+                        : getDefaultWater(v4WaterNeeded[plantId]);
                     const finalAmount = Math.min(amountToUse, userWaterBalance);
                     const amountWei = ethers.utils.parseUnits(finalAmount.toFixed(18), 18);
                     
@@ -2788,7 +2791,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         const pid = selectedV4PlantsToWater[i];
                         const amountToUse = v4CustomWaterAmounts[pid] !== undefined 
                             ? v4CustomWaterAmounts[pid] 
-                            : Math.ceil(v4WaterNeeded[pid] || 1);
+                            : getDefaultWater(v4WaterNeeded[pid]);
                         
                         if (amountToUse <= 0) continue;
                         
@@ -2813,7 +2816,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             } else {
                 // No custom amounts, multiple plants
                 const totalNeededFor100 = selectedV4PlantsToWater.reduce((sum, id) => 
-                    sum + Math.ceil(v4WaterNeeded[id] || 1), 0
+                    sum + getDefaultWater(v4WaterNeeded[id]), 0
                 );
                 
                 if (userWaterBalance >= totalNeededFor100) {
@@ -3298,16 +3301,19 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18))
                 : 0;
             
+            // Helper function to calculate default water amount (rounded up to 0.1L)
+            const getDefaultWater = (needed: number) => Math.max(0.1, Math.ceil((needed || 0.1) * 10) / 10);
+            
             // Check if user has ANY custom amounts set (via +/- buttons)
             const hasCustomAmounts = selectedV5PlantsToWater.some(id => 
                 v5CustomWaterAmounts[id] !== undefined && 
-                v5CustomWaterAmounts[id] !== Math.ceil(v5WaterNeeded[id] || 1)
+                Math.abs(v5CustomWaterAmounts[id] - getDefaultWater(v5WaterNeeded[id])) > 0.01
             );
             
             // Calculate total water user wants to use
             const totalWaterToUse = selectedV5PlantsToWater.reduce((sum, id) => {
                 const customAmt = v5CustomWaterAmounts[id];
-                const neededAmt = Math.ceil(v5WaterNeeded[id] || 1);
+                const neededAmt = getDefaultWater(v5WaterNeeded[id]);
                 return sum + (customAmt !== undefined ? customAmt : neededAmt);
             }, 0);
             
@@ -3344,7 +3350,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     // Single plant - use exact amount user specified
                     const amountToUse = v5CustomWaterAmounts[plantId] !== undefined 
                         ? v5CustomWaterAmounts[plantId] 
-                        : Math.ceil(v5WaterNeeded[plantId] || 1);
+                        : getDefaultWater(v5WaterNeeded[plantId]);
                     
                     // Cap at user's balance (safety check)
                     const finalAmount = Math.min(amountToUse, userWaterBalance);
@@ -3364,7 +3370,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         const pid = selectedV5PlantsToWater[i];
                         const amountToUse = v5CustomWaterAmounts[pid] !== undefined 
                             ? v5CustomWaterAmounts[pid] 
-                            : Math.ceil(v5WaterNeeded[pid] || 1);
+                            : getDefaultWater(v5WaterNeeded[pid]);
                         
                         if (amountToUse <= 0) continue;
                         
@@ -3391,7 +3397,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             } else {
                 // No custom amounts, multiple plants, user wants to water all to 100%
                 const totalNeededFor100 = selectedV5PlantsToWater.reduce((sum, id) => 
-                    sum + Math.ceil(v5WaterNeeded[id] || 1), 0
+                    sum + getDefaultWater(v5WaterNeeded[id]), 0
                 );
                 
                 if (userWaterBalance >= totalNeededFor100) {
@@ -6775,7 +6781,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                                                     <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981" }}>💧 Water Plants</span>
                                                     <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}>
-                                                        <input type="checkbox" checked={selectedV5PlantsToWater.length === v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100).length && selectedV5PlantsToWater.length > 0} onChange={() => { const needsWater = v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100); if (selectedV5PlantsToWater.length === needsWater.length) { setSelectedV5PlantsToWater([]); setV5CustomWaterAmounts({}); } else { setSelectedV5PlantsToWater(needsWater); const newAmounts: Record<number, number> = {}; needsWater.forEach(id => { newAmounts[id] = Math.ceil(v5WaterNeeded[id] || 1); }); setV5CustomWaterAmounts(newAmounts); } }} />All needing water
+                                                        <input type="checkbox" checked={selectedV5PlantsToWater.length === v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100).length && selectedV5PlantsToWater.length > 0} onChange={() => { const needsWater = v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100); if (selectedV5PlantsToWater.length === needsWater.length) { setSelectedV5PlantsToWater([]); setV5CustomWaterAmounts({}); } else { setSelectedV5PlantsToWater(needsWater); const newAmounts: Record<number, number> = {}; needsWater.forEach(id => { newAmounts[id] = Math.max(0.1, Math.ceil((v5WaterNeeded[id] || 0.1) * 10) / 10); }); setV5CustomWaterAmounts(newAmounts); } }} />All needing water
                                                     </label>
                                                 </div>
                                                 <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0" }}>
@@ -6783,10 +6789,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                         const health = v5PlantHealths[id] ?? 100;
                                                         const waterNeeded = v5WaterNeeded[id] ?? 0;
                                                         const isSelected = selectedV5PlantsToWater.includes(id);
-                                                        const customAmount = v5CustomWaterAmounts[id] ?? Math.ceil(waterNeeded || 1);
+                                                        // Use actual water needed (rounded up to 0.1L), minimum 0.1L
+                                                        const defaultWater = Math.max(0.1, Math.ceil((waterNeeded || 0.1) * 10) / 10);
+                                                        const customAmount = v5CustomWaterAmounts[id] ?? defaultWater;
                                                         return (
                                                             <div key={"v5w-" + id} style={{ minWidth: 70, padding: 6, borderRadius: 8, background: isSelected ? "rgba(16,185,129,0.3)" : "rgba(0,0,0,0.2)", border: isSelected ? "2px solid #10b981" : "1px solid #374151", opacity: health >= 100 ? 0.5 : 1, textAlign: "center" }}>
-                                                                <div onClick={() => { if (health < 100) { toggleId(id, selectedV5PlantsToWater, setSelectedV5PlantsToWater); if (!isSelected) { setV5CustomWaterAmounts(prev => ({ ...prev, [id]: Math.ceil(waterNeeded || 1) })); } } }} style={{ cursor: health < 100 ? "pointer" : "default" }}>
+                                                                <div onClick={() => { if (health < 100) { toggleId(id, selectedV5PlantsToWater, setSelectedV5PlantsToWater); if (!isSelected) { setV5CustomWaterAmounts(prev => ({ ...prev, [id]: defaultWater })); } } }} style={{ cursor: health < 100 ? "pointer" : "default" }}>
                                                                     <div style={{ fontSize: 10, fontWeight: 600 }}>#{id}</div>
                                                                     <div style={{ width: "100%", height: 4, background: "#1f2937", borderRadius: 2, margin: "3px 0", overflow: "hidden" }}>
                                                                         <div style={{ height: "100%", width: `${health}%`, background: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444", transition: "width 0.3s" }} />
@@ -6796,9 +6804,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                                 </div>
                                                                 {isSelected && health < 100 && (
                                                                     <div style={{ marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
-                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: Math.max(1, (prev[id] ?? Math.ceil(waterNeeded)) - 1) })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>-</button>
-                                                                        <input type="number" value={customAmount} onChange={(e) => { const val = Math.max(1, parseInt(e.target.value) || 1); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: val })); }} onClick={(e) => e.stopPropagation()} style={{ width: 32, height: 18, textAlign: "center", fontSize: 9, background: "#1f2937", border: "1px solid #374151", borderRadius: 4, color: "#fff" }} min="1" />
-                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: (prev[id] ?? Math.ceil(waterNeeded)) + 1 })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: Math.max(0.1, Math.round(((prev[id] ?? defaultWater) - 0.5) * 10) / 10) })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>-</button>
+                                                                        <input type="number" value={customAmount} onChange={(e) => { const val = Math.max(0.1, parseFloat(e.target.value) || 0.1); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: Math.round(val * 10) / 10 })); }} onClick={(e) => e.stopPropagation()} style={{ width: 32, height: 18, textAlign: "center", fontSize: 9, background: "#1f2937", border: "1px solid #374151", borderRadius: 4, color: "#fff" }} min="0.1" step="0.1" />
+                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: Math.round(((prev[id] ?? defaultWater) + 0.5) * 10) / 10 })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                                                                     </div>
                                                                 )}
                                                             </div>
@@ -6807,11 +6815,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                 </div>
                                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 9, color: "#9ca3af", marginTop: 6 }}>
                                                     <span>Your Water: {v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18)).toFixed(2) : "0"}L</span>
-                                                    {selectedV5PlantsToWater.length > 0 && <span style={{ color: "#60a5fa" }}>Using: {selectedV5PlantsToWater.reduce((sum, id) => sum + (v5CustomWaterAmounts[id] ?? Math.ceil(v5WaterNeeded[id] || 1)), 0).toFixed(1)}L</span>}
+                                                    {selectedV5PlantsToWater.length > 0 && <span style={{ color: "#60a5fa" }}>Using: {selectedV5PlantsToWater.reduce((sum, id) => sum + (v5CustomWaterAmounts[id] ?? Math.max(0.1, Math.ceil((v5WaterNeeded[id] || 0.1) * 10) / 10)), 0).toFixed(1)}L</span>}
                                                 </div>
                                                 {selectedV5PlantsToWater.length > 0 && (
                                                     <button type="button" className={styles.btnPrimary} disabled={actionLoading} onClick={handleV5WaterPlants} style={{ width: "100%", marginTop: 6, padding: 8, fontSize: 11, background: "linear-gradient(to right, #0ea5e9, #38bdf8)" }}>
-                                                        {actionLoading ? "Watering..." : `💧 Water ${selectedV5PlantsToWater.length} Plant${selectedV5PlantsToWater.length > 1 ? "s" : ""} (${selectedV5PlantsToWater.reduce((sum, id) => sum + (v5CustomWaterAmounts[id] ?? Math.ceil(v5WaterNeeded[id] || 1)), 0).toFixed(1)}L)`}
+                                                        {actionLoading ? "Watering..." : `💧 Water ${selectedV5PlantsToWater.length} Plant${selectedV5PlantsToWater.length > 1 ? "s" : ""} (${selectedV5PlantsToWater.reduce((sum, id) => sum + (v5CustomWaterAmounts[id] ?? Math.max(0.1, Math.ceil((v5WaterNeeded[id] || 0.1) * 10) / 10)), 0).toFixed(1)}L)`}
                                                     </button>
                                                 )}
                                                 {v5ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v5ActionStatus}</p>}
@@ -6886,7 +6894,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                                                     <span style={{ fontSize: 11, fontWeight: 600, color: "#60a5fa" }}>💧 Water Plants ({v4StakedPlants.filter(id => (v4PlantHealths[id] ?? 100) < 100).length} need water)</span>
                                                     <label style={{ fontSize: 9, display: "flex", alignItems: "center", gap: 3 }}>
-                                                        <input type="checkbox" checked={selectedV4PlantsToWater.length === v4StakedPlants.filter(id => (v4PlantHealths[id] ?? 100) < 100).length && selectedV4PlantsToWater.length > 0} onChange={() => { const needsWater = v4StakedPlants.filter(id => (v4PlantHealths[id] ?? 100) < 100); if (selectedV4PlantsToWater.length === needsWater.length) { setSelectedV4PlantsToWater([]); setV4CustomWaterAmounts({}); } else { setSelectedV4PlantsToWater(needsWater); const newAmounts: Record<number, number> = {}; needsWater.forEach(id => { newAmounts[id] = Math.ceil(v4WaterNeeded[id] || 1); }); setV4CustomWaterAmounts(newAmounts); } }} />All needing water
+                                                        <input type="checkbox" checked={selectedV4PlantsToWater.length === v4StakedPlants.filter(id => (v4PlantHealths[id] ?? 100) < 100).length && selectedV4PlantsToWater.length > 0} onChange={() => { const needsWater = v4StakedPlants.filter(id => (v4PlantHealths[id] ?? 100) < 100); if (selectedV4PlantsToWater.length === needsWater.length) { setSelectedV4PlantsToWater([]); setV4CustomWaterAmounts({}); } else { setSelectedV4PlantsToWater(needsWater); const newAmounts: Record<number, number> = {}; needsWater.forEach(id => { newAmounts[id] = Math.max(0.1, Math.ceil((v4WaterNeeded[id] || 0.1) * 10) / 10); }); setV4CustomWaterAmounts(newAmounts); } }} />All needing water
                                                     </label>
                                                 </div>
                                                 <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 70 }}>
@@ -6894,10 +6902,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                         const health = v4PlantHealths[id] ?? 100;
                                                         const waterNeeded = v4WaterNeeded[id] ?? 0;
                                                         const isSelected = selectedV4PlantsToWater.includes(id);
-                                                        const customAmount = v4CustomWaterAmounts[id] ?? Math.ceil(waterNeeded || 1);
+                                                        const defaultWater = Math.max(0.1, Math.ceil((waterNeeded || 0.1) * 10) / 10);
+                                                        const customAmount = v4CustomWaterAmounts[id] ?? defaultWater;
                                                         return (
                                                             <div key={"v4water-" + id} style={{ minWidth: 70, padding: 6, borderRadius: 8, background: isSelected ? "rgba(59,130,246,0.3)" : "rgba(0,0,0,0.2)", border: isSelected ? "2px solid #60a5fa" : "1px solid #374151", opacity: health >= 100 ? 0.5 : 1, textAlign: "center" }}>
-                                                                <div onClick={() => { if (health < 100) { toggleId(id, selectedV4PlantsToWater, setSelectedV4PlantsToWater); if (!isSelected) { setV4CustomWaterAmounts(prev => ({ ...prev, [id]: Math.ceil(waterNeeded || 1) })); } } }} style={{ cursor: health < 100 ? "pointer" : "default" }}>
+                                                                <div onClick={() => { if (health < 100) { toggleId(id, selectedV4PlantsToWater, setSelectedV4PlantsToWater); if (!isSelected) { setV4CustomWaterAmounts(prev => ({ ...prev, [id]: defaultWater })); } } }} style={{ cursor: health < 100 ? "pointer" : "default" }}>
                                                                     <div style={{ fontSize: 10, fontWeight: 600 }}>#{id}</div>
                                                                     <div style={{ width: "100%", height: 4, background: "#1f2937", borderRadius: 2, margin: "3px 0", overflow: "hidden" }}>
                                                                         <div style={{ height: "100%", width: `${health}%`, background: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444", transition: "width 0.3s" }} />
@@ -6907,9 +6916,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                                 </div>
                                                                 {isSelected && health < 100 && (
                                                                     <div style={{ marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
-                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV4CustomWaterAmounts(prev => ({ ...prev, [id]: Math.max(1, (prev[id] ?? Math.ceil(waterNeeded)) - 1) })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>-</button>
-                                                                        <input type="number" value={customAmount} onChange={(e) => { const val = Math.max(1, parseInt(e.target.value) || 1); setV4CustomWaterAmounts(prev => ({ ...prev, [id]: val })); }} onClick={(e) => e.stopPropagation()} style={{ width: 32, height: 18, textAlign: "center", fontSize: 9, background: "#1f2937", border: "1px solid #374151", borderRadius: 4, color: "#fff" }} min="1" />
-                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV4CustomWaterAmounts(prev => ({ ...prev, [id]: (prev[id] ?? Math.ceil(waterNeeded)) + 1 })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV4CustomWaterAmounts(prev => ({ ...prev, [id]: Math.max(0.1, Math.round(((prev[id] ?? defaultWater) - 0.5) * 10) / 10) })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>-</button>
+                                                                        <input type="number" value={customAmount} onChange={(e) => { const val = Math.max(0.1, parseFloat(e.target.value) || 0.1); setV4CustomWaterAmounts(prev => ({ ...prev, [id]: Math.round(val * 10) / 10 })); }} onClick={(e) => e.stopPropagation()} style={{ width: 32, height: 18, textAlign: "center", fontSize: 9, background: "#1f2937", border: "1px solid #374151", borderRadius: 4, color: "#fff" }} min="0.1" step="0.1" />
+                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV4CustomWaterAmounts(prev => ({ ...prev, [id]: Math.round(((prev[id] ?? defaultWater) + 0.5) * 10) / 10 })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                                                                     </div>
                                                                 )}
                                                             </div>
@@ -6918,7 +6927,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                 </div>
                                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 9, color: "#9ca3af", marginTop: 6 }}>
                                                     <span>Your Water: {v4StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18)).toFixed(2) : "0"}L</span>
-                                                    {selectedV4PlantsToWater.length > 0 && <span style={{ color: "#60a5fa" }}>Using: {selectedV4PlantsToWater.reduce((sum, id) => sum + (v4CustomWaterAmounts[id] ?? Math.ceil(v4WaterNeeded[id] || 1)), 0).toFixed(1)}L</span>}
+                                                    {selectedV4PlantsToWater.length > 0 && <span style={{ color: "#60a5fa" }}>Using: {selectedV4PlantsToWater.reduce((sum, id) => sum + (v4CustomWaterAmounts[id] ?? Math.max(0.1, Math.ceil((v4WaterNeeded[id] || 0.1) * 10) / 10)), 0).toFixed(1)}L</span>}
                                                 </div>
                                                 {selectedV4PlantsToWater.length > 0 && (
                                                     <button
@@ -6928,7 +6937,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                         className={styles.btnPrimary}
                                                         style={{ width: "100%", marginTop: 8, padding: 8, fontSize: 11, background: actionLoading ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)" }}
                                                     >
-                                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedV4PlantsToWater.length} Plant${selectedV4PlantsToWater.length > 1 ? "s" : ""} (${selectedV4PlantsToWater.reduce((sum, id) => sum + (v4CustomWaterAmounts[id] ?? Math.ceil(v4WaterNeeded[id] || 1)), 0).toFixed(1)}L)`}
+                                                        {actionLoading ? "💧 Watering..." : `💧 Water ${selectedV4PlantsToWater.length} Plant${selectedV4PlantsToWater.length > 1 ? "s" : ""} (${selectedV4PlantsToWater.reduce((sum, id) => sum + (v4CustomWaterAmounts[id] ?? Math.max(0.1, Math.ceil((v4WaterNeeded[id] || 0.1) * 10) / 10)), 0).toFixed(1)}L)`}
                                                     </button>
                                                 )}
                                                 {v4ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v4ActionStatus}</p>}

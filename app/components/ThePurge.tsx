@@ -38,7 +38,8 @@ const battlesInterface = new ethers.utils.Interface(BATTLES_ABI);
 const stakingInterface = new ethers.utils.Interface(STAKING_ABI);
 const erc20Interface = new ethers.utils.Interface(ERC20_ABI);
 
-type TargetInfo = {
+// Farm info for individual wallets within a cluster
+type FarmInfo = {
     address: string;
     plants: number;
     lands: number;
@@ -47,6 +48,24 @@ type TargetInfo = {
     pendingRewards: string;
     pendingRaw: number;
     battlePower: number;
+    hasShield: boolean;
+    shieldExpiry: number;
+};
+
+// Cluster/Target info (can contain multiple farms)
+type ClusterInfo = {
+    address: string;
+    name?: string;
+    farms: FarmInfo[];
+    totalPlants: number;
+    totalLands: number;
+    totalSuperLands: number;
+    totalPendingRaw: number;
+    pendingRewards: string;
+    avgHealth: number;
+    battlePower: number;
+    hasShield: boolean;
+    isCluster: boolean;
 };
 
 type Props = {
@@ -78,9 +97,11 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
     const [currentTime, setCurrentTime] = useState(Math.floor(Date.now() / 1000));
     const [lastRefresh, setLastRefresh] = useState(Date.now());
     
-    // Target selection
-    const [targets, setTargets] = useState<TargetInfo[]>([]);
-    const [selectedTarget, setSelectedTarget] = useState<TargetInfo | null>(null);
+    // Target selection with clusters
+    const [clusters, setClusters] = useState<ClusterInfo[]>([]);
+    const [selectedCluster, setSelectedCluster] = useState<ClusterInfo | null>(null);
+    const [selectedFarm, setSelectedFarm] = useState<FarmInfo | null>(null);
+    const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
     const [showAttackModal, setShowAttackModal] = useState(false);
     const [showResultModal, setShowResultModal] = useState(false);
     const [attackResult, setAttackResult] = useState<{ won: boolean; amount: string; damage: number } | null>(null);
@@ -121,6 +142,8 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
         if (health >= 20) return "#f97316";
         return "#ef4444";
     };
+
+    const shortAddr = (addr: string) => addr ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : "";
 
     const fetchPurgeData = useCallback(async () => {
         if (fetchingRef.current || !readProvider) return;
@@ -178,21 +201,30 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
         setLoadingTargets(true);
         
         try {
-            // Fetch targets from backend or on-chain
-            let backendTargets: any[] = [];
+            // Try backend first (has clustering)
+            let backendData: ClusterInfo[] = [];
             try {
-                const res = await fetch(`${WARS_BACKEND_URL}/api/purge/targets`);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+                const res = await fetch(`${WARS_BACKEND_URL}/api/purge/targets`, { signal: controller.signal });
+                clearTimeout(timeoutId);
                 const data = await res.json();
+                
                 if (data.success && Array.isArray(data.targets)) {
-                    backendTargets = data.targets;
+                    console.log("[Purge] Backend returned", data.targets.length, "clusters from", data.totalStakers, "stakers");
+                    backendData = data.targets.filter((t: any) => 
+                        t.address.toLowerCase() !== userAddress?.toLowerCase() &&
+                        !t.farms?.every((f: FarmInfo) => f.address.toLowerCase() === userAddress?.toLowerCase())
+                    );
                 }
-            } catch {
-                // Fallback: fetch from staking contract
-                console.log("[Purge] Backend unavailable, fetching on-chain");
+            } catch (e: any) {
+                if (e.name !== 'AbortError') {
+                    console.log("[Purge] Backend unavailable, fetching on-chain");
+                }
             }
             
-            // If no backend data, try fetching stakers directly
-            if (backendTargets.length === 0) {
+            // If no backend data, fetch on-chain (without clustering)
+            if (backendData.length === 0) {
                 try {
                     const stakingContract = new ethers.Contract(V5_STAKING_ADDRESS, STAKING_ABI, readProvider);
                     const totalStakers = await stakingContract.getTotalStakers();
@@ -202,7 +234,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                     const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
                     const addresses: string[] = [];
                     
-                    // Batch fetch addresses in groups of 100 to avoid gas limits
+                    // Batch fetch addresses
                     const BATCH_SIZE = 100;
                     for (let batchStart = 0; batchStart < totalCount; batchStart += BATCH_SIZE) {
                         const batchEnd = Math.min(batchStart + BATCH_SIZE, totalCount);
@@ -214,7 +246,6 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                         
                         try {
                             const results = await mc.tryAggregate(false, calls);
-                            
                             for (const r of results) {
                                 if (r.success) {
                                     try {
@@ -232,8 +263,8 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                     
                     console.log("[Purge] Found", addresses.length, "valid addresses");
                     
-                    // Fetch stats for each address in batches (3 calls per address)
-                    const STATS_BATCH_SIZE = 30; // 30 addresses = 90 calls per batch
+                    // Fetch stats in batches
+                    const STATS_BATCH_SIZE = 30;
                     
                     for (let batchStart = 0; batchStart < addresses.length; batchStart += STATS_BATCH_SIZE) {
                         const batchAddresses = addresses.slice(batchStart, batchStart + STATS_BATCH_SIZE);
@@ -273,7 +304,8 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                                 }
                                 
                                 if (plants > 0) {
-                                    backendTargets.push({
+                                    // Create single-farm cluster for on-chain fallback
+                                    const farm: FarmInfo = {
                                         address: batchAddresses[i],
                                         plants,
                                         lands,
@@ -281,7 +313,23 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                                         avgHealth,
                                         pendingRewards: formatLargeNumber(pendingRaw),
                                         pendingRaw,
-                                        battlePower: power
+                                        battlePower: power,
+                                        hasShield: false,
+                                        shieldExpiry: 0
+                                    };
+                                    
+                                    backendData.push({
+                                        address: batchAddresses[i],
+                                        farms: [farm],
+                                        totalPlants: plants,
+                                        totalLands: lands,
+                                        totalSuperLands: superLands,
+                                        totalPendingRaw: pendingRaw,
+                                        pendingRewards: formatLargeNumber(pendingRaw),
+                                        avgHealth,
+                                        battlePower: power,
+                                        hasShield: false,
+                                        isCluster: false
                                     });
                                 }
                             }
@@ -294,10 +342,11 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                 }
             }
             
-            // Sort by pending rewards (highest first)
-            backendTargets.sort((a, b) => (b.pendingRaw || 0) - (a.pendingRaw || 0));
-            console.log("[Purge] Total targets loaded:", backendTargets.length);
-            setTargets(backendTargets);
+            // Sort by total pending rewards (highest first)
+            // Sort by total plants (highest first)
+            backendData.sort((a, b) => (b.totalPlants || 0) - (a.totalPlants || 0));
+            console.log("[Purge] Total clusters loaded:", backendData.length);
+            setClusters(backendData);
             
         } catch (e) {
             console.error("[Purge] Fetch targets error:", e);
@@ -311,229 +360,176 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
         fetchPurgeData();
         const refreshInterval = setInterval(fetchPurgeData, 10000);
         return () => clearInterval(refreshInterval);
-    }, [readProvider, userAddress, fetchPurgeData]);
+    }, [fetchPurgeData, readProvider]);
 
     useEffect(() => {
-        if (isPurgeActive) {
-            fetchTargets();
-        }
+        if (isPurgeActive) fetchTargets();
     }, [isPurgeActive, fetchTargets]);
 
-    const handleSelectTarget = (target: TargetInfo) => {
-        setSelectedTarget(target);
+    // Cooldown timer
+    useEffect(() => {
+        if (cooldownRemaining > 0) {
+            const timer = setInterval(() => {
+                setCooldownRemaining(prev => Math.max(0, prev - 1));
+            }, 1000);
+            return () => clearInterval(timer);
+        }
+    }, [cooldownRemaining]);
+
+    const handleSelectCluster = (cluster: ClusterInfo) => {
+        if (cluster.isCluster) {
+            // Toggle dropdown for clusters
+            setExpandedCluster(expandedCluster === cluster.address ? null : cluster.address);
+        } else {
+            // Single farm - select directly
+            setSelectedCluster(cluster);
+            setSelectedFarm(cluster.farms[0]);
+            setShowAttackModal(true);
+        }
+    };
+
+    const handleSelectFarm = (cluster: ClusterInfo, farm: FarmInfo) => {
+        setSelectedCluster(cluster);
+        setSelectedFarm(farm);
         setShowAttackModal(true);
-        setStatus("");
     };
 
     const handlePurgeAttack = async () => {
-        if (!selectedTarget || !userAddress || attacking || !readProvider) return;
+        if (!connected || !selectedFarm || cooldownRemaining > 0) return;
+        
         setAttacking(true);
-        setStatus("Preparing purge attack...");
+        setStatus("Checking allowance...");
 
         try {
-            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, BATTLES_ABI, readProvider);
-            
-            // ==================== PRE-FLIGHT CHECKS ====================
-            setStatus("Checking authorization...");
-            
-            // Check 1: Is Purge active?
-            const isActive = await battlesContract.isPurgeActive();
-            if (!isActive) {
-                setStatus("The Purge is not currently active!");
+            // Ensure allowance
+            const hasAllowance = await ensureAllowance(V5_BATTLES_ADDRESS, purgeFeeRaw);
+            if (!hasAllowance) {
+                setStatus("Approval needed");
                 setAttacking(false);
                 return;
             }
+
+            setStatus("Confirm in wallet...");
             
-            // Check 2: Can user purge?
-            const canAttack = await battlesContract.canPurge(userAddress);
-            if (!canAttack) {
-                const [lastAttack, userPower, cd] = await Promise.all([
-                    battlesContract.lastPurge(userAddress),
-                    battlesContract.getPower(userAddress),
-                    battlesContract.purgeCD()
-                ]);
-                
-                const cooldownEnds = lastAttack.toNumber() + cd.toNumber();
-                const now = Math.floor(Date.now() / 1000);
-                
-                if (cooldownEnds > now) {
-                    setStatus(`Cooldown: ${formatCooldown(cooldownEnds - now)} remaining`);
-                } else if (userPower[1].toNumber() === 0) {
-                    setStatus("You need staked NFTs to attack!");
-                } else {
-                    setStatus("Not authorized - check staked NFTs");
-                }
-                setAttacking(false);
-                return;
-            }
-            
-            // Check 3: Verify target has plants
-            const stakingContract = new ethers.Contract(V5_STAKING_ADDRESS, STAKING_ABI, readProvider);
-            const targetStats = await stakingContract.getUserBattleStats(selectedTarget.address);
-            if (targetStats[0].toNumber() === 0) {
-                setStatus("Target has no staked plants!");
-                setAttacking(false);
-                return;
-            }
-            
-            // ==================== EXECUTE ATTACK ====================
-            
-            // Check FCWEED balance and approval
-            const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            const [balance, allowance] = await Promise.all([
-                tokenContract.balanceOf(userAddress),
-                tokenContract.allowance(userAddress, V5_BATTLES_ADDRESS)
-            ]);
-            
-            if (balance.lt(purgeFeeRaw)) {
-                setStatus(`Insufficient FCWEED! Need ${purgeFee}`);
-                setAttacking(false);
-                return;
-            }
-            
-            if (allowance.lt(purgeFeeRaw)) {
-                setStatus("Approving FCWEED...");
-                const approveTx = await sendContractTx(
-                    FCWEED_ADDRESS,
-                    erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256])
-                );
-                if (!approveTx) {
-                    setStatus("Approval rejected");
-                    setAttacking(false);
-                    return;
-                }
-                await approveTx.wait();
-            }
-            
-            setStatus("Executing Purge attack...");
-            const tx = await sendContractTx(
-                V5_BATTLES_ADDRESS,
-                battlesInterface.encodeFunctionData("purgeAttack", [selectedTarget.address]),
-                "0x1E8480" // 2M gas - battles do multiple cross-contract calls
-            );
-            
+            const attackData = battlesInterface.encodeFunctionData("purgeAttack", [selectedFarm.address]);
+            const tx = await sendContractTx(V5_BATTLES_ADDRESS, attackData, "0x7A120"); // 500k gas
+
             if (!tx) {
                 setStatus("Transaction rejected");
                 setAttacking(false);
                 return;
             }
+
+            setStatus("Purging...");
             
-            setStatus("Attack in progress...");
+            // Wait for transaction and get result from events
             const receipt = await tx.wait();
             
-            if (receipt.status === 0) {
-                setStatus("Transaction failed");
-                setAttacking(false);
-                return;
-            }
-            
-            // Parse result
-            let won = false, amount = "0", damage = 0;
+            // Parse PurgeResult event
+            let won = false;
+            let stolenAmount = "0";
+            let damage = 0;
+
             for (const log of receipt.logs) {
                 try {
                     const parsed = battlesInterface.parseLog(log);
                     if (parsed.name === "PurgeResult") {
                         won = parsed.args.w;
-                        amount = formatLargeNumber(parsed.args.s);
+                        stolenAmount = formatLargeNumber(parsed.args.s);
                         damage = parsed.args.dmg.toNumber();
                         break;
                     }
                 } catch {}
             }
-            
-            setAttackResult({ won, amount, damage });
+
+            setAttackResult({ won, amount: stolenAmount, damage });
             setShowAttackModal(false);
             setShowResultModal(true);
+            setStatus("");
+            
+            // Refresh data
             fetchPurgeData();
             fetchTargets();
             refreshData();
-            
-        } catch (e: any) {
-            console.error("[Purge] Attack failed:", e);
-            const reason = e?.reason || e?.message || "Attack failed";
-            if (reason.includes("!cd")) {
-                setStatus("Cooldown active - wait before attacking again");
-            } else if (reason.includes("!p")) {
-                setStatus("You or target needs staked plants");
-            } else if (reason.includes("!on")) {
-                setStatus("The Purge is not active");
+
+        } catch (err: any) {
+            console.error("[Purge] Attack error:", err);
+            const msg = err?.reason || err?.message || "Attack failed";
+            if (msg.includes("!cd")) {
+                setStatus("Still on cooldown!");
+            } else if (msg.includes("rejected") || msg.includes("denied")) {
+                setStatus("Transaction rejected");
             } else {
-                setStatus(reason.slice(0, 100));
+                setStatus(msg.slice(0, 50));
             }
         }
-        
+
         setAttacking(false);
     };
 
     const closeResultModal = () => {
         setShowResultModal(false);
         setAttackResult(null);
+        setSelectedCluster(null);
+        setSelectedFarm(null);
     };
 
-    const totalPages = Math.ceil(targets.length / ITEMS_PER_PAGE);
-    const paginatedTargets = targets.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+    // Theme colors
+    const isDark = theme === "dark";
+    const bgMain = isDark ? "#0a0e1a" : "#f3f4f6";
+    const cardBg = isDark ? "rgba(30,34,52,0.95)" : "rgba(255,255,255,0.95)";
+    const textPrimary = isDark ? "#e2e8f0" : "#1e293b";
+    const textMuted = isDark ? "#94a3b8" : "#64748b";
+    const borderColor = isDark ? "rgba(100,116,139,0.3)" : "rgba(100,116,139,0.2)";
+    const modalBg = isDark ? "#1e2235" : "#ffffff";
 
-    const cardBg = theme === "light" ? "rgba(241,245,249,0.8)" : "rgba(15,23,42,0.6)";
-    const modalBg = theme === "light" ? "#ffffff" : "#1a1f2e";
-    const borderColor = theme === "light" ? "rgba(148,163,184,0.3)" : "rgba(51,65,85,0.5)";
-    const textPrimary = theme === "light" ? "#1e293b" : "#ffffff";
-    const textMuted = theme === "light" ? "#64748b" : "#94a3b8";
-    const shortAddr = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+    const paginatedClusters = clusters.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+    const totalPages = Math.ceil(clusters.length / ITEMS_PER_PAGE);
 
     return (
         <div style={{ padding: 16 }}>
             {/* Header */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <h2 style={{ fontSize: 18, fontWeight: 700, color: "#dc2626", margin: 0 }}>🔪 THE PURGE</h2>
-                    {isPurgeActive ? (
-                        <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(220,38,38,0.2)", color: "#dc2626", fontWeight: 600, animation: "pulse 1s infinite" }}>ACTIVE</span>
-                    ) : (
-                        <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: "rgba(100,116,139,0.2)", color: textMuted, fontWeight: 600 }}>INACTIVE</span>
-                    )}
-                </div>
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+                <div style={{ fontSize: 28, fontWeight: 800, color: "#dc2626", marginBottom: 4 }}>🔪 THE PURGE</div>
+                <div style={{ fontSize: 11, color: textMuted }}>No shields. No mercy. Attack anyone.</div>
             </div>
 
             {/* Stats */}
-            <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
+                <div style={{ background: cardBg, borderRadius: 10, padding: 12, textAlign: "center", border: `1px solid ${borderColor}` }}>
+                    <div style={{ fontSize: 9, color: textMuted }}>TOTAL PURGES</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#dc2626" }}>{totalPurged}</div>
+                </div>
+                <div style={{ background: cardBg, borderRadius: 10, padding: 12, textAlign: "center", border: `1px solid ${borderColor}` }}>
+                    <div style={{ fontSize: 9, color: textMuted }}>TOTAL LOOTED</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#10b981" }}>{totalLooted}</div>
+                </div>
+                <div style={{ background: cardBg, borderRadius: 10, padding: 12, textAlign: "center", border: `1px solid ${borderColor}` }}>
+                    <div style={{ fontSize: 9, color: textMuted }}>BURNED 🔥</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#f97316" }}>{totalBurned}</div>
+                </div>
+            </div>
+
+            {/* Your Power */}
+            {connected && (
+                <div style={{ background: "rgba(220,38,38,0.1)", borderRadius: 10, padding: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid rgba(220,38,38,0.3)" }}>
                     <div>
-                        <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>PURGED</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: "#dc2626" }}>{totalPurged}</div>
+                        <div style={{ fontSize: 10, color: textMuted }}>YOUR ATTACK POWER</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: "#dc2626" }}>{myBattlePower}</div>
                     </div>
-                    <div>
-                        <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>BURNED</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: "#f97316" }}>{totalBurned}</div>
-                    </div>
-                    <div>
-                        <div style={{ fontSize: 9, color: textMuted, marginBottom: 2 }}>COOLDOWN</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: cooldownRemaining > 0 ? "#fbbf24" : "#10b981" }}>
-                            {cooldownRemaining > 0 ? formatCooldown(cooldownRemaining) : "Ready"}
+                    {cooldownRemaining > 0 && (
+                        <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: 9, color: textMuted }}>COOLDOWN</div>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: "#fbbf24" }}>⏳ {formatCooldown(cooldownRemaining)}</div>
                         </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Purge Info Box */}
-            <div style={{ background: "rgba(220,38,38,0.1)", border: "1px solid rgba(220,38,38,0.3)", borderRadius: 10, padding: 14, marginBottom: 16 }}>
-                <div style={{ fontSize: 11, color: "#fca5a5", textAlign: "center", lineHeight: 1.6 }}>
-                    <strong style={{ color: "#dc2626" }}>⚠️ CHAOS MODE</strong><br/>
-                    During The Purge, <strong>ALL shields are bypassed</strong>.<br/>
-                    Attack anyone regardless of protection!<br/>
-                    <span style={{ fontSize: 10, color: textMuted }}>Fee: {purgeFee} $FCWEED (100% burned)</span>
-                </div>
-            </div>
-
-            {/* No battle power warning */}
-            {connected && myBattlePower === 0 && (
-                <div style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 10, padding: 12, marginBottom: 12, textAlign: "center" }}>
-                    <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 600 }}>⚠️ No Battle Power</div>
-                    <div style={{ fontSize: 10, color: textMuted, marginTop: 4 }}>Stake plants or lands to participate</div>
+                    )}
                 </div>
             )}
 
-            {/* Status */}
-            {!isPurgeActive ? (
+            {/* Targets List */}
+            {loading ? (
+                <div style={{ textAlign: "center", padding: 40, color: textMuted }}>Loading...</div>
+            ) : !isPurgeActive ? (
                 <div style={{ textAlign: "center", padding: 20, color: textMuted }}>
                     <div style={{ fontSize: 32, marginBottom: 8 }}>🔒</div>
                     <div style={{ fontSize: 12 }}>The Purge is not currently active.</div>
@@ -541,42 +537,95 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                 </div>
             ) : (
                 <>
-                    {/* Target List */}
+                    {/* Cluster/Target List */}
                     {loadingTargets ? (
                         <div style={{ textAlign: "center", padding: 40, color: textMuted }}>Loading targets...</div>
-                    ) : targets.length === 0 ? (
+                    ) : clusters.length === 0 ? (
                         <div style={{ textAlign: "center", padding: 40, color: textMuted }}>No targets found</div>
                     ) : (
                         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                            {paginatedTargets.map((target) => (
-                                <div
-                                    key={target.address}
-                                    onClick={() => handleSelectTarget(target)}
-                                    style={{
-                                        background: cardBg,
-                                        borderRadius: 10,
-                                        padding: "12px 14px",
-                                        border: `1px solid ${borderColor}`,
-                                        cursor: "pointer"
-                                    }}
-                                >
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                        <div>
-                                            <div style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: textPrimary, marginBottom: 4 }}>
-                                                {shortAddr(target.address)}
+                            {paginatedClusters.map((cluster) => (
+                                <div key={cluster.address}>
+                                    {/* Cluster/Target Row */}
+                                    <div
+                                        onClick={() => handleSelectCluster(cluster)}
+                                        style={{
+                                            background: cardBg,
+                                            borderRadius: cluster.isCluster && expandedCluster === cluster.address ? "10px 10px 0 0" : 10,
+                                            padding: "12px 14px",
+                                            border: `1px solid ${borderColor}`,
+                                            borderBottom: cluster.isCluster && expandedCluster === cluster.address ? "none" : `1px solid ${borderColor}`,
+                                            cursor: "pointer"
+                                        }}
+                                    >
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                            <div>
+                                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                                                    <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: textPrimary }}>
+                                                        {cluster.name || shortAddr(cluster.address)}
+                                                    </span>
+                                                    {cluster.isCluster && (
+                                                        <span style={{ fontSize: 9, background: "rgba(139,92,246,0.2)", color: "#a78bfa", padding: "2px 6px", borderRadius: 4 }}>
+                                                            {cluster.farms.length} farms {expandedCluster === cluster.address ? "▲" : "▼"}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: textMuted }}>
+                                                    <span>{cluster.totalPlants} 🌿</span>
+                                                    <span style={{ color: getHealthColor(cluster.avgHealth) }}>{cluster.avgHealth}% ❤️</span>
+                                                </div>
                                             </div>
-                                            <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: textMuted }}>
-                                                <span>{target.plants} 🌿</span>
-                                                <span style={{ color: getHealthColor(target.avgHealth) }}>{target.avgHealth}% ❤️</span>
-                                            </div>
-                                        </div>
-                                        <div style={{ textAlign: "right" }}>
-                                            <div style={{ fontSize: 10, color: textMuted }}>⚔️ {target.battlePower}</div>
-                                            <div style={{ padding: "3px 8px", background: "rgba(251,191,36,0.15)", borderRadius: 6, marginTop: 4 }}>
-                                                <span style={{ fontSize: 11, color: "#fbbf24", fontWeight: 700 }}>💎 {target.pendingRewards}</span>
+                                            <div style={{ textAlign: "right" }}>
+                                                <div style={{ fontSize: 10, color: textMuted }}>⚔️ {cluster.battlePower}</div>
+                                                <div style={{ padding: "3px 8px", background: "rgba(251,191,36,0.15)", borderRadius: 6, marginTop: 4 }}>
+                                                    <span style={{ fontSize: 11, color: "#fbbf24", fontWeight: 700 }}>💎 {cluster.pendingRewards}</span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
+
+                                    {/* Expanded Farm List for Clusters */}
+                                    {cluster.isCluster && expandedCluster === cluster.address && (
+                                        <div style={{ 
+                                            background: isDark ? "rgba(20,24,36,0.95)" : "rgba(240,240,240,0.95)", 
+                                            borderRadius: "0 0 10px 10px",
+                                            border: `1px solid ${borderColor}`,
+                                            borderTop: "none",
+                                            padding: "8px"
+                                        }}>
+                                            {cluster.farms.map((farm, idx) => (
+                                                <button
+                                                    key={farm.address}
+                                                    onClick={(e) => { e.stopPropagation(); handleSelectFarm(cluster, farm); }}
+                                                    style={{
+                                                        width: "100%",
+                                                        display: "flex",
+                                                        justifyContent: "space-between",
+                                                        alignItems: "center",
+                                                        padding: "10px 12px",
+                                                        background: idx % 2 === 0 ? "rgba(100,116,139,0.1)" : "transparent",
+                                                        border: "none",
+                                                        borderRadius: 6,
+                                                        cursor: "pointer",
+                                                        marginBottom: idx < cluster.farms.length - 1 ? 4 : 0
+                                                    }}
+                                                >
+                                                    <div style={{ textAlign: "left" }}>
+                                                        <div style={{ fontFamily: "monospace", fontSize: 11, color: textPrimary }}>
+                                                            {shortAddr(farm.address)}
+                                                        </div>
+                                                        <div style={{ fontSize: 10, color: textMuted }}>
+                                                            {farm.plants} 🌿 • <span style={{ color: getHealthColor(farm.avgHealth) }}>{farm.avgHealth}%</span>
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ textAlign: "right" }}>
+                                                        <div style={{ fontSize: 10, color: textMuted }}>⚔️ {farm.battlePower}</div>
+                                                        <div style={{ fontSize: 11, color: "#fbbf24", fontWeight: 600 }}>💎 {farm.pendingRewards}</div>
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -598,15 +647,22 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             )}
 
             {/* Attack Modal */}
-            {showAttackModal && selectedTarget && (
+            {showAttackModal && selectedFarm && (
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 16 }}>
                     <div style={{ background: modalBg, borderRadius: 16, padding: 20, maxWidth: 380, width: "100%", border: `1px solid ${borderColor}` }}>
                         <div style={{ fontSize: 16, fontWeight: 700, color: "#dc2626", marginBottom: 16, textAlign: "center" }}>🔪 PURGE ATTACK</div>
                         
+                        {/* Cluster info if applicable */}
+                        {selectedCluster?.isCluster && (
+                            <div style={{ fontSize: 10, color: "#a78bfa", textAlign: "center", marginBottom: 8 }}>
+                                Attacking farm from {selectedCluster.name || shortAddr(selectedCluster.address)}'s cluster
+                            </div>
+                        )}
+                        
                         <div style={{ background: "rgba(220,38,38,0.1)", borderRadius: 8, padding: 12, marginBottom: 16, textAlign: "center" }}>
-                            <div style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 600, color: textPrimary }}>{shortAddr(selectedTarget.address)}</div>
+                            <div style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 600, color: textPrimary }}>{shortAddr(selectedFarm.address)}</div>
                             <div style={{ fontSize: 10, color: textMuted, marginTop: 4 }}>
-                                {selectedTarget.plants} 🌿 • {selectedTarget.avgHealth}% ❤️ • {selectedTarget.pendingRewards} pending
+                                {selectedFarm.plants} 🌿 • {selectedFarm.avgHealth}% ❤️ • {selectedFarm.pendingRewards} pending
                             </div>
                         </div>
                         
@@ -617,7 +673,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                             </div>
                             <div style={{ background: "rgba(239,68,68,0.1)", borderRadius: 8, padding: 12, textAlign: "center" }}>
                                 <div style={{ fontSize: 9, color: textMuted }}>THEIR POWER</div>
-                                <div style={{ fontSize: 20, fontWeight: 700, color: "#ef4444" }}>{selectedTarget.battlePower}</div>
+                                <div style={{ fontSize: 20, fontWeight: 700, color: "#ef4444" }}>{selectedFarm.battlePower}</div>
                             </div>
                         </div>
                         
@@ -626,7 +682,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                         </div>
                         
                         <div style={{ display: "flex", gap: 10 }}>
-                            <button onClick={() => setShowAttackModal(false)} disabled={attacking} style={{ flex: 1, padding: "12px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${borderColor}`, background: "transparent", color: textMuted, cursor: "pointer" }}>Cancel</button>
+                            <button onClick={() => { setShowAttackModal(false); setSelectedFarm(null); setSelectedCluster(null); }} disabled={attacking} style={{ flex: 1, padding: "12px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${borderColor}`, background: "transparent", color: textMuted, cursor: "pointer" }}>Cancel</button>
                             <button onClick={handlePurgeAttack} disabled={attacking || cooldownRemaining > 0 || myBattlePower === 0} style={{ flex: 2, padding: "12px", fontSize: 13, fontWeight: 700, borderRadius: 8, border: "none", background: (attacking || cooldownRemaining > 0 || myBattlePower === 0) ? "#374151" : "linear-gradient(135deg, #dc2626, #991b1b)", color: "#fff", cursor: (attacking || cooldownRemaining > 0 || myBattlePower === 0) ? "not-allowed" : "pointer" }}>
                                 {attacking ? "Attacking..." : cooldownRemaining > 0 ? `⏳ ${formatCooldown(cooldownRemaining)}` : myBattlePower === 0 ? "⚠️ No Power" : "🔪 PURGE"}
                             </button>
@@ -643,11 +699,17 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                     <div style={{ background: modalBg, borderRadius: 16, padding: 24, maxWidth: 340, width: "100%", border: `2px solid ${attackResult.won ? "rgba(16,185,129,0.5)" : "rgba(239,68,68,0.5)"}`, textAlign: "center" }}>
                         <div style={{ fontSize: 56, marginBottom: 12 }}>{attackResult.won ? "🔥" : "💀"}</div>
                         <div style={{ fontSize: 22, fontWeight: 800, color: attackResult.won ? "#10b981" : "#ef4444", marginBottom: 16 }}>{attackResult.won ? "PURGED!" : "DEFEATED"}</div>
-                        {attackResult.won && (
+                        {attackResult.won ? (
                             <div style={{ background: "rgba(16,185,129,0.1)", borderRadius: 10, padding: 16, marginBottom: 16 }}>
                                 <div style={{ fontSize: 11, color: textMuted }}>Looted</div>
                                 <div style={{ fontSize: 28, fontWeight: 700, color: "#10b981" }}>{attackResult.amount}</div>
                                 <div style={{ fontSize: 10, color: textMuted, marginTop: 8 }}>Damage dealt: {attackResult.damage}%</div>
+                            </div>
+                        ) : (
+                            <div style={{ background: "rgba(239,68,68,0.1)", borderRadius: 10, padding: 16, marginBottom: 16 }}>
+                                <div style={{ fontSize: 11, color: textMuted }}>They looted YOU</div>
+                                <div style={{ fontSize: 28, fontWeight: 700, color: "#ef4444" }}>{attackResult.amount}</div>
+                                <div style={{ fontSize: 10, color: textMuted, marginTop: 8 }}>Damage taken: {attackResult.damage}%</div>
                             </div>
                         )}
                         <button onClick={closeResultModal} style={{ width: "100%", padding: "12px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: "none", background: "linear-gradient(135deg, #dc2626, #991b1b)", color: "#fff", cursor: "pointer" }}>Continue</button>
