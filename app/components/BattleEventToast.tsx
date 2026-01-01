@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { ethers } from "ethers";
 
 // Battle contract address (same as V5_BATTLES_ADDRESS)
-const BATTLE_CONTRACT = "0xb17A9451c424c3ae55660cF86795eE3f52877C75";
+const BATTLE_CONTRACT = "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00";
 
 // ABI for battle events
 const BATTLE_ABI = [
