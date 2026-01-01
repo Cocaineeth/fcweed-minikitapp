@@ -29,7 +29,7 @@ interface BattleEvent {
 interface Props {
     theme: "light" | "dark";
     readProvider: ethers.providers.Provider | null;
-    enabled?: boolean; // Enable/disable the listener
+    enabled?: boolean;
 }
 
 // Shorten address: 0x1234...5678
@@ -54,12 +54,20 @@ const Toast: React.FC<{
 }> = ({ event, onRemove, theme }) => {
     const [isExiting, setIsExiting] = useState(false);
     const [progress, setProgress] = useState(100);
+    const onRemoveRef = useRef(onRemove);
+    const hasRemovedRef = useRef(false);
+
+    // Keep ref updated
+    useEffect(() => {
+        onRemoveRef.current = onRemove;
+    }, [onRemove]);
 
     // Theme colors matching FCWeed app
     const cardBg = theme === "light" ? "#ffffff" : "rgba(20,25,35,0.98)";
     const textPrimary = theme === "light" ? "#1e293b" : "#ffffff";
     const textMuted = theme === "light" ? "#64748b" : "#94a3b8";
 
+    // FIXED: Use ref for callback and empty dependency array so timer only runs once
     useEffect(() => {
         // Progress bar countdown - 10 seconds
         const interval = setInterval(() => {
@@ -68,19 +76,25 @@ const Toast: React.FC<{
 
         // Auto-remove after 10 seconds
         const timer = setTimeout(() => {
-            setIsExiting(true);
-            setTimeout(onRemove, 300);
+            if (!hasRemovedRef.current) {
+                hasRemovedRef.current = true;
+                setIsExiting(true);
+                setTimeout(() => onRemoveRef.current(), 300);
+            }
         }, 10000);
 
         return () => {
             clearTimeout(timer);
             clearInterval(interval);
         };
-    }, [onRemove]);
+    }, []); // Empty deps - only run once on mount
 
     const handleClose = () => {
-        setIsExiting(true);
-        setTimeout(onRemove, 300);
+        if (!hasRemovedRef.current) {
+            hasRemovedRef.current = true;
+            setIsExiting(true);
+            setTimeout(() => onRemoveRef.current(), 300);
+        }
     };
 
     const getBattleIcon = () => {
@@ -211,60 +225,61 @@ const Toast: React.FC<{
                 ✕
             </button>
 
-            <div style={{ padding: 14, position: "relative", zIndex: 1 }}>
+            {/* Toast content */}
+            <div style={{ position: "relative", padding: 16, paddingRight: 40 }}>
                 {/* Header */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 22 }}>{getBattleIcon()}</span>
-                        <div>
-                            <div style={{ 
-                                fontSize: 12, 
-                                fontWeight: 700, 
-                                color: textPrimary, 
-                                letterSpacing: 1,
-                                textTransform: "uppercase"
-                            }}>
-                                {getBattleName()}
-                            </div>
-                            {event.nukeUsed && (
-                                <div style={{ 
-                                    fontSize: 9, 
-                                    color: "#f97316", 
-                                    fontWeight: 600,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 4
-                                }}>
-                                    <span style={{ animation: "nukePulse 0.5s infinite" }}>☢️</span>
-                                    NUKE DEPLOYED
-                                </div>
-                            )}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                    <span style={{ fontSize: 28 }}>{getBattleIcon()}</span>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ 
+                            fontSize: 12, 
+                            fontWeight: 800, 
+                            color: textPrimary, 
+                            letterSpacing: "0.5px",
+                            textTransform: "uppercase"
+                        }}>
+                            {getBattleName()}
+                        </div>
+                        <div style={{ 
+                            fontSize: 10, 
+                            color: textMuted, 
+                            marginTop: 2 
+                        }}>
+                            Live Battle Result
                         </div>
                     </div>
                     <div style={{
-                        padding: "4px 10px",
+                        padding: "4px 8px",
                         borderRadius: 6,
                         background: event.won ? "rgba(16,185,129,0.2)" : "rgba(239,68,68,0.2)",
                         border: `1px solid ${event.won ? "rgba(16,185,129,0.4)" : "rgba(239,68,68,0.4)"}`,
-                        color: event.won ? "#10b981" : "#ef4444",
                         fontSize: 10,
                         fontWeight: 700,
-                        textTransform: "uppercase",
-                        letterSpacing: 0.5
+                        color: event.won ? "#10b981" : "#ef4444"
                     }}>
                         {event.won ? "🏆 VICTORY" : "💀 DEFEATED"}
                     </div>
                 </div>
 
+                {/* Nuke badge */}
+                {event.nukeUsed && (
+                    <div style={{
+                        background: "rgba(249,115,22,0.2)",
+                        border: "1px solid rgba(249,115,22,0.5)",
+                        borderRadius: 6,
+                        padding: "4px 8px",
+                        marginBottom: 10,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6
+                    }}>
+                        <span style={{ fontSize: 14 }}>☢️</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "#f97316" }}>NUKE DEPLOYED</span>
+                    </div>
+                )}
+
                 {/* Battle details */}
-                <div style={{ 
-                    background: "rgba(0,0,0,0.2)", 
-                    borderRadius: 8, 
-                    padding: 10,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 6
-                }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span style={{ fontSize: 10, color: textMuted, textTransform: "uppercase" }}>Attacker</span>
                         <span style={{ 
@@ -454,12 +469,13 @@ export function BattleEventToast({ theme, readProvider, enabled = true }: Props)
             `}</style>
 
             {/* Toast container - fixed bottom right */}
+            {/* z-index 5000 to stay below wallet modals (usually 10000+) */}
             <div
                 style={{
                     position: "fixed",
                     bottom: 20,
                     right: 20,
-                    zIndex: 9999,
+                    zIndex: 5000,
                     display: "flex",
                     flexDirection: "column-reverse",
                     pointerEvents: "none"
