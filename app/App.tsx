@@ -36,34 +36,37 @@ const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "3a8170812
 // =============================================================================
 // WALLET CONFIGURATION
 // =============================================================================
+// Note: When multiple wallet extensions are installed, they can conflict over
+// window.ethereum. RainbowKit handles this via EIP-6963, but some older extensions
+// may still cause issues. Phantom uses window.phantom.ethereum as dedicated provider.
 const connectors = connectorsForWallets(
   [
     {
-      // injectedWallet auto-shows ONLY when inside a wallet's in-app browser
-      // It hides itself on regular browsers with no injected provider
+      // Installed wallets - these show first when extension is detected
+      // Phantom is prioritized as it has its own dedicated provider (window.phantom.ethereum)
+      groupName: "Installed",
+      wallets: [
+        phantomWallet,    // Uses window.phantom.ethereum - avoids conflicts
+        rabbyWallet,      // Uses window.rabby when available
+        metaMaskWallet,
+        coinbaseWallet,
+      ],
+    },
+    {
+      // injectedWallet catches any other wallet extensions
       groupName: "Detected",
       wallets: [
         injectedWallet,
       ],
     },
     {
-      groupName: "Popular",
-      wallets: [
-        metaMaskWallet,
-        coinbaseWallet,
-        rabbyWallet,
-        rainbowWallet,
-        // Phantom uses WalletConnect on desktop - moved to More Wallets
-      ],
-    },
-    {
       groupName: "More Wallets",
       wallets: [
-        phantomWallet,  // Phantom works via WalletConnect on desktop
+        rainbowWallet,
         trustWallet,
         okxWallet,
         zerionWallet,
-        walletConnectWallet,  // Generic WalletConnect - keep last
+        walletConnectWallet,  // Generic WalletConnect fallback - keep last
       ],
     },
   ],
@@ -121,6 +124,30 @@ export default function App() {
 
   useEffect(() => {
     setMounted(true);
+    
+    // Log wallet extension detection for debugging multi-wallet conflicts
+    const anyWindow = window as any;
+    console.log("[FCWEED] Wallet extensions detected:", {
+      "window.ethereum": !!anyWindow.ethereum,
+      "window.ethereum.isMetaMask": anyWindow.ethereum?.isMetaMask,
+      "window.ethereum.isPhantom": anyWindow.ethereum?.isPhantom,
+      "window.ethereum.isRabby": anyWindow.ethereum?.isRabby,
+      "window.phantom.ethereum": !!anyWindow.phantom?.ethereum,
+      "window.rabby": !!anyWindow.rabby,
+      "EIP-6963 providers": anyWindow.ethereum?.providers?.length || 0,
+    });
+    
+    // If multiple wallets detected, log a helpful message
+    const walletCount = [
+      anyWindow.ethereum?.isMetaMask,
+      anyWindow.phantom?.ethereum,
+      anyWindow.rabby,
+      anyWindow.ethereum?.isCoinbaseWallet,
+    ].filter(Boolean).length;
+    
+    if (walletCount > 1) {
+      console.warn("[FCWEED] ⚠️ Multiple wallet extensions detected. If connection fails, try disabling other wallet extensions temporarily.");
+    }
     
     // Initialize Farcaster SDK
     const init = async () => {

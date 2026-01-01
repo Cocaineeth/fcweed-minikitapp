@@ -259,56 +259,83 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }, []);
 
     // Helper to find the correct ethereum provider for the connected wallet
+    // Uses wagmi connector info when available to avoid window.ethereum conflicts
     const getConnectedProvider = useCallback(() => {
         const anyWindow = window as any;
         
-        // Check if we have multiple providers (EIP-6963)
-        if (anyWindow.ethereum?.providers?.length > 0) {
-            // Try to find the matching provider based on walletClient info
-            const providers = anyWindow.ethereum.providers;
-            
-            // If Phantom is connected, prioritize phantom provider
-            const phantomProvider = providers.find((p: any) => p.isPhantom);
-            if (phantomProvider && walletClient?.account?.address) {
-                console.log("[Provider] Using Phantom provider from multi-provider array");
-                return phantomProvider;
-            }
-            
-            // If Rabby is connected, prioritize rabby provider  
-            const rabbyProvider = providers.find((p: any) => p.isRabby);
-            if (rabbyProvider) {
-                console.log("[Provider] Using Rabby provider from multi-provider array");
-                return rabbyProvider;
-            }
-            
-            // If MetaMask is connected
-            const mmProvider = providers.find((p: any) => p.isMetaMask && !p.isRabby && !p.isPhantom);
-            if (mmProvider) {
-                console.log("[Provider] Using MetaMask provider from multi-provider array");
-                return mmProvider;
+        // First, try to get connector name from walletClient to know which wallet we're dealing with
+        const connectorName = walletClient?.transport?.name?.toLowerCase() || '';
+        const isPhantomConnector = connectorName.includes('phantom');
+        const isRabbyConnector = connectorName.includes('rabby');
+        const isMetaMaskConnector = connectorName.includes('metamask');
+        const isCoinbaseConnector = connectorName.includes('coinbase');
+        
+        console.log("[Provider] Connector detected:", connectorName || 'unknown');
+        
+        // Priority 1: Use dedicated provider locations based on connector
+        if (isPhantomConnector || anyWindow.phantom?.ethereum?.isPhantom) {
+            if (anyWindow.phantom?.ethereum) {
+                console.log("[Provider] Using window.phantom.ethereum (dedicated Phantom provider)");
+                return anyWindow.phantom.ethereum;
             }
         }
         
-        // Check for Phantom's dedicated provider location
-        if (anyWindow.phantom?.ethereum) {
-            console.log("[Provider] Using window.phantom.ethereum");
-            return anyWindow.phantom.ethereum;
-        }
-        
-        // Check for Rabby's dedicated provider location
-        if (anyWindow.rabby) {
-            console.log("[Provider] Using window.rabby");
+        if (isRabbyConnector && anyWindow.rabby) {
+            console.log("[Provider] Using window.rabby (dedicated Rabby provider)");
             return anyWindow.rabby;
         }
         
-        // Fallback to standard ethereum
+        // Priority 2: Check EIP-6963 multi-provider array
+        if (anyWindow.ethereum?.providers?.length > 0) {
+            const providers = anyWindow.ethereum.providers;
+            console.log("[Provider] Found", providers.length, "providers in EIP-6963 array");
+            
+            // Match based on connector
+            if (isPhantomConnector) {
+                const p = providers.find((p: any) => p.isPhantom);
+                if (p) { console.log("[Provider] Using Phantom from array"); return p; }
+            }
+            if (isRabbyConnector) {
+                const p = providers.find((p: any) => p.isRabby);
+                if (p) { console.log("[Provider] Using Rabby from array"); return p; }
+            }
+            if (isMetaMaskConnector) {
+                const p = providers.find((p: any) => p.isMetaMask && !p.isRabby && !p.isPhantom);
+                if (p) { console.log("[Provider] Using MetaMask from array"); return p; }
+            }
+            if (isCoinbaseConnector) {
+                const p = providers.find((p: any) => p.isCoinbaseWallet);
+                if (p) { console.log("[Provider] Using Coinbase from array"); return p; }
+            }
+            
+            // If no connector match, try by detection
+            const phantomProvider = providers.find((p: any) => p.isPhantom);
+            if (phantomProvider && anyWindow.phantom?.ethereum) {
+                console.log("[Provider] Phantom detected, using dedicated provider");
+                return anyWindow.phantom.ethereum;
+            }
+        }
+        
+        // Priority 3: Dedicated provider locations (fallback)
+        if (anyWindow.phantom?.ethereum) {
+            console.log("[Provider] Fallback: Using window.phantom.ethereum");
+            return anyWindow.phantom.ethereum;
+        }
+        
+        if (anyWindow.rabby) {
+            console.log("[Provider] Fallback: Using window.rabby");
+            return anyWindow.rabby;
+        }
+        
+        // Priority 4: Standard ethereum (may be conflicted)
         if (anyWindow.ethereum) {
-            console.log("[Provider] Using window.ethereum (isPhantom:", anyWindow.ethereum.isPhantom, 
+            console.log("[Provider] Fallback: Using window.ethereum (isPhantom:", anyWindow.ethereum.isPhantom, 
                 ", isRabby:", anyWindow.ethereum.isRabby, 
                 ", isMetaMask:", anyWindow.ethereum.isMetaMask, ")");
             return anyWindow.ethereum;
         }
         
+        console.warn("[Provider] No ethereum provider found!");
         return null;
     }, [walletClient]);
 
