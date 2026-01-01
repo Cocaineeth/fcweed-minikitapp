@@ -258,19 +258,76 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setConnecting(false);
     }, []);
 
+    // Helper to find the correct ethereum provider for the connected wallet
+    const getConnectedProvider = useCallback(() => {
+        const anyWindow = window as any;
+        
+        // Check if we have multiple providers (EIP-6963)
+        if (anyWindow.ethereum?.providers?.length > 0) {
+            // Try to find the matching provider based on walletClient info
+            const providers = anyWindow.ethereum.providers;
+            
+            // If Phantom is connected, prioritize phantom provider
+            const phantomProvider = providers.find((p: any) => p.isPhantom);
+            if (phantomProvider && walletClient?.account?.address) {
+                console.log("[Provider] Using Phantom provider from multi-provider array");
+                return phantomProvider;
+            }
+            
+            // If Rabby is connected, prioritize rabby provider  
+            const rabbyProvider = providers.find((p: any) => p.isRabby);
+            if (rabbyProvider) {
+                console.log("[Provider] Using Rabby provider from multi-provider array");
+                return rabbyProvider;
+            }
+            
+            // If MetaMask is connected
+            const mmProvider = providers.find((p: any) => p.isMetaMask && !p.isRabby && !p.isPhantom);
+            if (mmProvider) {
+                console.log("[Provider] Using MetaMask provider from multi-provider array");
+                return mmProvider;
+            }
+        }
+        
+        // Check for Phantom's dedicated provider location
+        if (anyWindow.phantom?.ethereum) {
+            console.log("[Provider] Using window.phantom.ethereum");
+            return anyWindow.phantom.ethereum;
+        }
+        
+        // Check for Rabby's dedicated provider location
+        if (anyWindow.rabby) {
+            console.log("[Provider] Using window.rabby");
+            return anyWindow.rabby;
+        }
+        
+        // Fallback to standard ethereum
+        if (anyWindow.ethereum) {
+            console.log("[Provider] Using window.ethereum (isPhantom:", anyWindow.ethereum.isPhantom, 
+                ", isRabby:", anyWindow.ethereum.isRabby, 
+                ", isMetaMask:", anyWindow.ethereum.isMetaMask, ")");
+            return anyWindow.ethereum;
+        }
+        
+        return null;
+    }, [walletClient]);
+
     // Sync wagmi state to local state
     useEffect(() => {
         if (wagmiConnected && wagmiAddress && !userAddress && !usingMiniApp) {
             console.log("[Wagmi] Syncing wagmi connection to local state:", wagmiAddress);
             setUserAddress(wagmiAddress);
-            setConnecting(false); // Ensure connecting is reset
-            const anyWindow = window as any;
-            if (anyWindow.ethereum) {
-                const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
+            setConnecting(false);
+            
+            const ethProvider = getConnectedProvider();
+            if (ethProvider) {
+                const ethersProvider = new ethers.providers.Web3Provider(ethProvider, "any");
                 setProvider(ethersProvider);
-                // Pass address explicitly - fixes Phantom/Base App compatibility
                 setSigner(ethersProvider.getSigner(wagmiAddress));
-                setMiniAppEthProvider(anyWindow.ethereum);
+                setMiniAppEthProvider(ethProvider);
+                console.log("[Wagmi] Provider set up successfully for:", wagmiAddress);
+            } else {
+                console.warn("[Wagmi] No ethereum provider found!");
             }
         } else if (!wagmiConnected && userAddress && !usingMiniApp) {
             // RainbowKit disconnected - clear state
@@ -282,7 +339,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setUserAvatar(null);
             setConnecting(false);
         }
-    }, [wagmiConnected, wagmiAddress, userAddress, usingMiniApp]);
+    }, [wagmiConnected, wagmiAddress, userAddress, usingMiniApp, getConnectedProvider]);
 
     useEffect(() => { onThemeChange?.(theme); }, [theme, onThemeChange]);
 
@@ -654,11 +711,39 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
 
     async function sendContractTx(to: string, data: string, gasLimit?: string): Promise<ethers.providers.TransactionResponse | null> {
+        // Helper to get the correct provider
+        const getProvider = () => {
+            const anyWindow = window as any;
+            
+            // Check for multi-provider scenario (EIP-6963)
+            if (anyWindow.ethereum?.providers?.length > 0) {
+                const providers = anyWindow.ethereum.providers;
+                const phantomProvider = providers.find((p: any) => p.isPhantom);
+                const rabbyProvider = providers.find((p: any) => p.isRabby);
+                const mmProvider = providers.find((p: any) => p.isMetaMask && !p.isRabby && !p.isPhantom);
+                
+                // Return in priority order based on what's likely connected
+                if (phantomProvider) return phantomProvider;
+                if (rabbyProvider) return rabbyProvider;
+                if (mmProvider) return mmProvider;
+            }
+            
+            // Phantom's dedicated location
+            if (anyWindow.phantom?.ethereum) return anyWindow.phantom.ethereum;
+            
+            // Rabby's dedicated location
+            if (anyWindow.rabby) return anyWindow.rabby;
+            
+            // Standard ethereum
+            return anyWindow.ethereum;
+        };
+
         // NEW: Handle RainbowKit/desktop connections using walletClient
         if (wagmiConnected && wagmiAddress && !usingMiniApp && walletClient) {
             try {
+                console.log("[TX] Attempting walletClient.sendTransaction for:", wagmiAddress);
+                
                 // Use walletClient from wagmi - this is the correct provider for ANY connected wallet
-                // Works with Phantom, Rabby, MetaMask, Coinbase, etc.
                 const hash = await walletClient.sendTransaction({
                     to: to as `0x${string}`,
                     data: data as `0x${string}`,
@@ -666,21 +751,32 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     account: walletClient.account,
                 });
                 
+                console.log("[TX] WalletClient tx hash:", hash);
+                
                 // Get a provider to fetch the transaction response
-                const anyWindow = window as any;
-                const provider = anyWindow.ethereum 
-                    ? new ethers.providers.Web3Provider(anyWindow.ethereum, "any")
-                    : readProvider;
-                    
-                if (provider) {
+                const ethProvider = getProvider();
+                if (ethProvider) {
+                    const provider = new ethers.providers.Web3Provider(ethProvider, "any");
                     // Wait a moment for tx to propagate, then fetch
                     await new Promise(r => setTimeout(r, 500));
                     const txResponse = await provider.getTransaction(hash);
-                    return txResponse;
+                    if (txResponse) return txResponse;
                 }
                 
                 // Fallback: return a minimal response with the hash
-                return { hash } as any;
+                return { 
+                    hash,
+                    wait: async () => {
+                        for (let i = 0; i < 30; i++) {
+                            await new Promise(r => setTimeout(r, 2000));
+                            try {
+                                const receipt = await readProvider.getTransactionReceipt(hash);
+                                if (receipt && receipt.confirmations > 0) return receipt;
+                            } catch {}
+                        }
+                        return null;
+                    }
+                } as any;
             } catch (e: any) {
                 console.error("[TX] WalletClient failed:", e);
                 const msg = e?.shortMessage || e?.message || "Transaction failed";
@@ -695,10 +791,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         
         // Fallback to raw eth_sendTransaction for better Phantom/Base App compatibility
         if (wagmiConnected && wagmiAddress && !usingMiniApp) {
-            const anyWindow = window as any;
-            if (anyWindow.ethereum) {
+            const ethProvider = getProvider();
+            if (ethProvider) {
                 try {
-                    console.log("[TX] Using raw eth_sendTransaction for:", wagmiAddress);
+                    console.log("[TX] Using raw eth_sendTransaction for:", wagmiAddress,
+                        "Provider:", ethProvider.isPhantom ? "Phantom" : ethProvider.isRabby ? "Rabby" : ethProvider.isMetaMask ? "MetaMask" : "Unknown");
+                    
                     const txParams: any = {
                         from: wagmiAddress,
                         to: to,
@@ -710,7 +808,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     }
                     
                     // Use raw provider request - most compatible with all wallets
-                    const txHash = await anyWindow.ethereum.request({
+                    const txHash = await ethProvider.request({
                         method: "eth_sendTransaction",
                         params: [txParams],
                     });
@@ -5272,10 +5370,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             `}</style>
             
             {/* Battle Event Toast - Shows live battle notifications across all tabs */}
+            {/* Also triggers live data refresh for all players when battles occur */}
             <BattleEventToast 
                 theme={theme}
                 readProvider={readProvider}
                 enabled={true}
+                onBattleEvent={refreshAllData}
             />
             
             {showOnboarding && (

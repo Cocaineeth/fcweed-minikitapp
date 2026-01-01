@@ -30,6 +30,7 @@ interface Props {
     theme: "light" | "dark";
     readProvider: ethers.providers.Provider | null;
     enabled?: boolean;
+    onBattleEvent?: () => void; // Callback when any battle event is detected (for live refresh)
 }
 
 // Shorten address: 0x1234...5678
@@ -344,10 +345,31 @@ const Toast: React.FC<{
 };
 
 // Main component
-export function BattleEventToast({ theme, readProvider, enabled = true }: Props) {
+export function BattleEventToast({ theme, readProvider, enabled = true, onBattleEvent }: Props) {
     const [events, setEvents] = useState<BattleEvent[]>([]);
     const nukeTargetsRef = useRef<Set<string>>(new Set());
     const contractRef = useRef<ethers.Contract | null>(null);
+    const onBattleEventRef = useRef(onBattleEvent);
+    const refreshDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Keep callback ref updated
+    useEffect(() => {
+        onBattleEventRef.current = onBattleEvent;
+    }, [onBattleEvent]);
+
+    // Debounced refresh - waits 2 seconds after last event before triggering refresh
+    // This prevents spam if multiple battles happen quickly
+    const triggerRefresh = useCallback(() => {
+        if (refreshDebounceRef.current) {
+            clearTimeout(refreshDebounceRef.current);
+        }
+        refreshDebounceRef.current = setTimeout(() => {
+            if (onBattleEventRef.current) {
+                console.log("[BattleToast] 🔄 Triggering live data refresh");
+                onBattleEventRef.current();
+            }
+        }, 2000); // 2 second debounce
+    }, []);
 
     const addEvent = useCallback((event: BattleEvent) => {
         setEvents((prev) => [event, ...prev].slice(0, 5)); // Max 5 toasts
@@ -388,6 +410,7 @@ export function BattleEventToast({ theme, readProvider, enabled = true }: Props)
                         nukeUsed: nukeTargetsRef.current.has(nukeKey),
                         timestamp: Date.now()
                     });
+                    triggerRefresh(); // Live update for all players
                 });
 
                 // Listen for DeaResult
@@ -406,6 +429,7 @@ export function BattleEventToast({ theme, readProvider, enabled = true }: Props)
                         nukeUsed: nukeTargetsRef.current.has(nukeKey),
                         timestamp: Date.now()
                     });
+                    triggerRefresh(); // Live update for all players
                 });
 
                 // Listen for PurgeResult
@@ -424,6 +448,7 @@ export function BattleEventToast({ theme, readProvider, enabled = true }: Props)
                         nukeUsed: nukeTargetsRef.current.has(nukeKey),
                         timestamp: Date.now()
                     });
+                    triggerRefresh(); // Live update for all players
                 });
 
                 console.log("[BattleToast] 🎮 Event listeners active");
@@ -439,8 +464,12 @@ export function BattleEventToast({ theme, readProvider, enabled = true }: Props)
                 contractRef.current.removeAllListeners();
                 console.log("[BattleToast] 🎮 Event listeners stopped");
             }
+            // Clean up debounce timeout
+            if (refreshDebounceRef.current) {
+                clearTimeout(refreshDebounceRef.current);
+            }
         };
-    }, [enabled, readProvider, addEvent]);
+    }, [enabled, readProvider, addEvent, triggerRefresh]);
 
     if (!enabled) return null;
 
