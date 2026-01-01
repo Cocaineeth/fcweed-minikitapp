@@ -429,7 +429,9 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             let won = false;
             let stolenAmount = "0";
             let damage = 0;
+            let foundEvent = false;
 
+            // First try parsing from receipt.logs
             for (const log of receipt.logs) {
                 try {
                     const parsed = battlesInterface.parseLog(log);
@@ -437,9 +439,40 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                         won = parsed.args.w;
                         stolenAmount = formatLargeNumber(parsed.args.s);
                         damage = parsed.args.dmg.toNumber();
+                        foundEvent = true;
+                        console.log("[Purge] Event found:", { won, stolenAmount, damage });
                         break;
                     }
                 } catch {}
+            }
+            
+            // If not found, try fetching receipt from provider (some wallets don't return full logs)
+            if (!foundEvent && readProvider && tx.hash) {
+                try {
+                    console.log("[Purge] Fetching receipt from provider for tx:", tx.hash);
+                    const fullReceipt = await readProvider.getTransactionReceipt(tx.hash);
+                    if (fullReceipt && fullReceipt.logs) {
+                        for (const log of fullReceipt.logs) {
+                            try {
+                                const parsed = battlesInterface.parseLog(log);
+                                if (parsed.name === "PurgeResult") {
+                                    won = parsed.args.w;
+                                    stolenAmount = formatLargeNumber(parsed.args.s);
+                                    damage = parsed.args.dmg.toNumber();
+                                    foundEvent = true;
+                                    console.log("[Purge] Event found from provider:", { won, stolenAmount, damage });
+                                    break;
+                                }
+                            } catch {}
+                        }
+                    }
+                } catch (e) {
+                    console.error("[Purge] Failed to fetch receipt from provider:", e);
+                }
+            }
+            
+            if (!foundEvent) {
+                console.warn("[Purge] PurgeResult event not found in logs!");
             }
 
             setAttackResult({ won, amount: stolenAmount, damage });
