@@ -203,6 +203,9 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
         try {
             // Try backend first (has clustering)
             let backendData: ClusterInfo[] = [];
+            let useOnChain = false;
+            let backendTotalStakers = 0;
+            
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 8000);
@@ -211,31 +214,45 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                 const data = await res.json();
                 
                 if (data.success && Array.isArray(data.targets)) {
-                    console.log("[Purge] Backend returned", data.targets.length, "clusters from", data.totalStakers, "stakers");
+                    backendTotalStakers = data.totalStakers || 0;
+                    console.log("[Purge] Backend returned", data.targets.length, "clusters from", backendTotalStakers, "total stakers");
+                    
                     backendData = data.targets.filter((t: any) => 
                         t.address.toLowerCase() !== userAddress?.toLowerCase() &&
                         !t.farms?.every((f: FarmInfo) => f.address.toLowerCase() === userAddress?.toLowerCase())
                     );
+                    console.log("[Purge] After self-filter:", backendData.length, "clusters");
+                    
+                    // If backend says there are many stakers but returned few targets, something's wrong
+                    // Fall back to on-chain to get complete data
+                    if (backendTotalStakers > 20 && backendData.length < backendTotalStakers * 0.5) {
+                        console.log("[Purge] Backend returned too few targets, falling back to on-chain");
+                        useOnChain = true;
+                        backendData = [];
+                    }
                 }
             } catch (e: any) {
                 if (e.name !== 'AbortError') {
-                    console.log("[Purge] Backend unavailable, fetching on-chain");
+                    console.log("[Purge] Backend unavailable, fetching on-chain:", e.message);
                 }
+                useOnChain = true;
             }
             
-            // If no backend data, fetch on-chain (without clustering)
-            if (backendData.length === 0) {
+            // If no backend data or forced on-chain, fetch on-chain (without clustering)
+            if (backendData.length === 0 || useOnChain) {
+                console.log("[Purge] Fetching all stakers on-chain...");
+                backendData = []; // Reset to ensure clean data
                 try {
                     const stakingContract = new ethers.Contract(V5_STAKING_ADDRESS, STAKING_ABI, readProvider);
                     const totalStakers = await stakingContract.getTotalStakers();
                     const totalCount = totalStakers.toNumber();
-                    console.log("[Purge] Total stakers to fetch:", totalCount);
+                    console.log("[Purge] Total stakers on-chain:", totalCount);
                     
                     const mc = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, readProvider);
                     const addresses: string[] = [];
                     
-                    // Batch fetch addresses
-                    const BATCH_SIZE = 100;
+                    // Batch fetch addresses - increased batch size
+                    const BATCH_SIZE = 200;
                     for (let batchStart = 0; batchStart < totalCount; batchStart += BATCH_SIZE) {
                         const batchEnd = Math.min(batchStart + BATCH_SIZE, totalCount);
                         const calls: any[] = [];
@@ -246,25 +263,29 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                         
                         try {
                             const results = await mc.tryAggregate(false, calls);
+                            let successCount = 0;
                             for (const r of results) {
                                 if (r.success) {
                                     try {
                                         const addr = stakingInterface.decodeFunctionResult("getStakerAtIndex", r.returnData)[0];
                                         if (addr && addr !== ethers.constants.AddressZero && addr.toLowerCase() !== userAddress?.toLowerCase()) {
                                             addresses.push(addr);
+                                            successCount++;
                                         }
                                     } catch {}
                                 }
                             }
+                            console.log(`[Purge] Batch ${batchStart}-${batchEnd}: ${successCount} valid addresses`);
                         } catch (batchErr) {
                             console.warn("[Purge] Batch fetch error at", batchStart, batchErr);
                         }
                     }
                     
-                    console.log("[Purge] Found", addresses.length, "valid addresses");
+                    console.log("[Purge] Found", addresses.length, "valid addresses out of", totalCount, "total");
                     
-                    // Fetch stats in batches
-                    const STATS_BATCH_SIZE = 30;
+                    // Fetch stats in batches - increased batch size
+                    const STATS_BATCH_SIZE = 50;
+                    let stakersWithPlants = 0;
                     
                     for (let batchStart = 0; batchStart < addresses.length; batchStart += STATS_BATCH_SIZE) {
                         const batchAddresses = addresses.slice(batchStart, batchStart + STATS_BATCH_SIZE);
@@ -304,6 +325,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                                 }
                                 
                                 if (plants > 0) {
+                                    stakersWithPlants++;
                                     // Create single-farm cluster for on-chain fallback
                                     const farm: FarmInfo = {
                                         address: batchAddresses[i],
@@ -337,6 +359,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                             console.warn("[Purge] Stats batch error at", batchStart, statsBatchErr);
                         }
                     }
+                    console.log("[Purge] On-chain fetch complete:", stakersWithPlants, "stakers with plants out of", addresses.length, "addresses");
                 } catch (e) {
                     console.error("[Purge] On-chain fetch error:", e);
                 }

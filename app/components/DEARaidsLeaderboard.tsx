@@ -698,187 +698,236 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 return;
             }
             
-            // Check 2: Is target flagged? If not, try to flag them first
-            const suspectInfo = await battlesContract.getSuspect(selectedTarget.address);
-            console.log("[DEA] Pre-flight getSuspect:", { isSuspect: suspectInfo[0], expiresAt: suspectInfo[1].toNumber() });
+            // Check 2: Can we raid directly? (target might already be flagged)
+            const canRaidAlready = await battlesContract.canRaid(selectedTarget.address);
+            console.log("[DEA] Pre-flight canRaid (before flag check):", canRaidAlready);
             
-            if (!suspectInfo[0] || suspectInfo[1].toNumber() <= nowTs) {
-                // Target needs to be flagged first
-                setStatus("Flagging target as suspect...");
-                try {
-                    // Get signature from backend
-                    const sigRes = await fetch(`${WARS_BACKEND_URL}/api/dea/flag-signature`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ suspect: selectedTarget.address })
-                    });
-                    const sigData = await sigRes.json();
-                    console.log("[DEA] Flag signature response:", sigData);
-                    if (!sigData.success) throw new Error(sigData.error || "Failed to get flag signature");
-                    
-                    // Check if deadline is still valid (with 30 second buffer)
-                    const nowSeconds = Math.floor(Date.now() / 1000);
-                    if (sigData.deadline <= nowSeconds + 30) {
-                        throw new Error("Signature expired. Please try again.");
-                    }
-                    
-                    // Ensure soldAmount is properly formatted as BigNumber
-                    let soldAmount = sigData.soldAmount;
-                    if (typeof soldAmount === 'number') {
-                        soldAmount = ethers.utils.parseUnits(soldAmount.toString(), 0);
-                    } else if (typeof soldAmount === 'string' && !soldAmount.startsWith('0x')) {
-                        // If it's a decimal string, convert to BigNumber
-                        soldAmount = ethers.BigNumber.from(soldAmount);
-                    }
-                    
-                    // Ensure signature is properly formatted as bytes
-                    let signature = sigData.signature;
-                    if (typeof signature === 'string' && !signature.startsWith('0x')) {
-                        signature = '0x' + signature;
-                    }
-                    
-                    console.log("[DEA] Formatted flag params:", { 
-                        suspect: selectedTarget.address, 
-                        soldAmount: soldAmount.toString(), 
-                        deadline: sigData.deadline, 
-                        deadlineDate: new Date(sigData.deadline * 1000).toISOString(),
-                        signature: signature.slice(0, 20) + '...' 
-                    });
-                    
-                    const flagData = battlesInterface.encodeFunctionData("flagWithSig", [
-                        selectedTarget.address,
-                        soldAmount,
-                        sigData.deadline,
-                        signature
-                    ]);
-                    
-                    // Try gas estimation first to catch contract reverts early
-                    if (readProvider) {
-                        try {
-                            await readProvider.estimateGas({
-                                from: userAddress,
-                                to: V5_BATTLES_ADDRESS,
-                                data: flagData
-                            });
-                            console.log("[DEA] Flag gas estimation passed");
-                        } catch (gasErr: any) {
-                            console.error("[DEA] Flag gas estimation failed:", gasErr);
-                            const reason = gasErr?.reason || gasErr?.message || "";
-                            if (reason.includes("!exp")) {
+            if (canRaidAlready) {
+                console.log("[DEA] Target is already raidable, skipping flagging");
+                setStatus("Target is flagged. Proceeding to raid...");
+            } else {
+                // Check if target is flagged but has immunity
+                const suspectInfo = await battlesContract.getSuspect(selectedTarget.address);
+                console.log("[DEA] Pre-flight getSuspect:", { 
+                    isSuspect: suspectInfo[0], 
+                    expiresAt: suspectInfo[1].toNumber(),
+                    expiresDate: new Date(suspectInfo[1].toNumber() * 1000).toISOString()
+                });
+                
+                if (!suspectInfo[0] || suspectInfo[1].toNumber() <= nowTs) {
+                    // Target needs to be flagged first
+                    setStatus("Flagging target as suspect...");
+                    try {
+                        // Get signature from backend
+                        console.log("[DEA] Requesting flag signature for:", selectedTarget.address);
+                        const sigRes = await fetch(`${WARS_BACKEND_URL}/api/dea/flag-signature`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ suspect: selectedTarget.address })
+                        });
+                        
+                        if (!sigRes.ok) {
+                            const errText = await sigRes.text();
+                            console.error("[DEA] Flag signature HTTP error:", sigRes.status, errText);
+                            throw new Error(`Backend error: ${sigRes.status}`);
+                        }
+                        
+                        const sigData = await sigRes.json();
+                        console.log("[DEA] Flag signature response:", {
+                            success: sigData.success,
+                            error: sigData.error,
+                            deadline: sigData.deadline,
+                            soldAmount: sigData.soldAmount,
+                            nonce: sigData.nonce,
+                            hasSignature: !!sigData.signature
+                        });
+                        
+                        if (!sigData.success) {
+                            // If backend says already flagged, check on-chain and proceed
+                            if (sigData.error?.includes("already") || sigData.error?.includes("flagged")) {
+                                console.log("[DEA] Backend says already flagged, checking on-chain...");
+                                const recheckSuspect = await battlesContract.getSuspect(selectedTarget.address);
+                                if (recheckSuspect[0] && recheckSuspect[1].toNumber() > nowTs) {
+                                    console.log("[DEA] Confirmed flagged on-chain, proceeding...");
+                                    setStatus("Target already flagged. Proceeding...");
+                                } else {
+                                    throw new Error(sigData.error || "Failed to get flag signature");
+                                }
+                            } else {
+                                throw new Error(sigData.error || "Failed to get flag signature");
+                            }
+                        } else {
+                            // We have a signature, proceed to flag
+                            // Check if deadline is still valid (with 30 second buffer)
+                            const nowSeconds = Math.floor(Date.now() / 1000);
+                            console.log("[DEA] Time check:", { nowSeconds, deadline: sigData.deadline, buffer: sigData.deadline - nowSeconds });
+                            
+                            if (sigData.deadline <= nowSeconds + 30) {
                                 throw new Error("Signature expired. Please try again.");
-                            } else if (reason.includes("!sig")) {
-                                throw new Error("Invalid signature. Backend may need restart.");
-                            } else if (reason.includes("!p")) {
-                                throw new Error("Target has no staked plants.");
-                            } else {
-                                // Target might already be flagged - continue anyway
-                                console.log("[DEA] Gas estimation failed but continuing...");
                             }
-                        }
-                    }
-                    
-                    const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagData, "2000000"); // 2M gas
-                    if (!flagTx) throw new Error("Flag transaction rejected");
-                    
-                    // Wait for confirmation with timeout (2 minutes max for mobile)
-                    setStatus("Waiting for flag confirmation...");
-                    const flagReceiptPromise = flagTx.wait();
-                    const timeoutPromise = new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error("Transaction timeout - check your wallet")), 120000)
-                    );
-                    
-                    let flagReceipt;
-                    try {
-                        flagReceipt = await Promise.race([flagReceiptPromise, timeoutPromise]) as any;
-                    } catch (waitErr: any) {
-                        if (waitErr?.message?.includes("timeout")) {
-                            // Transaction might still be pending - check if target is now flagged
-                            console.warn("[DEA] Flag wait timed out, checking if target was flagged...");
-                            const recheckInfo = await battlesContract.getSuspect(selectedTarget.address);
-                            if (recheckInfo[0] && recheckInfo[1].toNumber() > nowTs) {
-                                console.log("[DEA] Target flagged despite timeout, proceeding...");
+                            
+                            // Ensure soldAmount is properly formatted as BigNumber
+                            let soldAmount = sigData.soldAmount;
+                            if (typeof soldAmount === 'number') {
+                                soldAmount = ethers.utils.parseUnits(soldAmount.toString(), 0);
+                            } else if (typeof soldAmount === 'string' && !soldAmount.startsWith('0x')) {
+                                // If it's a decimal string, convert to BigNumber
+                                soldAmount = ethers.BigNumber.from(soldAmount);
+                            }
+                            
+                            // Ensure signature is properly formatted as bytes
+                            let signature = sigData.signature;
+                            if (typeof signature === 'string' && !signature.startsWith('0x')) {
+                                signature = '0x' + signature;
+                            }
+                            
+                            console.log("[DEA] Formatted flag params:", { 
+                                suspect: selectedTarget.address, 
+                                soldAmount: soldAmount.toString(), 
+                                deadline: sigData.deadline, 
+                                deadlineDate: new Date(sigData.deadline * 1000).toISOString(),
+                                signatureLength: signature.length,
+                                signaturePrefix: signature.slice(0, 20) + '...' 
+                            });
+                            
+                            const flagData = battlesInterface.encodeFunctionData("flagWithSig", [
+                                selectedTarget.address,
+                                soldAmount,
+                                sigData.deadline,
+                                signature
+                            ]);
+                            
+                            // Try gas estimation first to catch contract reverts early
+                            if (readProvider) {
+                                try {
+                                    const gasEstimate = await readProvider.estimateGas({
+                                        from: userAddress,
+                                        to: V5_BATTLES_ADDRESS,
+                                        data: flagData
+                                    });
+                                    console.log("[DEA] Flag gas estimation passed:", gasEstimate.toString());
+                                } catch (gasErr: any) {
+                                    console.error("[DEA] Flag gas estimation failed:", gasErr);
+                                    const reason = gasErr?.reason || gasErr?.data?.message || gasErr?.message || "";
+                                    console.log("[DEA] Gas error reason:", reason);
+                                    
+                                    if (reason.includes("!exp")) {
+                                        throw new Error("Signature expired. Please try again.");
+                                    } else if (reason.includes("!sig")) {
+                                        throw new Error("Invalid signature - nonce may be out of sync.");
+                                    } else if (reason.includes("!p")) {
+                                        throw new Error("Target has no staked plants.");
+                                    } else {
+                                        // Target might already be flagged - check and continue
+                                        const recheckSuspect = await battlesContract.getSuspect(selectedTarget.address);
+                                        if (recheckSuspect[0] && recheckSuspect[1].toNumber() > nowTs) {
+                                            console.log("[DEA] Gas failed but target is flagged, proceeding...");
+                                            setStatus("Target flagged. Proceeding...");
+                                        } else {
+                                            console.log("[DEA] Gas estimation failed, continuing anyway...");
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Send flag transaction
+                            console.log("[DEA] Sending flag transaction...");
+                            const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagData, "2000000"); // 2M gas
+                            
+                            if (!flagTx) {
+                                // Check if target got flagged by someone else while we were trying
+                                const recheckSuspect = await battlesContract.getSuspect(selectedTarget.address);
+                                if (recheckSuspect[0] && recheckSuspect[1].toNumber() > nowTs) {
+                                    console.log("[DEA] Tx rejected but target is now flagged, proceeding...");
+                                    setStatus("Target flagged. Proceeding...");
+                                } else {
+                                    throw new Error("Flag transaction rejected");
+                                }
+                            } else {
+                                // Wait for confirmation with timeout (2 minutes max for mobile)
+                                setStatus("Waiting for flag confirmation...");
+                                console.log("[DEA] Flag tx sent:", flagTx.hash);
+                                
+                                const flagReceiptPromise = flagTx.wait();
+                                const timeoutPromise = new Promise((_, reject) => 
+                                    setTimeout(() => reject(new Error("Transaction timeout - check your wallet")), 120000)
+                                );
+                                
+                                let flagReceipt;
+                                try {
+                                    flagReceipt = await Promise.race([flagReceiptPromise, timeoutPromise]) as any;
+                                    console.log("[DEA] Flag receipt:", { status: flagReceipt?.status, hash: flagTx.hash });
+                                } catch (waitErr: any) {
+                                    if (waitErr?.message?.includes("timeout")) {
+                                        // Transaction might still be pending - check if target is now flagged
+                                        console.warn("[DEA] Flag wait timed out, checking if target was flagged...");
+                                        const recheckInfo = await battlesContract.getSuspect(selectedTarget.address);
+                                        if (recheckInfo[0] && recheckInfo[1].toNumber() > nowTs) {
+                                            console.log("[DEA] Target flagged despite timeout, proceeding...");
+                                            setStatus("Target flagged! Proceeding to raid...");
+                                        } else {
+                                            setStatus("Transaction timed out. Please try again.");
+                                            setRaiding(false);
+                                            return;
+                                        }
+                                    } else {
+                                        throw waitErr;
+                                    }
+                                }
+                                
+                                // Check if tx was successful (only if we got a receipt)
+                                if (flagReceipt && flagReceipt.status === 0) {
+                                    setStatus("Flag transaction failed on-chain");
+                                    setRaiding(false);
+                                    return;
+                                }
+                                
+                                console.log("[DEA] Flag tx confirmed:", flagTx.hash);
                                 setStatus("Target flagged! Proceeding to raid...");
-                                // Continue to raid (don't return)
-                            } else {
-                                setStatus("Transaction timed out. Please try again.");
-                                setRaiding(false);
-                                return;
                             }
-                        } else {
-                            throw waitErr;
                         }
-                    }
-                    
-                    // Check if tx was successful (only if we got a receipt)
-                    if (flagReceipt && flagReceipt.status === 0) {
-                        setStatus("Flag transaction failed on-chain");
-                        setRaiding(false);
-                        return;
-                    }
-                    
-                    console.log("[DEA] Flag tx confirmed:", flagTx.hash);
-                    
-                    // Wait a moment for RPC to sync, then verify with retries
-                    let flagVerified = false;
-                    for (let attempt = 0; attempt < 3; attempt++) {
-                        await new Promise(r => setTimeout(r, 1500)); // 1.5 second delay
-                        try {
-                            const newSuspectInfo = await battlesContract.getSuspect(selectedTarget.address);
-                            console.log("[DEA] Flag verification attempt", attempt + 1, ":", newSuspectInfo[0]);
-                            if (newSuspectInfo[0]) {
-                                flagVerified = true;
-                                break;
-                            }
-                        } catch (e) {
-                            console.warn("[DEA] Flag verify read failed:", e);
-                        }
-                    }
-                    
-                    // If tx succeeded but verification failed, trust the tx and proceed anyway
-                    if (!flagVerified) {
-                        console.warn("[DEA] Flag verification failed but tx succeeded - proceeding anyway");
-                        setStatus("Flag tx confirmed, proceeding to raid...");
-                    } else {
-                        setStatus("Target flagged! Proceeding to raid...");
-                    }
-                } catch (flagErr: any) {
-                    console.error("[DEA] Flagging failed:", flagErr);
-                    const errMsg = flagErr?.reason || flagErr?.message || "";
-                    
-                    // Check if it's a user rejection
-                    if (errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("canceled") || flagErr?.code === 4001) {
-                        setStatus("Transaction canceled by user");
-                        setRaiding(false);
-                        return;
-                    }
-                    
-                    // If flagging fails, the target might already be flagged by someone else
-                    // Check on-chain and proceed if already flagged
-                    try {
-                        const recheckSuspect = await battlesContract.getSuspect(selectedTarget.address);
-                        if (recheckSuspect[0] && recheckSuspect[1].toNumber() > nowTs) {
-                            console.log("[DEA] Target already flagged by someone else, proceeding to raid...");
-                            setStatus("Target already flagged. Proceeding to raid...");
-                            // Continue to raid (don't return)
-                        } else {
-                            // Provide specific error message
-                            if (errMsg.includes("!exp") || errMsg.includes("expired")) {
-                                setStatus("Signature expired. Please close and try again.");
-                            } else if (errMsg.includes("!sig")) {
-                                setStatus("Invalid signature. Backend may be misconfigured.");
-                            } else if (errMsg.includes("!p")) {
-                                setStatus("Target has no staked plants.");
-                            } else {
-                                setStatus(`Flagging failed: ${errMsg.slice(0, 50) || "Unknown error"}`);
-                            }
+                    } catch (flagErr: any) {
+                        console.error("[DEA] Flagging failed:", flagErr);
+                        const errMsg = flagErr?.reason || flagErr?.message || "";
+                        
+                        // Check if it's a user rejection
+                        if (errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("canceled") || flagErr?.code === 4001) {
+                            setStatus("Transaction canceled by user");
                             setRaiding(false);
                             return;
                         }
-                    } catch (recheckErr) {
-                        setStatus(`Flagging failed: ${errMsg.slice(0, 50) || "Unknown error"}`);
-                        setRaiding(false);
-                        return;
+                        
+                        // If flagging fails, the target might already be flagged by someone else
+                        // Check on-chain and proceed if already flagged
+                        try {
+                            const recheckSuspect = await battlesContract.getSuspect(selectedTarget.address);
+                            if (recheckSuspect[0] && recheckSuspect[1].toNumber() > nowTs) {
+                                console.log("[DEA] Target already flagged by someone else, proceeding to raid...");
+                                setStatus("Target already flagged. Proceeding to raid...");
+                                // Continue to raid (don't return)
+                            } else {
+                                // Provide specific error message
+                                if (errMsg.includes("!exp") || errMsg.includes("expired")) {
+                                    setStatus("Signature expired. Please close and try again.");
+                                } else if (errMsg.includes("!sig")) {
+                                    setStatus("Invalid signature. Backend may need restart.");
+                                } else if (errMsg.includes("!p")) {
+                                    setStatus("Target has no staked plants.");
+                                } else {
+                                    setStatus(`Flagging failed: ${errMsg.slice(0, 50) || "Unknown error"}`);
+                                }
+                                setRaiding(false);
+                                return;
+                            }
+                        } catch (recheckErr) {
+                            setStatus(`Flagging failed: ${errMsg.slice(0, 50) || "Unknown error"}`);
+                            setRaiding(false);
+                            return;
+                        }
                     }
+                } else {
+                    // Target is flagged but might have immunity
+                    console.log("[DEA] Target is flagged, checking if raidable...");
                 }
             }
             

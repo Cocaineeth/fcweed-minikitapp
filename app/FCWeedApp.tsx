@@ -727,12 +727,30 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             if (current.gte(amount)) return true;
             setMintStatus("Approving FCWEED...");
             const approveData = erc20Interface.encodeFunctionData("approve", [spender, ethers.constants.MaxUint256]);
-            const tx = await txAction().sendContractTx(FCWEED_ADDRESS, approveData);
+            const tx = await sendContractTx(FCWEED_ADDRESS, approveData);
             if (!tx) return false;
             await waitForTx(tx, readProvider);
             return true;
         } catch (e) {
             console.error("Allowance check failed:", e);
+            return false;
+        }
+    }
+
+    async function ensureUsdcAllowanceDirect(spender: string, amount: ethers.BigNumber): Promise<boolean> {
+        if (!userAddress || !readProvider) return false;
+        try {
+            const usdc = new ethers.Contract(USDC_ADDRESS, ERC20_ABI, readProvider);
+            const current = await usdc.allowance(userAddress, spender);
+            if (current.gte(amount)) return true;
+            setMintStatus("Approving USDC...");
+            const approveData = erc20Interface.encodeFunctionData("approve", [spender, ethers.constants.MaxUint256]);
+            const tx = await sendContractTx(USDC_ADDRESS, approveData);
+            if (!tx) return false;
+            await waitForTx(tx, readProvider);
+            return true;
+        } catch (e) {
+            console.error("USDC Allowance check failed:", e);
             return false;
         }
     }
@@ -2034,11 +2052,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function handleMintLand() {
         try {
             setMintStatus("Preparing to mint 1 Land (199.99 USDC)…");
-            const okAllowance = await txAction().ensureUsdcAllowance(
-                LAND_ADDRESS,
-                LAND_PRICE_USDC
-            );
-            if (!okAllowance) return;
+            // Use direct USDC allowance for MiniApp support
+            const okAllowance = await ensureUsdcAllowanceDirect(LAND_ADDRESS, LAND_PRICE_USDC);
+            if (!okAllowance) {
+                setMintStatus("USDC approval failed or was rejected");
+                return;
+            }
 
             const data = landInterface.encodeFunctionData("mint", []);
             
@@ -2054,7 +2073,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 setMintStatus("Sponsorship unavailable, using regular transaction…");
             }
             
-            const tx = await txAction().sendContractTx(LAND_ADDRESS, data);
+            // Use local sendContractTx for MiniApp support
+            const tx = await sendContractTx(LAND_ADDRESS, data);
             if (!tx) return;
             setMintStatus("Land mint transaction sent. Waiting for confirmation…");
             await waitForTx(tx);
@@ -2076,11 +2096,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function handleMintPlant() {
         try {
             setMintStatus("Preparing to mint 1 Plant (49.99 USDC)…");
-            const okAllowance = await txAction().ensureUsdcAllowance(
-                PLANT_ADDRESS,
-                PLANT_PRICE_USDC
-            );
-            if (!okAllowance) return;
+            // Use direct USDC allowance for MiniApp support
+            const okAllowance = await ensureUsdcAllowanceDirect(PLANT_ADDRESS, PLANT_PRICE_USDC);
+            if (!okAllowance) {
+                setMintStatus("USDC approval failed or was rejected");
+                return;
+            }
 
             const data = plantInterface.encodeFunctionData("mint", []);
             
@@ -2096,7 +2117,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 setMintStatus("Sponsorship unavailable, using regular transaction…");
             }
             
-            const tx = await txAction().sendContractTx(PLANT_ADDRESS, data);
+            // Use local sendContractTx for MiniApp support
+            const tx = await sendContractTx(PLANT_ADDRESS, data);
             if (!tx) return;
             setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
             await waitForTx(tx);
