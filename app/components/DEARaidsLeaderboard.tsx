@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { ethers } from "ethers";
 import { V5_BATTLES_ADDRESS, WARS_BACKEND_URL, MULTICALL3_ADDRESS, V5_STAKING_ADDRESS, V5_ITEMSHOP_ADDRESS } from "../lib/constants";
 
-const FCWEED_ADDRESS = "0xfCB9a25366730CA916FDFa34Eb2F87dFD0c84cca";
+const FCWEED_ADDRESS = "0x42ef01219BDb2190F275Cda7956D08822549d224";
 
 const MULTICALL3_ABI = ["function tryAggregate(bool requireSuccess, tuple(address target, bytes callData)[] calls) view returns (tuple(bool success, bytes returnData)[])"];
 
