@@ -765,6 +765,69 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             return anyWindow.ethereum;
         };
 
+        // Handle Farcaster MiniApp transactions FIRST
+        if (usingMiniApp && miniAppEthProvider && userAddress) {
+            try {
+                console.log("[TX] Using MiniApp eth_sendTransaction for:", userAddress);
+                
+                const txParams: any = {
+                    from: userAddress,
+                    to: to,
+                    data: data,
+                    value: "0x0",
+                };
+                
+                if (gasLimit) {
+                    // Ensure gas is in hex format
+                    if (gasLimit.startsWith("0x")) {
+                        txParams.gas = gasLimit;
+                    } else {
+                        txParams.gas = "0x" + parseInt(gasLimit, 10).toString(16);
+                    }
+                    console.log("[TX] MiniApp gas limit:", txParams.gas);
+                }
+                
+                const txHash = await miniAppEthProvider.request({
+                    method: "eth_sendTransaction",
+                    params: [txParams],
+                });
+                
+                console.log("[TX] MiniApp tx hash:", txHash);
+                
+                if (txHash && typeof txHash === "string" && txHash.startsWith("0x")) {
+                    return { 
+                        hash: txHash,
+                        wait: async () => {
+                            // Poll for receipt with longer timeout for mobile
+                            for (let i = 0; i < 60; i++) {
+                                await new Promise(r => setTimeout(r, 2000));
+                                try {
+                                    const receipt = await readProvider.getTransactionReceipt(txHash);
+                                    if (receipt && receipt.confirmations > 0) return receipt;
+                                } catch {}
+                            }
+                            return null;
+                        }
+                    } as any;
+                }
+            } catch (e: any) {
+                console.error("[TX] MiniApp transaction failed:", e);
+                console.error("[TX] MiniApp error details:", {
+                    message: e?.message,
+                    code: e?.code,
+                    data: e?.data
+                });
+                
+                const msg = e?.message || "Transaction failed";
+                if (msg.includes("rejected") || msg.includes("denied") || msg.includes("canceled") || e?.code === 4001) {
+                    setMintStatus("Transaction canceled");
+                } else {
+                    setMintStatus(msg.slice(0, 60));
+                }
+                return null;
+            }
+        }
+
         // NEW: Handle RainbowKit/desktop connections using walletClient
         if (wagmiConnected && wagmiAddress && !usingMiniApp && walletClient) {
             try {

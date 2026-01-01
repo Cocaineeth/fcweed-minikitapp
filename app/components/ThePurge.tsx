@@ -438,8 +438,32 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
 
             setStatus("Purging...");
             
-            // Wait for transaction and get result from events
-            const receipt = await tx.wait();
+            // Wait for transaction with timeout (2 minutes max for mobile)
+            const purgeReceiptPromise = tx.wait();
+            const purgeTimeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error("Transaction timeout")), 120000)
+            );
+            
+            let receipt;
+            try {
+                receipt = await Promise.race([purgeReceiptPromise, purgeTimeoutPromise]) as any;
+            } catch (waitErr: any) {
+                if (waitErr?.message?.includes("timeout")) {
+                    setStatus("Transaction timed out. Check your wallet for result.");
+                    // Try to get receipt from provider
+                    if (tx.hash && readProvider) {
+                        try {
+                            receipt = await readProvider.getTransactionReceipt(tx.hash);
+                        } catch {}
+                    }
+                    if (!receipt) {
+                        setAttacking(false);
+                        return;
+                    }
+                } else {
+                    throw waitErr;
+                }
+            }
             
             // Check if transaction actually succeeded
             if (receipt.status === 0) {

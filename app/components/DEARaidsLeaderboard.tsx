@@ -779,10 +779,38 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     
                     const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagData, "2000000"); // 2M gas
                     if (!flagTx) throw new Error("Flag transaction rejected");
-                    const flagReceipt = await flagTx.wait();
                     
-                    // Check if tx was successful
-                    if (flagReceipt.status === 0) {
+                    // Wait for confirmation with timeout (2 minutes max for mobile)
+                    setStatus("Waiting for flag confirmation...");
+                    const flagReceiptPromise = flagTx.wait();
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error("Transaction timeout - check your wallet")), 120000)
+                    );
+                    
+                    let flagReceipt;
+                    try {
+                        flagReceipt = await Promise.race([flagReceiptPromise, timeoutPromise]) as any;
+                    } catch (waitErr: any) {
+                        if (waitErr?.message?.includes("timeout")) {
+                            // Transaction might still be pending - check if target is now flagged
+                            console.warn("[DEA] Flag wait timed out, checking if target was flagged...");
+                            const recheckInfo = await battlesContract.getSuspect(selectedTarget.address);
+                            if (recheckInfo[0] && recheckInfo[1].toNumber() > nowTs) {
+                                console.log("[DEA] Target flagged despite timeout, proceeding...");
+                                setStatus("Target flagged! Proceeding to raid...");
+                                // Continue to raid (don't return)
+                            } else {
+                                setStatus("Transaction timed out. Please try again.");
+                                setRaiding(false);
+                                return;
+                            }
+                        } else {
+                            throw waitErr;
+                        }
+                    }
+                    
+                    // Check if tx was successful (only if we got a receipt)
+                    if (flagReceipt && flagReceipt.status === 0) {
                         setStatus("Flag transaction failed on-chain");
                         setRaiding(false);
                         return;
@@ -896,7 +924,33 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             const tx = await sendContractTx(V5_BATTLES_ADDRESS, data, "0x1E8480");
             if (!tx) { setStatus("Transaction rejected"); setRaiding(false); return; }
             setStatus("Raid in progress...");
-            const receipt = await tx.wait();
+            
+            // Wait for confirmation with timeout (2 minutes max for mobile)
+            const raidReceiptPromise = tx.wait();
+            const raidTimeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error("Transaction timeout")), 120000)
+            );
+            
+            let receipt;
+            try {
+                receipt = await Promise.race([raidReceiptPromise, raidTimeoutPromise]) as any;
+            } catch (waitErr: any) {
+                if (waitErr?.message?.includes("timeout")) {
+                    setStatus("Transaction timed out. Check your wallet for result.");
+                    // Try to get receipt from provider
+                    if (tx.hash && readProvider) {
+                        try {
+                            receipt = await readProvider.getTransactionReceipt(tx.hash);
+                        } catch {}
+                    }
+                    if (!receipt) {
+                        setRaiding(false);
+                        return;
+                    }
+                } else {
+                    throw waitErr;
+                }
+            }
             
             // Check if transaction succeeded
             if (receipt.status === 0) {
