@@ -575,20 +575,22 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                 <div style={{ fontSize: 11, color: textMuted }}>No shields. No mercy. Attack anyone.</div>
             </div>
 
-            {/* Stats */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
-                <div style={{ background: cardBg, borderRadius: 10, padding: 12, textAlign: "center", border: `1px solid ${borderColor}` }}>
-                    <div style={{ fontSize: 9, color: textMuted }}>TOTAL PURGES</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#dc2626" }}>{totalPurged}</div>
-                </div>
-                <div style={{ background: cardBg, borderRadius: 10, padding: 12, textAlign: "center", border: `1px solid ${borderColor}` }}>
-                    <div style={{ fontSize: 9, color: textMuted }}>BURNED 🔥</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#f97316" }}>{totalBurned}</div>
-                </div>
-                <div style={{ background: cardBg, borderRadius: 10, padding: 12, textAlign: "center", border: `1px solid ${borderColor}` }}>
-                    <div style={{ fontSize: 9, color: textMuted }}>YOUR COOLDOWN</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: cooldownRemaining > 0 ? "#fbbf24" : "#10b981" }}>
-                        {cooldownRemaining > 0 ? formatCooldown(cooldownRemaining) : "Ready"}
+            {/* Stats - Unified box like DEA Raids */}
+            <div style={{ background: cardBg, borderRadius: 10, padding: 12, marginBottom: 16, border: `1px solid ${borderColor}` }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                    <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 9, color: textMuted }}>TOTAL PURGES</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: "#dc2626" }}>{totalPurged}</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 9, color: textMuted }}>BURNED 🔥</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: "#f97316" }}>{totalBurned}</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 9, color: textMuted }}>YOUR COOLDOWN</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: cooldownRemaining > 0 ? "#fbbf24" : "#10b981" }}>
+                            {cooldownRemaining > 0 ? formatCooldown(cooldownRemaining) : "Ready"}
+                        </div>
                     </div>
                 </div>
             </div>

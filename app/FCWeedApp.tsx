@@ -342,6 +342,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [v5StakingOpen, setV5StakingOpen] = useState(false);
     const [v5StakingStats, setV5StakingStats] = useState<any>(null);
     const [contractCombatPower, setContractCombatPower] = useState<number>(0); // Power from contract's getPower()
+    const [contractDefensePower, setContractDefensePower] = useState<number>(0); // Defense power (base, no boosts)
     const [v5StakedPlants, setV5StakedPlants] = useState<number[]>([]);
     const [v5StakedLands, setV5StakedLands] = useState<number[]>([]);
     const [v5StakedSuperLands, setV5StakedSuperLands] = useState<number[]>([]);
@@ -3021,11 +3022,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 ]);
                 
                 let atkPower = powerResult[1].toNumber(); // ATK power includes boosts
+                const defPower = powerResult[2].toNumber(); // DEF power (base, no boosts)
                 if (hasNuke) {
                     atkPower = Math.floor(atkPower * 101); // Nuke = 101x
                 }
                 setContractCombatPower(atkPower);
-                console.log("[V5] Contract combat power:", atkPower, "hasNuke:", hasNuke);
+                setContractDefensePower(defPower);
+                console.log("[V5] Contract combat power:", atkPower, "defense:", defPower, "hasNuke:", hasNuke);
             } catch (e) {
                 console.error("[V5] Failed to get combat power:", e);
             }
@@ -6383,10 +6386,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ fontSize: 8, color: "#6b7280", fontWeight: 600 }}>No Active Modifiers</div>
                                     </div>
                                 )}
-                                <div style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.2), rgba(168,85,247,0.15))", border: "1px solid rgba(139,92,246,0.4)", borderRadius: 8, padding: 8, textAlign: "center" }}>
-                                    <div style={{ fontSize: 9, color: "#a78bfa", marginBottom: 2 }}>TOTAL COMBAT POWER</div>
-                                    <div style={{ fontSize: 22, color: "#a78bfa", fontWeight: 800 }}>
-                                        {contractCombatPower >= 1000 ? (contractCombatPower / 1000).toFixed(1) + "K" : contractCombatPower || 0}
+                                <div style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.2), rgba(168,85,247,0.15))", border: "1px solid rgba(139,92,246,0.4)", borderRadius: 8, padding: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                                    <div style={{ textAlign: "center" }}>
+                                        <div style={{ fontSize: 9, color: "#a78bfa", marginBottom: 2 }}>ATTACK POWER</div>
+                                        <div style={{ fontSize: 22, color: "#a78bfa", fontWeight: 800 }}>
+                                            {contractCombatPower >= 1000 ? (contractCombatPower / 1000).toFixed(1) + "K" : contractCombatPower || 0}
+                                        </div>
+                                    </div>
+                                    <div style={{ textAlign: "center", borderLeft: "1px solid rgba(139,92,246,0.3)", paddingLeft: 8 }}>
+                                        <div style={{ fontSize: 9, color: "#60a5fa", marginBottom: 2 }}>DEFENSE POWER</div>
+                                        <div style={{ fontSize: 22, color: "#60a5fa", fontWeight: 800 }}>
+                                            {contractDefensePower >= 1000 ? (contractDefensePower / 1000).toFixed(1) + "K" : contractDefensePower || 0}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
