@@ -72,6 +72,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     const [selectedTarget, setSelectedTarget] = useState<TargetInfo | null>(null);
     const [selectedJeet, setSelectedJeet] = useState<JeetEntry | null>(null);
     const [showFarmDropdown, setShowFarmDropdown] = useState(false);
+    const [expandedJeet, setExpandedJeet] = useState<string | null>(null);
     const [raiding, setRaiding] = useState(false);
     const [loadingTarget, setLoadingTarget] = useState(false);
     const [status, setStatus] = useState("");
@@ -928,6 +929,11 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 ) : activeJeets.length === 0 ? (
                     <div style={{ textAlign: "center", padding: 40, color: textMuted }}>No suspects found</div>
                 ) : (
+                    <>
+                    {/* Ranked By Note */}
+                    <div style={{ textAlign: "center", marginBottom: 10, fontSize: 10, color: textMuted, fontStyle: "italic" }}>
+                        (RANKED BY TOP SOLD)
+                    </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                         {paginatedJeets.map((jeet) => {
                             const targetingInfo = getTargetingInfo(jeet.address);
@@ -945,133 +951,221 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                             const hasActiveShieldTimer = activeShieldExpiry > now;
                             
                             return (
-                                <div key={jeet.address} onClick={() => handleSelectTarget(jeet)} style={{ background: cardBg, borderRadius: 10, padding: "12px 14px", border: `1px solid ${isBeingTargeted ? "rgba(239,68,68,0.5)" : borderColor}`, cursor: "pointer", position: "relative" }}>
-                                    {/* Targeting indicator badge */}
-                                    {isBeingTargeted && (
-                                        <div style={{ position: "absolute", top: -8, left: 8, background: targetingInfo.hasActiveAttack ? "#dc2626" : "#ef4444", color: "#fff", fontSize: 9, fontWeight: 700, padding: "3px 8px", borderRadius: 10, display: "flex", alignItems: "center", gap: 4, animation: targetingInfo.hasActiveAttack ? "pulse 0.5s infinite" : "pulse 1.5s infinite", boxShadow: "0 2px 4px rgba(0,0,0,0.3)" }}>
-                                            <span>{targetingInfo.hasActiveAttack ? "⚔️" : "🎯"}</span>
-                                            {targetingInfo.count === 1 ? (targetingInfo.hasActiveAttack ? "Under Attack!" : "1 Targeting") : `${targetingInfo.count} Targeting`}
-                                        </div>
-                                    )}
-                                    
-                                    {/* Main content wrapper */}
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                                        {/* Left side: Address, timer, stats */}
-                                        <div style={{ flex: 1 }}>
-                                            {/* Address line with shield timer */}
-                                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-                                                <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: textPrimary }}>{shortAddr(jeet.address)}</span>
-                                                {/* Shield Timer Badge - Blue box with countdown */}
-                                                {hasActiveShieldTimer && (
-                                                    <div style={{ 
-                                                        display: "inline-flex", 
-                                                        alignItems: "center", 
-                                                        gap: 4, 
-                                                        background: "rgba(59,130,246,0.2)", 
-                                                        border: "1px solid rgba(59,130,246,0.5)", 
-                                                        borderRadius: 6, 
-                                                        padding: "2px 6px",
-                                                        fontSize: 10,
-                                                        color: "#3b82f6",
-                                                        fontWeight: 600
-                                                    }}>
-                                                        <span>🛡️</span>
-                                                        <span>RAID SHIELD</span>
-                                                        <span style={{ 
-                                                            background: "rgba(59,130,246,0.3)", 
-                                                            padding: "1px 4px", 
-                                                            borderRadius: 4,
-                                                            fontFamily: "monospace",
-                                                            fontSize: 9
-                                                        }}>
-                                                            {formatShieldTimer(activeShieldExpiry)}
-                                                        </span>
-                                                    </div>
-                                                )}
-                                                {/* Simple shield icon if hasShield but no timer data */}
-                                                {jeet.hasShield && !hasActiveShieldTimer && <span style={{ fontSize: 10, color: "#3b82f6" }}>🛡️</span>}
+                                <div key={jeet.address}>
+                                    <div onClick={() => {
+                                        if (jeet.isCluster && jeet.farms.length > 1) {
+                                            // Toggle expansion for clusters
+                                            setExpandedJeet(expandedJeet === jeet.address ? null : jeet.address);
+                                        } else {
+                                            // Single farm - go straight to attack modal
+                                            handleSelectTarget(jeet);
+                                        }
+                                    }} style={{ 
+                                        background: cardBg, 
+                                        borderRadius: jeet.isCluster && expandedJeet === jeet.address ? "10px 10px 0 0" : 10, 
+                                        padding: "12px 14px", 
+                                        border: `1px solid ${isBeingTargeted ? "rgba(239,68,68,0.5)" : borderColor}`, 
+                                        borderBottom: jeet.isCluster && expandedJeet === jeet.address ? "none" : `1px solid ${isBeingTargeted ? "rgba(239,68,68,0.5)" : borderColor}`,
+                                        cursor: "pointer", 
+                                        position: "relative" 
+                                    }}>
+                                        {/* Targeting indicator badge */}
+                                        {isBeingTargeted && (
+                                            <div style={{ position: "absolute", top: -8, left: 8, background: targetingInfo.hasActiveAttack ? "#dc2626" : "#ef4444", color: "#fff", fontSize: 9, fontWeight: 700, padding: "3px 8px", borderRadius: 10, display: "flex", alignItems: "center", gap: 4, animation: targetingInfo.hasActiveAttack ? "pulse 0.5s infinite" : "pulse 1.5s infinite", boxShadow: "0 2px 4px rgba(0,0,0,0.3)" }}>
+                                                <span>{targetingInfo.hasActiveAttack ? "⚔️" : "🎯"}</span>
+                                                {targetingInfo.count === 1 ? (targetingInfo.hasActiveAttack ? "Under Attack!" : "1 Targeting") : `${targetingInfo.count} Targeting`}
                                             </div>
-                                            
-                                            {/* Timer below address - show flag status or countdown */}
-                                            <div style={{ fontSize: 10, color: jeet.needsFlagging || jeet.expiresAt <= now ? "#f59e0b" : "#fbbf24", display: "flex", alignItems: "center", gap: 4, marginBottom: 6 }}>
-                                                <span>{jeet.needsFlagging || jeet.expiresAt <= now ? "🏴" : "⏱️"}</span>
-                                                <span>{jeet.needsFlagging ? "Needs Flag" : jeet.expiresAt <= now ? "Flag Expired" : formatTimeRemaining(jeet.expiresAt, false)}</span>
-                                            </div>
-                                            
-                                            {/* Bottom stats row */}
-                                            <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: textMuted }}>
-                                                <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                                                    <span>💰</span>
-                                                    <span style={{ color: "#fbbf24", fontWeight: 600 }}>{formatLargeNumber(jeet.totalSold)}</span>
-                                                </span>
-                                                <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                                                    <span style={{ color: "#10b981", fontWeight: 600 }}>{jeet.totalPlants}</span>
-                                                    <span>🌿</span>
-                                                </span>
-                                                <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                                                    <span style={{ color: getHealthColor(jeet.avgHealth), fontWeight: 600 }}>{jeet.avgHealth}%</span>
-                                                    <span>❤️</span>
-                                                </span>
-                                            </div>
-                                        </div>
+                                        )}
                                         
-                                        {/* Right side: Farm status & Total pending */}
-                                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, minWidth: 95 }}>
-                                            {/* Total Farms */}
-                                            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10 }}>
-                                                <span style={{ color: textMuted }}>📦</span>
-                                                <span style={{ color: textMuted, fontWeight: 500 }}>
-                                                    {totalFarms} Farm{totalFarms !== 1 ? "s" : ""}
-                                                </span>
+                                        {/* Main content wrapper */}
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                                            {/* Left side: Address, timer, stats */}
+                                            <div style={{ flex: 1 }}>
+                                                {/* Address line with shield timer and cluster indicator */}
+                                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                                                    <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: textPrimary }}>{shortAddr(jeet.address)}</span>
+                                                    {/* Cluster dropdown indicator */}
+                                                    {jeet.isCluster && jeet.farms.length > 1 && (
+                                                        <span style={{ fontSize: 10, color: textMuted }}>
+                                                            {jeet.farms.length} farms {expandedJeet === jeet.address ? "▲" : "▼"}
+                                                        </span>
+                                                    )}
+                                                    {/* Shield Timer Badge - Blue box with countdown */}
+                                                    {hasActiveShieldTimer && (
+                                                        <div style={{ 
+                                                            display: "inline-flex", 
+                                                            alignItems: "center", 
+                                                            gap: 4, 
+                                                            background: "rgba(59,130,246,0.2)", 
+                                                            border: "1px solid rgba(59,130,246,0.5)", 
+                                                            borderRadius: 6, 
+                                                            padding: "2px 6px",
+                                                            fontSize: 10,
+                                                            color: "#3b82f6",
+                                                            fontWeight: 600
+                                                        }}>
+                                                            <span>🛡️</span>
+                                                            <span>RAID SHIELD</span>
+                                                            <span style={{ 
+                                                                background: "rgba(59,130,246,0.3)", 
+                                                                padding: "1px 4px", 
+                                                                borderRadius: 4,
+                                                                fontFamily: "monospace",
+                                                                fontSize: 9
+                                                            }}>
+                                                                {formatShieldTimer(activeShieldExpiry)}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    {/* Simple shield icon if hasShield but no timer data */}
+                                                    {jeet.hasShield && !hasActiveShieldTimer && <span style={{ fontSize: 10, color: "#3b82f6" }}>🛡️</span>}
+                                                </div>
+                                                
+                                                {/* Timer below address - show flag status or countdown */}
+                                                <div style={{ fontSize: 10, color: jeet.needsFlagging || jeet.expiresAt <= now ? "#f59e0b" : "#fbbf24", display: "flex", alignItems: "center", gap: 4, marginBottom: 6 }}>
+                                                    <span>{jeet.needsFlagging || jeet.expiresAt <= now ? "🏴" : "⏱️"}</span>
+                                                    <span>{jeet.needsFlagging ? "Needs Flag" : jeet.expiresAt <= now ? "Flag Expired" : formatTimeRemaining(jeet.expiresAt, false)}</span>
+                                                </div>
+                                                
+                                                {/* Bottom stats row */}
+                                                <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: textMuted }}>
+                                                    <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                                                        <span>💰</span>
+                                                        <span style={{ color: "#fbbf24", fontWeight: 600 }}>{formatLargeNumber(jeet.totalSold)}</span>
+                                                    </span>
+                                                    <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                                                        <span style={{ color: "#10b981", fontWeight: 600 }}>{jeet.totalPlants}</span>
+                                                        <span>🌿</span>
+                                                    </span>
+                                                    <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                                                        <span style={{ color: getHealthColor(jeet.avgHealth), fontWeight: 600 }}>{jeet.avgHealth}%</span>
+                                                        <span>❤️</span>
+                                                    </span>
+                                                </div>
                                             </div>
                                             
-                                            {/* Farms Available / Shielded / Immune */}
-                                            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10 }}>
-                                                {farmsShielded > 0 ? (
-                                                    <>
-                                                        <span style={{ color: "#3b82f6" }}>🛡️</span>
-                                                        <span style={{ color: "#3b82f6", fontWeight: 600 }}>
-                                                            {farmsShielded} Protected
-                                                        </span>
-                                                    </>
-                                                ) : farmsImmune > 0 ? (
-                                                    <>
-                                                        <span style={{ color: "#f59e0b" }}>🛡️</span>
-                                                        <span style={{ color: "#f59e0b", fontWeight: 600 }}>
-                                                            {farmsImmune} Immune
-                                                        </span>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <span style={{ color: farmsAvailable > 0 ? "#10b981" : "#ef4444" }}>⚔️</span>
-                                                        <span style={{ color: farmsAvailable > 0 ? "#10b981" : "#ef4444", fontWeight: 600 }}>
-                                                            {farmsAvailable} Available
-                                                        </span>
-                                                    </>
-                                                )}
-                                            </div>
-                                            
-                                            {/* Total Pending */}
-                                            <div style={{ 
-                                                marginTop: 2, 
-                                                padding: "3px 8px", 
-                                                background: "rgba(251,191,36,0.15)", 
-                                                borderRadius: 6, 
-                                                display: "flex", 
-                                                alignItems: "center", 
-                                                gap: 4 
-                                            }}>
-                                                <span style={{ fontSize: 10 }}>💎</span>
-                                                <span style={{ fontSize: 11, color: "#fbbf24", fontWeight: 700 }}>
-                                                    {formatLargeNumber(totalPending)}
-                                                </span>
+                                            {/* Right side: Farm status & Total pending */}
+                                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, minWidth: 95 }}>
+                                                {/* Farms Available / Shielded / Immune */}
+                                                <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10 }}>
+                                                    {farmsShielded > 0 ? (
+                                                        <>
+                                                            <span style={{ color: "#3b82f6" }}>🛡️</span>
+                                                            <span style={{ color: "#3b82f6", fontWeight: 600 }}>
+                                                                {farmsShielded} Protected
+                                                            </span>
+                                                        </>
+                                                    ) : farmsImmune > 0 ? (
+                                                        <>
+                                                            <span style={{ color: "#f59e0b" }}>🛡️</span>
+                                                            <span style={{ color: "#f59e0b", fontWeight: 600 }}>
+                                                                {farmsImmune} Immune
+                                                            </span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <span style={{ color: farmsAvailable > 0 ? "#10b981" : "#ef4444" }}>⚔️</span>
+                                                            <span style={{ color: farmsAvailable > 0 ? "#10b981" : "#ef4444", fontWeight: 600 }}>
+                                                                {farmsAvailable} Available
+                                                            </span>
+                                                        </>
+                                                    )}
+                                                </div>
+                                                
+                                                {/* Total Pending */}
+                                                <div style={{ 
+                                                    marginTop: 2, 
+                                                    padding: "3px 8px", 
+                                                    background: "rgba(251,191,36,0.15)", 
+                                                    borderRadius: 6, 
+                                                    display: "flex", 
+                                                    alignItems: "center", 
+                                                    gap: 4 
+                                                }}>
+                                                    <span style={{ fontSize: 10 }}>💎</span>
+                                                    <span style={{ fontSize: 11, color: "#fbbf24", fontWeight: 700 }}>
+                                                        {formatLargeNumber(totalPending)}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
+                                    
+                                    {/* Expanded Farms Dropdown */}
+                                    {jeet.isCluster && expandedJeet === jeet.address && (
+                                        <div style={{ 
+                                            background: theme === "dark" ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.05)", 
+                                            borderRadius: "0 0 10px 10px", 
+                                            border: `1px solid ${borderColor}`, 
+                                            borderTop: "none",
+                                            padding: 8
+                                        }}>
+                                            {jeet.farms.map((farm, idx) => (
+                                                <div 
+                                                    key={farm.address} 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        // Create a single-farm jeet to pass to handleSelectTarget
+                                                        const singleFarmJeet: JeetEntry = {
+                                                            ...jeet,
+                                                            address: farm.address,
+                                                            farms: [farm],
+                                                            isCluster: false,
+                                                            totalPlants: farm.plants,
+                                                            totalPendingRaw: farm.pendingRaw,
+                                                        };
+                                                        handleSelectTarget(singleFarmJeet);
+                                                    }}
+                                                    style={{ 
+                                                        display: "flex", 
+                                                        justifyContent: "space-between", 
+                                                        alignItems: "center", 
+                                                        padding: "8px 10px", 
+                                                        marginBottom: idx < jeet.farms.length - 1 ? 6 : 0, 
+                                                        background: cardBg, 
+                                                        borderRadius: 8, 
+                                                        cursor: "pointer",
+                                                        border: `1px solid ${borderColor}`,
+                                                        opacity: farm.hasShield || farm.hasImmunity ? 0.6 : 1
+                                                    }}
+                                                >
+                                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                                        <span style={{ fontFamily: "monospace", fontSize: 11, color: textPrimary }}>{shortAddr(farm.address)}</span>
+                                                        <span style={{ fontSize: 10, color: "#10b981" }}>{farm.plants} 🌿</span>
+                                                        <span style={{ fontSize: 10, color: getHealthColor(farm.avgHealth) }}>{farm.avgHealth}%</span>
+                                                    </div>
+                                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                                        <span style={{ fontSize: 11, color: "#fbbf24", fontWeight: 600 }}>💎 {formatLargeNumber(farm.pendingRaw || 0)}</span>
+                                                        {/* Shield with countdown */}
+                                                        {farm.hasShield && farm.shieldExpiryTime > now && (
+                                                            <span style={{ fontSize: 9, color: "#3b82f6", background: "rgba(59,130,246,0.2)", padding: "2px 5px", borderRadius: 4 }}>
+                                                                🛡️ {formatShieldTimer(farm.shieldExpiryTime)}
+                                                            </span>
+                                                        )}
+                                                        {farm.hasShield && (!farm.shieldExpiryTime || farm.shieldExpiryTime <= now) && (
+                                                            <span style={{ fontSize: 10, color: "#3b82f6" }}>🛡️</span>
+                                                        )}
+                                                        {/* Immunity with countdown */}
+                                                        {farm.hasImmunity && !farm.hasShield && farm.immunityEndsAt > now && (
+                                                            <span style={{ fontSize: 9, color: "#f59e0b", background: "rgba(245,158,11,0.2)", padding: "2px 5px", borderRadius: 4 }}>
+                                                                ⏳ {formatCooldown(farm.immunityEndsAt - now)}
+                                                            </span>
+                                                        )}
+                                                        {farm.hasImmunity && !farm.hasShield && (!farm.immunityEndsAt || farm.immunityEndsAt <= now) && (
+                                                            <span style={{ fontSize: 10, color: "#f59e0b" }}>⏳</span>
+                                                        )}
+                                                        {/* Available to attack */}
+                                                        {!farm.hasShield && !farm.hasImmunity && <span style={{ fontSize: 10, color: "#ef4444" }}>⚔️</span>}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })}
                     </div>
+                    </>
                 )}
 
                 {/* Pagination */}

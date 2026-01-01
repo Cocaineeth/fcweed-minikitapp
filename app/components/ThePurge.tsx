@@ -344,7 +344,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             
             // Sort by total pending rewards (highest first)
             // Sort by total plants (highest first)
-            backendData.sort((a, b) => (b.totalPlants || 0) - (a.totalPlants || 0));
+            backendData.sort((a, b) => (b.totalPlants || b.plants || 0) - (a.totalPlants || a.plants || 0));
             console.log("[Purge] Total clusters loaded:", backendData.length);
             setClusters(backendData);
             
@@ -501,30 +501,16 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#dc2626" }}>{totalPurged}</div>
                 </div>
                 <div style={{ background: cardBg, borderRadius: 10, padding: 12, textAlign: "center", border: `1px solid ${borderColor}` }}>
-                    <div style={{ fontSize: 9, color: textMuted }}>TOTAL LOOTED</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#10b981" }}>{totalLooted}</div>
-                </div>
-                <div style={{ background: cardBg, borderRadius: 10, padding: 12, textAlign: "center", border: `1px solid ${borderColor}` }}>
                     <div style={{ fontSize: 9, color: textMuted }}>BURNED 🔥</div>
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#f97316" }}>{totalBurned}</div>
                 </div>
-            </div>
-
-            {/* Your Power */}
-            {connected && (
-                <div style={{ background: "rgba(220,38,38,0.1)", borderRadius: 10, padding: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid rgba(220,38,38,0.3)" }}>
-                    <div>
-                        <div style={{ fontSize: 10, color: textMuted }}>YOUR ATTACK POWER</div>
-                        <div style={{ fontSize: 22, fontWeight: 700, color: "#dc2626" }}>{myBattlePower}</div>
+                <div style={{ background: cardBg, borderRadius: 10, padding: 12, textAlign: "center", border: `1px solid ${borderColor}` }}>
+                    <div style={{ fontSize: 9, color: textMuted }}>YOUR COOLDOWN</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: cooldownRemaining > 0 ? "#fbbf24" : "#10b981" }}>
+                        {cooldownRemaining > 0 ? formatCooldown(cooldownRemaining) : "Ready"}
                     </div>
-                    {cooldownRemaining > 0 && (
-                        <div style={{ textAlign: "right" }}>
-                            <div style={{ fontSize: 9, color: textMuted }}>COOLDOWN</div>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: "#fbbf24" }}>⏳ {formatCooldown(cooldownRemaining)}</div>
-                        </div>
-                    )}
                 </div>
-            )}
+            </div>
 
             {/* Targets List */}
             {loading ? (
@@ -537,6 +523,11 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                 </div>
             ) : (
                 <>
+                    {/* Ranked By Note */}
+                    <div style={{ textAlign: "center", marginBottom: 10, fontSize: 10, color: textMuted, fontStyle: "italic" }}>
+                        (RANKED BY NUMBER OF PLANTS)
+                    </div>
+                    
                     {/* Cluster/Target List */}
                     {loadingTargets ? (
                         <div style={{ textAlign: "center", padding: 40, color: textMuted }}>Loading targets...</div>
