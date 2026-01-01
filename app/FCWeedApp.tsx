@@ -6185,8 +6185,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>6h cooldown</b> between attacks</li>
                                 <li style={{ color: "#ef4444", marginTop: 8 }}><b>DEA RAIDS (Hunt Sellers)</b> — Target wallets that sold FCWEED!</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>100K FCWEED</b> raid fee to attack sellers</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>6h cooldown</b> (Same Target) | <b style={{ color: "#fbbf24" }}>2h cooldown</b> (After Successful Raid)</li>
-                                <li style={{ color: "#dc2626", marginTop: 8 }}><b>THE PURGE (Chaos Event) (LIVE)</b> — Weekly chaos mode!</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>6h cooldown</b> (Same Target) | <b style={{ color: "#fbbf24" }}>20 min cooldown</b> (After Successful Raid)</li>
+                                <li style={{ color: "#dc2626", marginTop: 8 }}><b>THE PURGE (Chaos Event) (Awaiting Schedule)</b> — Weekly chaos mode!</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Active <b>Saturday 11PM - Sunday 11PM EST</b></li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>250K FCWEED</b> to target ANY wallet directly</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>20 min cooldown</b> | <b style={{ color: "#ef4444" }}>All shields BYPASSED</b></li>
@@ -6562,11 +6562,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     <div style={{ fontSize: 9, color: theme === "light" ? "#475569" : "#c0c9f4", lineHeight: 1.5, paddingLeft: 8 }}>
                                         • Target wallets that sold FCWEED (under investigation)<br/>
                                         • Pay <span style={{ color: "#fbbf24" }}>100K FCWEED</span> raid fee<br/>
-                                        • <span style={{ color: "#fbbf24" }}>6h cooldown</span> (Same Target) | <span style={{ color: "#fbbf24" }}>2h cooldown</span> (After Successful Raid)
+                                        • <span style={{ color: "#fbbf24" }}>6h cooldown</span> (Same Target) | <span style={{ color: "#fbbf24" }}>20 min cooldown</span> (After Successful Raid)
                                     </div>
                                 </div>
                                 <div style={{ borderTop: "1px solid rgba(139,92,246,0.2)", paddingTop: 10 }}>
-                                    <div style={{ fontSize: 10, fontWeight: 600, color: "#dc2626", marginBottom: 4 }}>🔪 THE PURGE (Chaos Event) (LIVE)</div>
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: "#dc2626", marginBottom: 4 }}>🔪 THE PURGE (Chaos Event) (Awaiting Schedule)</div>
                                     <div style={{ fontSize: 9, color: theme === "light" ? "#475569" : "#c0c9f4", lineHeight: 1.5, paddingLeft: 8 }}>
                                         • Scheduled chaos events - target ANY wallet directly for <span style={{ color: "#fbbf24" }}>250K FCWEED</span>!<br/>
                                         • <span style={{ color: "#fbbf24" }}>20 min cooldown</span> | <span style={{ color: "#ef4444" }}>All shields BYPASSED</span>. No mercy.
