@@ -64,6 +64,7 @@ const TARGETING_TIMEOUT = 120000;
 export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvider, sendContractTx, ensureAllowance, refreshData }: Props) {
     const [jeets, setJeets] = useState<JeetEntry[]>([]);
     const [loading, setLoading] = useState(true);
+    const [initialLoadComplete, setInitialLoadComplete] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalRaids, setTotalRaids] = useState(0);
     const [totalSeized, setTotalSeized] = useState("0");
@@ -424,6 +425,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 return processedJeets;
             });
             setLastRefresh(Math.floor(Date.now() / 1000));
+            setInitialLoadComplete(true);
         } catch (e) { console.error("[DEA] Fetch error:", e); }
         
         clearTimeout(safetyTimeout);
@@ -1208,6 +1210,24 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             {isAutoRefreshing && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", animation: "pulse 1s infinite" }} />}
                             <span style={{ fontSize: 10, color: textMuted }}>Updated {Math.max(0, currentTime - lastRefresh)}s ago</span>
+                            <button 
+                                onClick={() => { fetchingRef.current = false; fetchDEAData(); }}
+                                disabled={isAutoRefreshing}
+                                style={{ 
+                                    background: "transparent", 
+                                    border: `1px solid ${borderColor}`, 
+                                    borderRadius: 4, 
+                                    padding: "2px 6px", 
+                                    cursor: isAutoRefreshing ? "not-allowed" : "pointer",
+                                    opacity: isAutoRefreshing ? 0.5 : 1,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 3
+                                }}
+                                title="Refresh list"
+                            >
+                                <span style={{ fontSize: 10, color: textMuted, transform: isAutoRefreshing ? "rotate(360deg)" : "none", transition: "transform 0.5s" }}>🔄</span>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1240,12 +1260,40 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     </div>
                 </div>
 
-                {loading ? (
+                {/* Show loading only on initial load, not during refresh */}
+                {loading && !initialLoadComplete ? (
                     <div style={{ textAlign: "center", padding: 40, color: textMuted }}>Loading suspects...</div>
                 ) : activeJeets.length === 0 ? (
-                    <div style={{ textAlign: "center", padding: 40, color: textMuted }}>No suspects found</div>
+                    <div style={{ textAlign: "center", padding: 40, color: textMuted }}>
+                        <div>No suspects found</div>
+                        {initialLoadComplete && (
+                            <button 
+                                onClick={() => { fetchingRef.current = false; fetchDEAData(); }}
+                                disabled={isAutoRefreshing}
+                                style={{ 
+                                    marginTop: 12,
+                                    background: "rgba(239,68,68,0.2)", 
+                                    border: "1px solid rgba(239,68,68,0.4)", 
+                                    borderRadius: 8, 
+                                    padding: "8px 16px", 
+                                    cursor: isAutoRefreshing ? "not-allowed" : "pointer",
+                                    color: "#ef4444",
+                                    fontWeight: 600,
+                                    fontSize: 12
+                                }}
+                            >
+                                {isAutoRefreshing ? "Refreshing..." : "🔄 Refresh List"}
+                            </button>
+                        )}
+                    </div>
                 ) : (
                     <>
+                    {/* Show subtle refresh indicator when refreshing with data */}
+                    {isAutoRefreshing && activeJeets.length > 0 && (
+                        <div style={{ textAlign: "center", marginBottom: 8, fontSize: 10, color: "#10b981" }}>
+                            ⟳ Refreshing...
+                        </div>
+                    )}
                     {/* Ranked By Note */}
                     <div style={{ textAlign: "center", marginBottom: 10, fontSize: 10, color: textMuted, fontStyle: "italic" }}>
                         (RANKED BY TOP SOLD)
