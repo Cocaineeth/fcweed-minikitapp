@@ -412,7 +412,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             setStatus("Confirm in wallet...");
             
             const attackData = battlesInterface.encodeFunctionData("purgeAttack", [selectedFarm.address]);
-            const tx = await sendContractTx(V5_BATTLES_ADDRESS, attackData, "0x7A120"); // 500k gas
+            const tx = await sendContractTx(V5_BATTLES_ADDRESS, attackData, "0x1E8480"); // 2M gas
 
             if (!tx) {
                 setStatus("Transaction rejected");
@@ -424,6 +424,14 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             
             // Wait for transaction and get result from events
             const receipt = await tx.wait();
+            
+            // Check if transaction actually succeeded
+            if (receipt.status === 0) {
+                console.error("[Purge] Transaction reverted on-chain");
+                setStatus("Transaction failed - check cooldown or allowance");
+                setAttacking(false);
+                return;
+            }
             
             // Parse PurgeResult event
             let won = false;
@@ -523,7 +531,47 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
         <div style={{ padding: 16 }}>
             {/* Header */}
             <div style={{ textAlign: "center", marginBottom: 20 }}>
-                <div style={{ fontSize: 28, fontWeight: 800, color: "#dc2626", marginBottom: 4 }}>🔪 THE PURGE</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: "#dc2626", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                    <span>🔪 THE PURGE</span>
+                    {loading ? (
+                        <span style={{ 
+                            fontSize: 11, 
+                            fontWeight: 600, 
+                            color: textMuted, 
+                            background: cardBg, 
+                            padding: "4px 12px", 
+                            borderRadius: 6,
+                            border: `1px solid ${borderColor}`
+                        }}>
+                            ⏳ LOADING...
+                        </span>
+                    ) : !isPurgeActive ? (
+                        <span style={{ 
+                            fontSize: 11, 
+                            fontWeight: 600, 
+                            color: "#6b7280", 
+                            background: "rgba(107,114,128,0.15)", 
+                            padding: "4px 12px", 
+                            borderRadius: 6,
+                            border: "1px solid rgba(107,114,128,0.3)"
+                        }}>
+                            🔒 INACTIVE
+                        </span>
+                    ) : (
+                        <span style={{ 
+                            fontSize: 11, 
+                            fontWeight: 700, 
+                            color: "#fff", 
+                            background: "linear-gradient(135deg, #dc2626, #991b1b)", 
+                            padding: "4px 12px", 
+                            borderRadius: 6,
+                            animation: "activePulse 1.5s ease-in-out infinite",
+                            boxShadow: "0 0 12px rgba(220,38,38,0.6)"
+                        }}>
+                            🔴 ACTIVE
+                        </span>
+                    )}
+                </div>
                 <div style={{ fontSize: 11, color: textMuted }}>No shields. No mercy. Attack anyone.</div>
             </div>
 
@@ -741,7 +789,13 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                 </div>
             )}
             
-            <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
+            <style>{`
+                @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+                @keyframes activePulse { 
+                    0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 10px rgba(220,38,38,0.5); } 
+                    50% { opacity: 0.8; transform: scale(1.05); box-shadow: 0 0 20px rgba(220,38,38,0.8); } 
+                }
+            `}</style>
         </div>
     );
 }
