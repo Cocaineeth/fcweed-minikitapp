@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { ethers } from "ethers";
 import { V5_BATTLES_ADDRESS, WARS_BACKEND_URL, MULTICALL3_ADDRESS, V5_STAKING_ADDRESS, V5_ITEMSHOP_ADDRESS } from "../lib/constants";
 
+const FCWEED_ADDRESS = "0xfCB9a25366730CA916FDFa34Eb2F87dFD0c84cca";
+
 const MULTICALL3_ABI = ["function tryAggregate(bool requireSuccess, tuple(address target, bytes callData)[] calls) view returns (tuple(bool success, bytes returnData)[])"];
 
 // V3 BATTLES ABI (SLIM CONTRACT)
@@ -672,6 +674,52 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         if (!connected || !userAddress || !selectedTarget || !selectedJeet || !readProvider) return;
         setRaiding(true); setStatus("");
         
+        // Network check - ensure user is on Base
+        try {
+            const anyWindow = window as any;
+            const provider = anyWindow.phantom?.ethereum || anyWindow.ethereum;
+            if (provider && !anyWindow.farcaster) {
+                const chainIdHex = await provider.request({ method: "eth_chainId" });
+                const chainId = parseInt(chainIdHex, 16);
+                
+                if (chainId !== 8453) {
+                    setStatus("Switching to Base network...");
+                    try {
+                        await provider.request({
+                            method: "wallet_switchEthereumChain",
+                            params: [{ chainId: "0x2105" }],
+                        });
+                        await new Promise(r => setTimeout(r, 500));
+                    } catch (switchErr: any) {
+                        if (switchErr.code === 4902) {
+                            try {
+                                await provider.request({
+                                    method: "wallet_addEthereumChain",
+                                    params: [{
+                                        chainId: "0x2105",
+                                        chainName: "Base",
+                                        nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+                                        rpcUrls: ["https://mainnet.base.org"],
+                                        blockExplorerUrls: ["https://basescan.org"],
+                                    }],
+                                });
+                            } catch {
+                                setStatus("Please add Base network manually");
+                                setRaiding(false);
+                                return;
+                            }
+                        } else if (switchErr.code === 4001) {
+                            setStatus("Please switch to Base network to raid");
+                            setRaiding(false);
+                            return;
+                        }
+                    }
+                }
+            }
+        } catch (networkErr) {
+            console.warn("[DEA] Network check error (non-fatal):", networkErr);
+        }
+        
         await registerTargeting(selectedJeet.address, selectedTarget.address, true);
         
         try {
@@ -961,15 +1009,61 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             
             // ==================== EXECUTE RAID ====================
             
-            // Step 2: Ensure allowance for raid fee
-            setStatus("Checking allowance...");
-            const approved = await ensureAllowance(V5_BATTLES_ADDRESS, raidFeeRaw);
-            if (!approved) { setStatus("Approval failed"); setRaiding(false); return; }
+            // Step 2: Check balance and ensure allowance for raid fee
+            setStatus("Checking FCWEED balance...");
+            
+            try {
+                const fcweedContract = new ethers.Contract(
+                    FCWEED_ADDRESS,
+                    [
+                        "function balanceOf(address) view returns (uint256)",
+                        "function allowance(address,address) view returns (uint256)"
+                    ],
+                    readProvider
+                );
+                
+                const balance = await fcweedContract.balanceOf(userAddress);
+                console.log("[DEA] Balance:", ethers.utils.formatUnits(balance, 18), "Required:", ethers.utils.formatUnits(raidFeeRaw, 18));
+                
+                if (balance.lt(raidFeeRaw)) {
+                    const have = parseFloat(ethers.utils.formatUnits(balance, 18)).toLocaleString();
+                    const need = parseFloat(ethers.utils.formatUnits(raidFeeRaw, 18)).toLocaleString();
+                    setStatus(`Insufficient FCWEED: have ${have}, need ${need}`);
+                    setRaiding(false);
+                    return;
+                }
+                
+                const currentAllowance = await fcweedContract.allowance(userAddress, V5_BATTLES_ADDRESS);
+                console.log("[DEA] Allowance:", ethers.utils.formatUnits(currentAllowance, 18));
+                
+                if (currentAllowance.lt(raidFeeRaw)) {
+                    setStatus("Approving FCWEED for raids...");
+                    const approved = await ensureAllowance(V5_BATTLES_ADDRESS, raidFeeRaw);
+                    if (!approved) {
+                        setStatus("FCWEED approval failed or was rejected");
+                        setRaiding(false);
+                        return;
+                    }
+                    
+                    const newAllowance = await fcweedContract.allowance(userAddress, V5_BATTLES_ADDRESS);
+                    if (newAllowance.lt(raidFeeRaw)) {
+                        setStatus("Approval did not complete. Please try again.");
+                        setRaiding(false);
+                        return;
+                    }
+                    console.log("[DEA] Approval confirmed:", ethers.utils.formatUnits(newAllowance, 18));
+                }
+            } catch (checkErr: any) {
+                console.error("[DEA] Balance/allowance check failed:", checkErr);
+                setStatus("Failed to verify FCWEED balance. Please try again.");
+                setRaiding(false);
+                return;
+            }
             
             // Step 3: Execute the raid
             setStatus("Initiating DEA Raid...");
             const data = battlesInterface.encodeFunctionData("deaRaid", [selectedTarget.address]);
-            // Increased gas limit to 2M - DEA raids do multiple cross-contract calls
+            // Gas limit 2M - DEA raids do multiple cross-contract calls
             const tx = await sendContractTx(V5_BATTLES_ADDRESS, data, "0x1E8480");
             if (!tx) { setStatus("Transaction rejected"); setRaiding(false); return; }
             setStatus("Raid in progress...");
@@ -1072,15 +1166,25 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         } catch (e: any) { 
             console.error("[DEA] Raid failed:", e); 
             // Parse the error message for better feedback
-            const reason = e?.reason || e?.message || "Raid failed";
-            if (reason.includes("Not authorized")) {
+            const reason = e?.reason || e?.data?.message || e?.message || "Raid failed";
+            if (reason.includes("insufficient allowance") || reason.includes("ERC20")) {
+                setStatus("FCWEED not approved. Please try again.");
+            } else if (reason.includes("Not authorized")) {
                 setStatus("Not authorized - check your staked NFTs and cooldowns");
-            } else if (reason.includes("cooldown")) {
+            } else if (reason.includes("cooldown") || reason.includes("!cd")) {
                 setStatus("Cooldown active - wait before raiding again");
-            } else if (reason.includes("suspect")) {
+            } else if (reason.includes("suspect") || reason.includes("!list")) {
                 setStatus("Target is not a valid suspect");
+            } else if (reason.includes("!imm")) {
+                setStatus("Target has immunity - try another farm");
+            } else if (reason.includes("!shld")) {
+                setStatus("Target has a shield");
+            } else if (reason.includes("rejected") || reason.includes("denied") || e?.code === 4001) {
+                setStatus("Transaction rejected");
+            } else if (reason.includes("insufficient funds") || reason.includes("gas")) {
+                setStatus("Insufficient ETH for gas");
             } else {
-                setStatus(reason);
+                setStatus(reason.length > 60 ? reason.slice(0, 60) + "..." : reason);
             }
             await clearTargeting(selectedJeet.address); 
         }

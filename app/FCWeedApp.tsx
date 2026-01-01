@@ -719,20 +719,154 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         return txRef.current;
     }
 
+    async function checkAndSwitchToBase(): Promise<boolean> {
+        if (usingMiniApp) return true;
+        
+        const BASE_CHAIN_ID = 8453;
+        const BASE_CHAIN_HEX = "0x2105";
+        
+        const getEthProvider = () => {
+            const anyWindow = window as any;
+            
+            if (anyWindow.ethereum?.providers?.length > 0) {
+                const providers = anyWindow.ethereum.providers;
+                const phantomProvider = providers.find((p: any) => p.isPhantom);
+                const rabbyProvider = providers.find((p: any) => p.isRabby);
+                const mmProvider = providers.find((p: any) => p.isMetaMask && !p.isRabby && !p.isPhantom);
+                
+                if (phantomProvider) return phantomProvider;
+                if (rabbyProvider) return rabbyProvider;
+                if (mmProvider) return mmProvider;
+            }
+            
+            if (anyWindow.phantom?.ethereum) return anyWindow.phantom.ethereum;
+            if (anyWindow.rabby) return anyWindow.rabby;
+            return anyWindow.ethereum;
+        };
+        
+        const ethProvider = getEthProvider();
+        if (!ethProvider) {
+            console.warn("[Network] No provider found for network check");
+            return true;
+        }
+        
+        try {
+            const chainIdHex = await ethProvider.request({ method: "eth_chainId" });
+            const currentChainId = parseInt(chainIdHex, 16);
+            
+            console.log("[Network] Current chain:", currentChainId, "Required:", BASE_CHAIN_ID);
+            
+            if (currentChainId === BASE_CHAIN_ID) {
+                return true;
+            }
+            
+            console.log("[Network] Wrong network detected, prompting switch to Base...");
+            setMintStatus("Please switch to Base network...");
+            
+            try {
+                await ethProvider.request({
+                    method: "wallet_switchEthereumChain",
+                    params: [{ chainId: BASE_CHAIN_HEX }],
+                });
+                console.log("[Network] Successfully switched to Base");
+                setMintStatus("");
+                await new Promise(r => setTimeout(r, 500));
+                return true;
+                
+            } catch (switchError: any) {
+                console.warn("[Network] Switch error:", switchError);
+                
+                if (switchError.code === 4902) {
+                    console.log("[Network] Base not found, attempting to add...");
+                    setMintStatus("Adding Base network...");
+                    
+                    try {
+                        await ethProvider.request({
+                            method: "wallet_addEthereumChain",
+                            params: [{
+                                chainId: BASE_CHAIN_HEX,
+                                chainName: "Base",
+                                nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+                                rpcUrls: ["https://mainnet.base.org"],
+                                blockExplorerUrls: ["https://basescan.org"],
+                            }],
+                        });
+                        console.log("[Network] Base added successfully");
+                        setMintStatus("");
+                        await new Promise(r => setTimeout(r, 500));
+                        return true;
+                        
+                    } catch (addError: any) {
+                        console.error("[Network] Failed to add Base:", addError);
+                        setMintStatus("Please add Base network manually");
+                        return false;
+                    }
+                }
+                
+                if (switchError.code === 4001) {
+                    setMintStatus("Please switch to Base network to continue");
+                } else {
+                    setMintStatus("Network switch failed. Please switch to Base manually.");
+                }
+                return false;
+            }
+        } catch (e: any) {
+            console.error("[Network] Check failed:", e);
+            return true;
+        }
+    }
+
     async function ensureFcweedAllowance(spender: string, amount: ethers.BigNumber): Promise<boolean> {
         if (!userAddress || !readProvider) return false;
+        
+        const onBase = await checkAndSwitchToBase();
+        if (!onBase) {
+            console.error("[Allowance] Not on Base network");
+            return false;
+        }
+        
         try {
             const fcweed = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             const current = await fcweed.allowance(userAddress, spender);
-            if (current.gte(amount)) return true;
+            
+            console.log("[Allowance] Current:", ethers.utils.formatUnits(current, 18), "Required:", ethers.utils.formatUnits(amount, 18));
+            
+            if (current.gte(amount)) {
+                console.log("[Allowance] Sufficient allowance exists");
+                return true;
+            }
+            
             setMintStatus("Approving FCWEED...");
             const approveData = erc20Interface.encodeFunctionData("approve", [spender, ethers.constants.MaxUint256]);
-            const tx = await sendContractTx(FCWEED_ADDRESS, approveData);
-            if (!tx) return false;
+            const tx = await sendContractTx(FCWEED_ADDRESS, approveData, "100000");
+            
+            if (!tx) {
+                setMintStatus("Approval rejected");
+                return false;
+            }
+            
+            setMintStatus("Waiting for approval confirmation...");
             await waitForTx(tx, readProvider);
+            
+            const newAllowance = await fcweed.allowance(userAddress, spender);
+            if (newAllowance.lt(amount)) {
+                console.error("[Allowance] Approval did not take effect");
+                setMintStatus("Approval failed. Please try again.");
+                return false;
+            }
+            
+            setMintStatus("");
+            console.log("[Allowance] Approval successful");
             return true;
-        } catch (e) {
-            console.error("Allowance check failed:", e);
+            
+        } catch (e: any) {
+            console.error("[Allowance] Check/approval failed:", e);
+            const msg = e?.message || "Approval failed";
+            if (msg.includes("rejected") || msg.includes("denied") || e?.code === 4001) {
+                setMintStatus("Approval rejected by user");
+            } else {
+                setMintStatus("Approval failed");
+            }
             return false;
         }
     }
@@ -782,6 +916,15 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             // Standard ethereum
             return anyWindow.ethereum;
         };
+
+        // Check network before any transaction (skip for MiniApp which is always Base)
+        if (!usingMiniApp && wagmiConnected) {
+            const onBase = await checkAndSwitchToBase();
+            if (!onBase) {
+                console.error("[TX] Not on Base network, transaction blocked");
+                return null;
+            }
+        }
 
         // Handle Farcaster MiniApp transactions FIRST
         if (usingMiniApp && miniAppEthProvider && userAddress) {

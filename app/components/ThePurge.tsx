@@ -434,18 +434,97 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
     };
 
     const handlePurgeAttack = async () => {
-        if (!connected || !selectedFarm || cooldownRemaining > 0) return;
+        if (!connected || !selectedFarm || cooldownRemaining > 0 || !userAddress || !readProvider) return;
         
         setAttacking(true);
-        setStatus("Checking allowance...");
+        setStatus("");
+
+        // Network check - ensure user is on Base
+        try {
+            const anyWindow = window as any;
+            const provider = anyWindow.phantom?.ethereum || anyWindow.ethereum;
+            if (provider && !anyWindow.farcaster) {
+                const chainIdHex = await provider.request({ method: "eth_chainId" });
+                const chainId = parseInt(chainIdHex, 16);
+                
+                if (chainId !== 8453) {
+                    setStatus("Switching to Base network...");
+                    try {
+                        await provider.request({
+                            method: "wallet_switchEthereumChain",
+                            params: [{ chainId: "0x2105" }],
+                        });
+                        await new Promise(r => setTimeout(r, 500));
+                    } catch (switchErr: any) {
+                        if (switchErr.code === 4902) {
+                            try {
+                                await provider.request({
+                                    method: "wallet_addEthereumChain",
+                                    params: [{
+                                        chainId: "0x2105",
+                                        chainName: "Base",
+                                        nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+                                        rpcUrls: ["https://mainnet.base.org"],
+                                        blockExplorerUrls: ["https://basescan.org"],
+                                    }],
+                                });
+                            } catch {
+                                setStatus("Please add Base network manually");
+                                setAttacking(false);
+                                return;
+                            }
+                        } else if (switchErr.code === 4001) {
+                            setStatus("Please switch to Base network");
+                            setAttacking(false);
+                            return;
+                        }
+                    }
+                }
+            }
+        } catch (networkErr) {
+            console.warn("[Purge] Network check error (non-fatal):", networkErr);
+        }
 
         try {
-            // Ensure allowance
-            const hasAllowance = await ensureAllowance(V5_BATTLES_ADDRESS, purgeFeeRaw);
-            if (!hasAllowance) {
-                setStatus("Approval needed");
+            // Check balance first
+            setStatus("Checking FCWEED balance...");
+            const fcweedContract = new ethers.Contract(
+                FCWEED_ADDRESS,
+                ["function balanceOf(address) view returns (uint256)", "function allowance(address,address) view returns (uint256)"],
+                readProvider
+            );
+            
+            const balance = await fcweedContract.balanceOf(userAddress);
+            console.log("[Purge] Balance:", ethers.utils.formatUnits(balance, 18), "Required:", ethers.utils.formatUnits(purgeFeeRaw, 18));
+            
+            if (balance.lt(purgeFeeRaw)) {
+                const have = parseFloat(ethers.utils.formatUnits(balance, 18)).toLocaleString();
+                const need = parseFloat(ethers.utils.formatUnits(purgeFeeRaw, 18)).toLocaleString();
+                setStatus(`Insufficient FCWEED: have ${have}, need ${need}`);
                 setAttacking(false);
                 return;
+            }
+            
+            // Check allowance
+            const currentAllowance = await fcweedContract.allowance(userAddress, V5_BATTLES_ADDRESS);
+            console.log("[Purge] Allowance:", ethers.utils.formatUnits(currentAllowance, 18));
+            
+            if (currentAllowance.lt(purgeFeeRaw)) {
+                setStatus("Approving FCWEED...");
+                const hasAllowance = await ensureAllowance(V5_BATTLES_ADDRESS, purgeFeeRaw);
+                if (!hasAllowance) {
+                    setStatus("FCWEED approval failed or rejected");
+                    setAttacking(false);
+                    return;
+                }
+                
+                // Verify approval
+                const newAllowance = await fcweedContract.allowance(userAddress, V5_BATTLES_ADDRESS);
+                if (newAllowance.lt(purgeFeeRaw)) {
+                    setStatus("Approval did not complete. Please try again.");
+                    setAttacking(false);
+                    return;
+                }
             }
 
             setStatus("Confirm in wallet...");
@@ -491,7 +570,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             // Check if transaction actually succeeded
             if (receipt.status === 0) {
                 console.error("[Purge] Transaction reverted on-chain");
-                setStatus("Transaction failed - check cooldown or allowance");
+                setStatus("Transaction reverted - check balance & cooldown");
                 setAttacking(false);
                 return;
             }
@@ -558,13 +637,21 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
 
         } catch (err: any) {
             console.error("[Purge] Attack error:", err);
-            const msg = err?.reason || err?.message || "Attack failed";
-            if (msg.includes("!cd")) {
+            const msg = err?.reason || err?.data?.message || err?.message || "Attack failed";
+            if (msg.includes("insufficient allowance") || msg.includes("ERC20")) {
+                setStatus("FCWEED not approved. Please try again.");
+            } else if (msg.includes("!cd")) {
                 setStatus("Still on cooldown!");
-            } else if (msg.includes("rejected") || msg.includes("denied")) {
+            } else if (msg.includes("!on")) {
+                setStatus("Purge is not active");
+            } else if (msg.includes("!p")) {
+                setStatus("You need staked NFTs to purge");
+            } else if (msg.includes("rejected") || msg.includes("denied") || err?.code === 4001) {
                 setStatus("Transaction rejected");
+            } else if (msg.includes("insufficient funds") || msg.includes("gas")) {
+                setStatus("Insufficient ETH for gas");
             } else {
-                setStatus(msg.slice(0, 50));
+                setStatus(msg.length > 50 ? msg.slice(0, 50) + "..." : msg);
             }
         }
 
