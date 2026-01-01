@@ -183,15 +183,24 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     };
 
     const fetchDEAData = useCallback(async () => {
-        if (fetchingRef.current || !readProvider) return;
+        if (!readProvider) return;
+        
+        // Don't block on fetchingRef for manual refreshes - only for auto-refresh
+        if (fetchingRef.current) {
+            console.log("[DEA] Fetch already in progress, skipping...");
+            return;
+        }
+        
         fetchingRef.current = true;
         setIsAutoRefreshing(true);
         
-        // Safety timeout - reset fetchingRef after 8 seconds max
+        // Safety timeout - reset fetchingRef after 15 seconds max (increased from 8)
         const safetyTimeout = setTimeout(() => {
+            console.log("[DEA] Safety timeout triggered, resetting fetch state");
             fetchingRef.current = false;
             setIsAutoRefreshing(false);
-        }, 8000);
+            setInitialLoadComplete(true); // Mark as complete even on timeout so UI isn't stuck
+        }, 15000);
         
         try {
             const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, BATTLES_ABI, readProvider);
@@ -245,6 +254,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             }
             
             let backendData: any[] = [];
+            let backendFetchFailed = false;
             try { 
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
@@ -261,7 +271,21 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 }
                 if (data.success && Array.isArray(data.jeets)) backendData = data.jeets; 
             } catch (e: any) { 
+                backendFetchFailed = true;
                 if (e.name !== 'AbortError') console.error("[DEA] Backend error:", e); 
+                else console.log("[DEA] Backend fetch timed out");
+            }
+            
+            // If backend failed and we have no data, preserve existing list
+            if (backendFetchFailed && backendData.length === 0) {
+                console.log("[DEA] Backend failed, preserving existing list");
+                setLastRefresh(Math.floor(Date.now() / 1000));
+                setInitialLoadComplete(true);
+                clearTimeout(safetyTimeout);
+                setLoading(false);
+                setIsAutoRefreshing(false);
+                fetchingRef.current = false;
+                return;
             }
             
             // Fetch shield expiry times for all unique addresses via multicall
@@ -426,7 +450,10 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             });
             setLastRefresh(Math.floor(Date.now() / 1000));
             setInitialLoadComplete(true);
-        } catch (e) { console.error("[DEA] Fetch error:", e); }
+        } catch (e) { 
+            console.error("[DEA] Fetch error:", e); 
+            setInitialLoadComplete(true); // Still mark complete so UI isn't stuck on "Loading..."
+        }
         
         clearTimeout(safetyTimeout);
         setLoading(false);
@@ -436,6 +463,10 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
 
     useEffect(() => {
         if (!readProvider) return;
+        
+        // Reset fetch state on mount/provider change
+        fetchingRef.current = false;
+        
         fetchDEAData();
         // 15 second background refresh - BattleEventToast provides instant live updates when battles happen
         // This slower refresh prevents UI flashing while keeping data eventually consistent
@@ -1288,12 +1319,6 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     </div>
                 ) : (
                     <>
-                    {/* Show subtle refresh indicator when refreshing with data */}
-                    {isAutoRefreshing && activeJeets.length > 0 && (
-                        <div style={{ textAlign: "center", marginBottom: 8, fontSize: 10, color: "#10b981" }}>
-                            ⟳ Refreshing...
-                        </div>
-                    )}
                     {/* Ranked By Note */}
                     <div style={{ textAlign: "center", marginBottom: 10, fontSize: 10, color: textMuted, fontStyle: "italic" }}>
                         (RANKED BY TOP SOLD)
