@@ -16,6 +16,7 @@ import { CrateReward, StakingStats, NewStakingStats, FarmerRow, OwnedState} from
 import { detectMiniAppEnvironment, waitForTx } from "./lib/auxilary";
 import { ThePurge } from "./components/ThePurge";
 import { DEARaidsLeaderboard } from "./components/DEARaidsLeaderboard";
+import { BattleEventToast } from "./components/BattleEventToast";
 import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS, WARS_BACKEND_URL } from "./lib/constants";
 
 import {
@@ -5269,6 +5270,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     transform: translateZ(0);
                 }
             `}</style>
+            
+            {/* Battle Event Toast - Shows live battle notifications across all tabs */}
+            <BattleEventToast 
+                theme={theme}
+                readProvider={readProvider}
+                enabled={true}
+            />
             
             {showOnboarding && (
                 <div style={{
