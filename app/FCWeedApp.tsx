@@ -806,8 +806,14 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 } as any;
             } catch (e: any) {
                 console.error("[TX] WalletClient failed:", e);
+                console.error("[TX] WalletClient error details:", {
+                    message: e?.message,
+                    shortMessage: e?.shortMessage,
+                    code: e?.code,
+                    cause: e?.cause?.message
+                });
                 const msg = e?.shortMessage || e?.message || "Transaction failed";
-                if (msg.includes("rejected") || msg.includes("denied") || e?.code === 4001) {
+                if (msg.includes("rejected") || msg.includes("denied") || e?.code === 4001 || e?.code === "ACTION_REJECTED") {
                     setMintStatus("Transaction canceled");
                     return null;
                 }
@@ -831,7 +837,14 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         value: "0x0",
                     };
                     if (gasLimit) {
-                        txParams.gas = gasLimit;
+                        // Ensure gas is in hex format for eth_sendTransaction
+                        if (gasLimit.startsWith("0x")) {
+                            txParams.gas = gasLimit;
+                        } else {
+                            // Convert decimal string to hex
+                            txParams.gas = "0x" + parseInt(gasLimit, 10).toString(16);
+                        }
+                        console.log("[TX] Gas limit:", txParams.gas);
                     }
                     
                     // Use raw provider request - most compatible with all wallets
@@ -861,11 +874,26 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     }
                 } catch (e: any) {
                     console.error("[TX] Raw provider fallback failed:", e);
-                    const msg = e?.message || "Transaction failed";
-                    if (msg.includes("rejected") || msg.includes("denied") || msg.includes("canceled") || e?.code === 4001) {
+                    console.error("[TX] Error details:", {
+                        message: e?.message,
+                        code: e?.code,
+                        reason: e?.reason,
+                        data: e?.data,
+                        shortMessage: e?.shortMessage,
+                        cause: e?.cause,
+                        stack: e?.stack?.slice(0, 200)
+                    });
+                    
+                    const msg = e?.shortMessage || e?.reason || e?.message || "Transaction failed";
+                    if (msg.includes("rejected") || msg.includes("denied") || msg.includes("canceled") || e?.code === 4001 || e?.code === "ACTION_REJECTED") {
                         setMintStatus("Transaction canceled");
+                    } else if (msg.includes("insufficient") || msg.includes("gas")) {
+                        setMintStatus("Insufficient balance or gas");
+                    } else if (msg.includes("nonce")) {
+                        setMintStatus("Nonce error - try refreshing page");
                     } else {
-                        setMintStatus(msg.slice(0, 60));
+                        // For minified errors, show a more helpful message
+                        setMintStatus(msg.length < 30 ? "Transaction failed - check console" : msg.slice(0, 60));
                     }
                     return null;
                 }

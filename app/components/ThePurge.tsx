@@ -345,8 +345,23 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             // Sort by total pending rewards (highest first)
             // Sort by total plants (highest first)
             backendData.sort((a, b) => (b.totalPlants || b.plants || 0) - (a.totalPlants || a.plants || 0));
-            console.log("[Purge] Total clusters loaded:", backendData.length);
-            setClusters(backendData);
+            
+            // Smart update: Only update state if data actually changed (prevents UI flashing)
+            const createFingerprint = (list: ClusterInfo[]) => list.map(c => 
+                `${c.address}:${c.totalPlants}:${c.hasShield}:${Math.floor(c.totalPendingRaw)}:${c.farms.length}`
+            ).join('|');
+            
+            const newFingerprint = createFingerprint(backendData);
+            
+            setClusters(prev => {
+                const oldFingerprint = createFingerprint(prev);
+                if (oldFingerprint === newFingerprint && prev.length === backendData.length) {
+                    // Data unchanged, keep old reference to prevent re-render/flash
+                    return prev;
+                }
+                console.log("[Purge] Data changed, updating list. Clusters:", backendData.length);
+                return backendData;
+            });
             
         } catch (e) {
             console.error("[Purge] Fetch targets error:", e);
@@ -358,7 +373,8 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
     useEffect(() => {
         if (!readProvider) return;
         fetchPurgeData();
-        const refreshInterval = setInterval(fetchPurgeData, 10000);
+        // 15 second background refresh - BattleEventToast provides instant live updates when battles happen
+        const refreshInterval = setInterval(fetchPurgeData, 15000);
         return () => clearInterval(refreshInterval);
     }, [fetchPurgeData, readProvider]);
 

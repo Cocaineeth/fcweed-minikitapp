@@ -403,8 +403,24 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 const bSold = parseFloat(b.totalSold || "0");
                 return bSold - aSold;
             });
-            console.log("[DEA] Processed jeets:", processedJeets.length, "from backend:", backendData.length);
-            setJeets(processedJeets);
+            
+            // Smart update: Only update state if data actually changed (prevents UI flashing)
+            // Compare key fields that affect display
+            const createFingerprint = (list: JeetEntry[]) => list.map(j => 
+                `${j.address}:${j.plants}:${j.hasShield}:${j.hasImmunity}:${j.immunityEndsAt}:${Math.floor(j.totalPendingRaw)}:${j.farms.length}`
+            ).join('|');
+            
+            const newFingerprint = createFingerprint(processedJeets);
+            
+            setJeets(prev => {
+                const oldFingerprint = createFingerprint(prev);
+                if (oldFingerprint === newFingerprint && prev.length === processedJeets.length) {
+                    // Data unchanged, keep old reference to prevent re-render/flash
+                    return prev;
+                }
+                console.log("[DEA] Data changed, updating list. Items:", processedJeets.length);
+                return processedJeets;
+            });
             setLastRefresh(Math.floor(Date.now() / 1000));
         } catch (e) { console.error("[DEA] Fetch error:", e); }
         
@@ -417,8 +433,9 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     useEffect(() => {
         if (!readProvider) return;
         fetchDEAData();
-        // 2 second refresh for near-live activity display
-        const refreshInterval = setInterval(fetchDEAData, 2000);
+        // 15 second background refresh - BattleEventToast provides instant live updates when battles happen
+        // This slower refresh prevents UI flashing while keeping data eventually consistent
+        const refreshInterval = setInterval(fetchDEAData, 15000);
         return () => clearInterval(refreshInterval);
     }, [readProvider, userAddress, fetchDEAData]);
 
@@ -458,7 +475,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             const results = await mc.tryAggregate(false, calls);
             
             // Get immunity duration from first call result
-            let TARGET_IMMUNITY = 3600; // Default 1 hour
+            let TARGET_IMMUNITY = 7200; // Default 2 hours (matches contract deaTargetImm)
             if (results[0]?.success) {
                 try {
                     const immDuration = ethers.BigNumber.from(results[0].returnData).toNumber();
@@ -699,6 +716,12 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     console.log("[DEA] Flag signature response:", sigData);
                     if (!sigData.success) throw new Error(sigData.error || "Failed to get flag signature");
                     
+                    // Check if deadline is still valid (with 30 second buffer)
+                    const nowSeconds = Math.floor(Date.now() / 1000);
+                    if (sigData.deadline <= nowSeconds + 30) {
+                        throw new Error("Signature expired. Please try again.");
+                    }
+                    
                     // Ensure soldAmount is properly formatted as BigNumber
                     let soldAmount = sigData.soldAmount;
                     if (typeof soldAmount === 'number') {
@@ -718,6 +741,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         suspect: selectedTarget.address, 
                         soldAmount: soldAmount.toString(), 
                         deadline: sigData.deadline, 
+                        deadlineDate: new Date(sigData.deadline * 1000).toISOString(),
                         signature: signature.slice(0, 20) + '...' 
                     });
                     
@@ -727,7 +751,33 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                         sigData.deadline,
                         signature
                     ]);
-                    const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagData, "0xF4240"); // 1,000,000 gas
+                    
+                    // Try gas estimation first to catch contract reverts early
+                    if (readProvider) {
+                        try {
+                            await readProvider.estimateGas({
+                                from: userAddress,
+                                to: V5_BATTLES_ADDRESS,
+                                data: flagData
+                            });
+                            console.log("[DEA] Flag gas estimation passed");
+                        } catch (gasErr: any) {
+                            console.error("[DEA] Flag gas estimation failed:", gasErr);
+                            const reason = gasErr?.reason || gasErr?.message || "";
+                            if (reason.includes("!exp")) {
+                                throw new Error("Signature expired. Please try again.");
+                            } else if (reason.includes("!sig")) {
+                                throw new Error("Invalid signature. Backend may need restart.");
+                            } else if (reason.includes("!p")) {
+                                throw new Error("Target has no staked plants.");
+                            } else {
+                                // Target might already be flagged - continue anyway
+                                console.log("[DEA] Gas estimation failed but continuing...");
+                            }
+                        }
+                    }
+                    
+                    const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagData, "2000000"); // 2M gas
                     if (!flagTx) throw new Error("Flag transaction rejected");
                     const flagReceipt = await flagTx.wait();
                     
@@ -765,9 +815,39 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     }
                 } catch (flagErr: any) {
                     console.error("[DEA] Flagging failed:", flagErr);
-                    // If flagging fails with "already flagged" or similar, continue to raid
-                    if (!flagErr?.message?.includes("already") && !flagErr?.reason?.includes("already")) {
-                        setStatus(`Flagging failed: ${flagErr?.reason || flagErr?.message || "Unknown error"}`);
+                    const errMsg = flagErr?.reason || flagErr?.message || "";
+                    
+                    // Check if it's a user rejection
+                    if (errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("canceled") || flagErr?.code === 4001) {
+                        setStatus("Transaction canceled by user");
+                        setRaiding(false);
+                        return;
+                    }
+                    
+                    // If flagging fails, the target might already be flagged by someone else
+                    // Check on-chain and proceed if already flagged
+                    try {
+                        const recheckSuspect = await battlesContract.getSuspect(selectedTarget.address);
+                        if (recheckSuspect[0] && recheckSuspect[1].toNumber() > nowTs) {
+                            console.log("[DEA] Target already flagged by someone else, proceeding to raid...");
+                            setStatus("Target already flagged. Proceeding to raid...");
+                            // Continue to raid (don't return)
+                        } else {
+                            // Provide specific error message
+                            if (errMsg.includes("!exp") || errMsg.includes("expired")) {
+                                setStatus("Signature expired. Please close and try again.");
+                            } else if (errMsg.includes("!sig")) {
+                                setStatus("Invalid signature. Backend may be misconfigured.");
+                            } else if (errMsg.includes("!p")) {
+                                setStatus("Target has no staked plants.");
+                            } else {
+                                setStatus(`Flagging failed: ${errMsg.slice(0, 50) || "Unknown error"}`);
+                            }
+                            setRaiding(false);
+                            return;
+                        }
+                    } catch (recheckErr) {
+                        setStatus(`Flagging failed: ${errMsg.slice(0, 50) || "Unknown error"}`);
                         setRaiding(false);
                         return;
                     }
