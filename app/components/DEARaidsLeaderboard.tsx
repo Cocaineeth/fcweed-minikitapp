@@ -56,7 +56,7 @@ type Props = { connected: boolean; userAddress: string | null; theme: "light" | 
 
 const ITEMS_PER_PAGE = 10;
 const SUSPECT_EXPIRY = 24 * 60 * 60;
-const TARGET_IMMUNITY = 2 * 60 * 60; // 2 hour immunity after being raided
+const TARGET_IMMUNITY = 1 * 60 * 60; // 1 hour immunity after being raided
 const PER_TARGET_COOLDOWN = 21600; // 6 hour per-target cooldown (matches contract deaTargetCD)
 const TARGETING_POLL_INTERVAL = 3000;
 const TARGETING_TIMEOUT = 120000;
@@ -222,7 +222,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     console.log("[DEA] canDea check:", canAttack, "for user:", userAddress);
                     
                     // Calculate cooldown remaining
-                    const deaCD = 7200; // 2 hour general cooldown between any DEA raid
+                    const deaCD = 1200; // 20 minute general cooldown between any DEA raid
                     const cooldownEnds = lastAttack.toNumber() + deaCD;
                     const remaining = cooldownEnds > now ? cooldownEnds - now : 0;
                     setCooldownRemaining(remaining);
@@ -479,7 +479,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             const results = await mc.tryAggregate(false, calls);
             
             // Get immunity duration from first call result
-            let TARGET_IMMUNITY = 7200; // Default 2 hours (matches contract deaTargetImm)
+            let TARGET_IMMUNITY = 3600; // Default 1 hour (matches contract deaTargetImm)
             if (results[0]?.success) {
                 try {
                     const immDuration = ethers.BigNumber.from(results[0].returnData).toNumber();
@@ -736,7 +736,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             if (!canDea) {
                 // Check why
                 const lastDeaTs = await battlesContract.lastDea(userAddress);
-                const deaCD = 7200; // 2 hour cooldown
+                const deaCD = 1200; // 20 minute cooldown
                 const cooldownEnds = lastDeaTs.toNumber() + deaCD;
                 if (cooldownEnds > nowTs) {
                     const remaining = cooldownEnds - nowTs;
@@ -1523,7 +1523,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                 )}
                                 {selectedTarget.hasImmunity && !selectedTarget.hasShield && (() => {
                                     const immunityLeft = selectedTarget.immunityEndsAt > now ? selectedTarget.immunityEndsAt - now : 0;
-                                    return <div style={{ background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 10, padding: 16, marginBottom: 16, textAlign: "center" }}><div style={{ fontSize: 28, marginBottom: 4 }}>🛡️</div><div style={{ fontSize: 12, color: "#f59e0b", fontWeight: 600 }}>Target Immune ({immunityLeft > 0 ? formatCooldown(immunityLeft) : "<2h"})</div><div style={{ fontSize: 10, color: textMuted, marginTop: 4 }}>Recently raided - try another farm</div></div>;
+                                    return <div style={{ background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 10, padding: 16, marginBottom: 16, textAlign: "center" }}><div style={{ fontSize: 28, marginBottom: 4 }}>🛡️</div><div style={{ fontSize: 12, color: "#f59e0b", fontWeight: 600 }}>Target Immune ({immunityLeft > 0 ? formatCooldown(immunityLeft) : "<1h"})</div><div style={{ fontSize: 10, color: textMuted, marginTop: 4 }}>Recently raided - try another farm</div></div>;
                                 })()}
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
                                     <div style={{ background: "rgba(239,68,68,0.1)", borderRadius: 8, padding: 12, textAlign: "center" }}><div style={{ fontSize: 9, color: textMuted, marginBottom: 4 }}>THEIR POWER</div><div style={{ fontSize: 22, fontWeight: 700, color: "#ef4444" }}>{selectedTarget.battlePower}</div></div>
@@ -1541,7 +1541,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                 <div style={{ display: "flex", gap: 10 }}>
                                     <button onClick={closeAttackModal} disabled={raiding} style={{ flex: 1, padding: "12px", fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${borderColor}`, background: "transparent", color: textMuted, cursor: "pointer" }}>Cancel</button>
                                     <button onClick={handleRaid} disabled={raiding || selectedTarget.hasShield || selectedTarget.hasImmunity || selectedTarget.plants === 0 || cooldownRemaining > 0 || (!canUserRaid && myBattlePower === 0)} style={{ flex: 2, padding: "12px", fontSize: 13, fontWeight: 700, borderRadius: 8, border: "none", background: (raiding || selectedTarget.hasShield || selectedTarget.hasImmunity || cooldownRemaining > 0 || (!canUserRaid && myBattlePower === 0)) ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)", color: "#fff", cursor: (raiding || selectedTarget.hasShield || selectedTarget.hasImmunity || cooldownRemaining > 0 || (!canUserRaid && myBattlePower === 0)) ? "not-allowed" : "pointer" }}>
-                                        {raiding ? "Raiding..." : (!canUserRaid && myBattlePower === 0) ? "⚠️ No Battle Power" : selectedTarget.hasShield ? "🛡️ Shielded" : selectedTarget.hasImmunity ? `🛡️ Immune (${selectedTarget.immunityEndsAt > now ? formatCooldown(selectedTarget.immunityEndsAt - now) : "<2h"})` : cooldownRemaining > 0 ? `⏳ ${formatCooldown(cooldownRemaining)}` : "🚔 RAID"}
+                                        {raiding ? "Raiding..." : (!canUserRaid && myBattlePower === 0) ? "⚠️ No Battle Power" : selectedTarget.hasShield ? "🛡️ Shielded" : selectedTarget.hasImmunity ? `🛡️ Immune (${selectedTarget.immunityEndsAt > now ? formatCooldown(selectedTarget.immunityEndsAt - now) : "<1h"})` : cooldownRemaining > 0 ? `⏳ ${formatCooldown(cooldownRemaining)}` : "🚔 RAID"}
                                     </button>
                                 </div>
                                 {status && <div style={{ fontSize: 10, color: "#fbbf24", marginTop: 10, textAlign: "center" }}>{status}</div>}

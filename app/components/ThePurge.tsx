@@ -699,13 +699,13 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                         <span style={{ 
                             fontSize: 11, 
                             fontWeight: 600, 
-                            color: "#6b7280", 
-                            background: "rgba(107,114,128,0.15)", 
+                            color: "#f59e0b", 
+                            background: "rgba(245,158,11,0.15)", 
                             padding: "4px 12px", 
                             borderRadius: 6,
-                            border: "1px solid rgba(107,114,128,0.3)"
+                            border: "1px solid rgba(245,158,11,0.3)"
                         }}>
-                            🔒 INACTIVE
+                            ⏳ AWAITING SCHEDULE
                         </span>
                     ) : (
                         <span style={{ 
@@ -750,9 +750,9 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                 <div style={{ textAlign: "center", padding: 40, color: textMuted }}>Loading...</div>
             ) : !isPurgeActive ? (
                 <div style={{ textAlign: "center", padding: 20, color: textMuted }}>
-                    <div style={{ fontSize: 32, marginBottom: 8 }}>🔒</div>
-                    <div style={{ fontSize: 12 }}>The Purge is not currently active.</div>
-                    <div style={{ fontSize: 10, marginTop: 4 }}>Check back during chaos events!</div>
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>⏳</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#f59e0b" }}>The Purge is awaiting next scheduled event</div>
+                    <div style={{ fontSize: 10, marginTop: 4 }}>Follow announcements for upcoming Purge times!</div>
                 </div>
             ) : (
                 <>
