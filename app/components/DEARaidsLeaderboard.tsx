@@ -88,6 +88,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     const [activeTargetings, setActiveTargetings] = useState<ActiveTargeting[]>([]);
     const [playerStats, setPlayerStats] = useState<{ wins: number; losses: number; stolen: string } | null>(null);
     const [canUserRaid, setCanUserRaid] = useState(false);
+    const [walletSearch, setWalletSearch] = useState("");
     
     const fetchingRef = useRef(false);
     const targetingPollRef = useRef<NodeJS.Timeout | null>(null);
@@ -122,7 +123,18 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
 
     const now = currentTime;
     // Show jeets that have plants - they can always be flagged/raided if they have pending rewards
-    const activeJeets = jeets.filter(j => j.totalPlants > 0 && j.totalPendingRaw > 0);
+    // If wallet search is active, filter to only show matching wallet
+    const activeJeets = jeets.filter(j => {
+        if (j.totalPlants <= 0 || j.totalPendingRaw <= 0) return false;
+        if (walletSearch.trim()) {
+            const search = walletSearch.trim().toLowerCase();
+            // Check main address and all farm addresses
+            if (j.address.toLowerCase().includes(search)) return true;
+            if (j.farms?.some(f => f.address.toLowerCase().includes(search))) return true;
+            return false;
+        }
+        return true;
+    });
     const totalPages = Math.ceil(activeJeets.length / ITEMS_PER_PAGE);
     const paginatedJeets = activeJeets.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
@@ -1096,6 +1108,42 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             // Step 3: Execute the raid
             setStatus("Initiating DEA Raid...");
             const data = battlesInterface.encodeFunctionData("deaRaid", [selectedTarget.address]);
+            
+            // Pre-flight gas estimation to catch revert reasons before user pays gas
+            try {
+                await readProvider.estimateGas({
+                    from: userAddress,
+                    to: V5_BATTLES_ADDRESS,
+                    data: data
+                });
+            } catch (gasErr: any) {
+                const reason = gasErr?.reason || gasErr?.data?.message || gasErr?.message || "";
+                console.error("[DEA] Gas estimation failed:", reason, gasErr);
+                
+                if (reason.includes("!cd")) {
+                    setStatus("❌ Global cooldown active - wait before raiding again");
+                } else if (reason.includes("!tcd")) {
+                    setStatus("❌ Per-target cooldown active - try another target");
+                } else if (reason.includes("!imm")) {
+                    setStatus("❌ Target has immunity - try another farm");
+                } else if (reason.includes("!shld")) {
+                    setStatus("❌ Target has a shield");
+                } else if (reason.includes("!list")) {
+                    setStatus("❌ Target is not a valid suspect");
+                } else if (reason.includes("!p")) {
+                    setStatus("❌ You need staked NFTs to raid");
+                } else if (reason.includes("!fee") || reason.includes("ERC20") || reason.includes("allowance")) {
+                    setStatus("❌ Insufficient FCWEED balance or approval");
+                } else if (reason.includes("!on")) {
+                    setStatus("❌ DEA Raids are currently disabled");
+                } else {
+                    setStatus("❌ Raid would fail: " + (reason.length > 50 ? reason.slice(0, 50) + "..." : reason || "Unknown reason"));
+                }
+                await clearTargeting(selectedJeet.address);
+                setRaiding(false);
+                return;
+            }
+            
             // Gas limit 4M - DEA raids do multiple cross-contract calls, targets with many NFTs need more gas
             const tx = await sendContractTx(V5_BATTLES_ADDRESS, data, "0x3D0900");
             if (!tx) { setStatus("Transaction rejected"); setRaiding(false); return; }
@@ -1130,7 +1178,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             
             // Check if transaction succeeded
             if (receipt.status === 0) {
-                setStatus("Transaction failed - check gas and try again");
+                setStatus("❌ Raid reverted on-chain - this shouldn't happen after gas estimation passed. Try again.");
                 setRaiding(false);
                 return;
             }
@@ -1288,6 +1336,48 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                                 {cooldownRemaining > 0 ? formatCooldown(cooldownRemaining) : "Ready"}
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                {/* Wallet Search */}
+                <div style={{ marginBottom: 16 }}>
+                    <div style={{ position: "relative" }}>
+                        <input
+                            type="text"
+                            placeholder="🔍 Search wallet address..."
+                            value={walletSearch}
+                            onChange={(e) => setWalletSearch(e.target.value)}
+                            style={{
+                                width: "100%",
+                                padding: "10px 36px 10px 12px",
+                                fontSize: 13,
+                                background: cardBg,
+                                border: `1px solid ${borderColor}`,
+                                borderRadius: 8,
+                                color: textPrimary,
+                                outline: "none",
+                                boxSizing: "border-box"
+                            }}
+                        />
+                        {walletSearch && (
+                            <button
+                                onClick={() => setWalletSearch("")}
+                                style={{
+                                    position: "absolute",
+                                    right: 10,
+                                    top: "50%",
+                                    transform: "translateY(-50%)",
+                                    background: "transparent",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    fontSize: 14,
+                                    color: textMuted,
+                                    padding: 4
+                                }}
+                            >
+                                ✕
+                            </button>
+                        )}
                     </div>
                 </div>
 

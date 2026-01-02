@@ -4333,11 +4333,47 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
             setWarsStatus("Attacking (50K fee - confirm in wallet)...");
 
+            // Pre-flight gas estimation to catch revert reasons before user pays gas
+            const attackData = v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]);
+            try {
+                await readProvider.estimateGas({
+                    from: ctx.userAddress,
+                    to: V5_BATTLES_ADDRESS,
+                    data: attackData
+                });
+            } catch (gasErr: any) {
+                const reason = gasErr?.reason || gasErr?.data?.message || gasErr?.message || "";
+                console.error("[Wars] Gas estimation failed:", reason, gasErr);
+                
+                if (reason.includes("!cd")) {
+                    setWarsStatus("❌ Cooldown active - wait 6h between attacks");
+                } else if (reason.includes("!shld")) {
+                    setWarsStatus("❌ Target has a shield! Search for a new target.");
+                } else if (reason.includes("!exp")) {
+                    setWarsStatus("❌ Signature expired - search for a new target");
+                } else if (reason.includes("!sig")) {
+                    setWarsStatus("❌ Invalid signature - search for a new target");
+                } else if (reason.includes("!p")) {
+                    setWarsStatus("❌ You need staked NFTs to attack");
+                } else if (reason.includes("!tgt")) {
+                    setWarsStatus("❌ Target invalid - no plants or insufficient pending rewards");
+                } else if (reason.includes("!fee") || reason.includes("ERC20") || reason.includes("allowance")) {
+                    setWarsStatus("❌ Insufficient FCWEED balance or approval");
+                } else if (reason.includes("!on")) {
+                    setWarsStatus("❌ Cartel Wars is currently disabled");
+                } else {
+                    setWarsStatus("❌ Attack would fail: " + (reason.length > 50 ? reason.slice(0, 50) + "..." : reason || "Unknown reason"));
+                }
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+
             // Execute cartelAttack - this pays 50K AND executes the battle
             const tx = await txAction().sendContractTx(
                 V5_BATTLES_ADDRESS,
-                v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]),
-                "0x1E8480" // 2M gas - battles do multiple cross-contract calls
+                attackData,
+                "0x3D0900" // 4M gas - battles do multiple cross-contract calls, targets with many NFTs need more gas
             );
 
             if (!tx) {
@@ -4352,7 +4388,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             // Check if transaction failed
             if (receipt && receipt.status === 0) {
-                setWarsStatus("Transaction failed - the attack was reverted");
+                setWarsStatus("❌ Attack reverted on-chain - this shouldn't happen after gas estimation passed. Try again or contact support.");
                 setWarsSearching(false);
                 warsTransactionInProgress.current = false;
                 return;
@@ -6523,8 +6559,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     </div>
                 )}
 
-                {activeTab === "wars" && (
-                    <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 16 })}>
+                {/* Wars section - always mounted to preserve DEA list state, hidden when not active */}
+                <section className={styles.infoCard} style={{ ...getCardStyle({ textAlign: "center", padding: 16 }), display: activeTab === "wars" ? "block" : "none" }}>
                         <h2 style={{ fontSize: 18, margin: "0 0 8px", color: "#ef4444" }}>⚔️ Cartel Wars</h2>
 
                         
@@ -7004,7 +7040,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             refreshData={refreshAllData}
                         />
                     </section>
-                )}
 
 
 
