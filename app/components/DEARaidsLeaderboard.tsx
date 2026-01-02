@@ -206,13 +206,13 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         fetchingRef.current = true;
         setIsAutoRefreshing(true);
         
-        // Safety timeout - reset fetchingRef after 15 seconds max (increased from 8)
+        // Safety timeout - reset fetchingRef after 30 seconds max
         const safetyTimeout = setTimeout(() => {
             console.log("[DEA] Safety timeout triggered, resetting fetch state");
             fetchingRef.current = false;
             setIsAutoRefreshing(false);
             setInitialLoadComplete(true); // Mark as complete even on timeout so UI isn't stuck
-        }, 15000);
+        }, 30000);
         
         try {
             const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, BATTLES_ABI, readProvider);
@@ -245,7 +245,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     // Calculate cooldown remaining
                     const deaCD = 1200; // 20 minute general cooldown between any DEA raid
                     const cooldownEnds = lastAttack.toNumber() + deaCD;
-                    const remaining = cooldownEnds > now ? cooldownEnds - now : 0;
+                    const nowSeconds = Math.floor(Date.now() / 1000); // Use fresh timestamp
+                    const remaining = cooldownEnds > nowSeconds ? cooldownEnds - nowSeconds : 0;
                     setCooldownRemaining(remaining);
                     
                     // Use ATK power (index 1) which includes boosts from ItemShop
@@ -267,32 +268,55 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             
             let backendData: any[] = [];
             let backendFetchFailed = false;
+            let cacheBuilding = false;
+            
             try { 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout (increased for miniapp)
+                const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+                console.log("[DEA] Fetching jeets...");
                 const res = await fetch(`${WARS_BACKEND_URL}/api/dea/jeets`, { signal: controller.signal }); 
                 clearTimeout(timeoutId);
                 const data = await res.json(); 
-                console.log("[DEA] Backend response:", { success: data.success, jeetsCount: data.jeets?.length, immunities: Object.keys(data.immunities || {}).length });
-                // Log any farms with immunity
-                if (data.jeets) {
-                    const farmsWithImmunity = data.jeets.flatMap((j: any) => (j.farms || []).filter((f: any) => f.hasImmunity || f.immunityEndsAt > 0));
-                    if (farmsWithImmunity.length > 0) {
-                        console.log("[DEA] Farms with immunity from backend:", farmsWithImmunity.map((f: any) => ({ addr: f.address?.slice(0,10), immunityEndsAt: f.immunityEndsAt })));
+                console.log("[DEA] Backend response:", { success: data.success, jeetsCount: data.jeets?.length, building: data.building });
+                
+                if (data.success && Array.isArray(data.jeets)) {
+                    backendData = data.jeets;
+                    cacheBuilding = data.building || false;
+                    
+                    // Log any farms with immunity
+                    if (data.jeets.length > 0) {
+                        const farmsWithImmunity = data.jeets.flatMap((j: any) => (j.farms || []).filter((f: any) => f.hasImmunity || f.immunityEndsAt > 0));
+                        if (farmsWithImmunity.length > 0) {
+                            console.log("[DEA] Farms with immunity from backend:", farmsWithImmunity.map((f: any) => ({ addr: f.address?.slice(0,10), immunityEndsAt: f.immunityEndsAt })));
+                        }
                     }
                 }
-                if (data.success && Array.isArray(data.jeets)) backendData = data.jeets; 
             } catch (e: any) { 
                 backendFetchFailed = true;
-                if (e.name !== 'AbortError') console.error("[DEA] Backend error:", e); 
-                else console.log("[DEA] Backend fetch timed out");
+                if (e.name !== 'AbortError') {
+                    console.error("[DEA] Backend error:", e);
+                } else {
+                    console.log("[DEA] Backend fetch timed out");
+                }
+            }
+            
+            // If server is still building cache and returned empty, just wait for next interval
+            if (cacheBuilding && backendData.length === 0) {
+                console.log("[DEA] Cache building on server, will retry on next refresh...");
+                setLastRefresh(Math.floor(Date.now() / 1000));
+                setInitialLoadComplete(true);
+                clearTimeout(safetyTimeout);
+                setLoading(false);
+                setIsAutoRefreshing(false);
+                fetchingRef.current = false;
+                return;
             }
             
             // If backend failed and we have no data, preserve existing list
             if (backendFetchFailed && backendData.length === 0) {
                 console.log("[DEA] Backend failed, preserving existing list");
                 setLastRefresh(Math.floor(Date.now() / 1000));
-                setInitialLoadComplete(true);
+                setInitialLoadComplete(true); // Mark complete so we don't show "Loading..." forever
                 clearTimeout(safetyTimeout);
                 setLoading(false);
                 setIsAutoRefreshing(false);
@@ -471,20 +495,32 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
         setLoading(false);
         setIsAutoRefreshing(false);
         fetchingRef.current = false;
-    }, [readProvider, userAddress, now]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [readProvider, userAddress]); // Removed 'now' - it changes every second and causes infinite refetch loop
 
     useEffect(() => {
         if (!readProvider) return;
         
-        // Reset fetch state on mount/provider change
-        fetchingRef.current = false;
+        // Small delay to let things settle before fetching (helps with miniapp remounts)
+        const initialFetchTimeout = setTimeout(() => {
+            if (!fetchingRef.current) {
+                fetchDEAData();
+            }
+        }, 500);
         
-        fetchDEAData();
-        // 15 second background refresh - BattleEventToast provides instant live updates when battles happen
-        // This slower refresh prevents UI flashing while keeping data eventually consistent
-        const refreshInterval = setInterval(fetchDEAData, 15000);
-        return () => clearInterval(refreshInterval);
-    }, [readProvider, userAddress, fetchDEAData]);
+        // 15 second refresh interval
+        const refreshInterval = setInterval(() => {
+            if (!fetchingRef.current) {
+                fetchDEAData();
+            }
+        }, 15000);
+        
+        return () => {
+            clearTimeout(initialFetchTimeout);
+            clearInterval(refreshInterval);
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [readProvider, userAddress]);
 
     const handleSelectTarget = async (jeet: JeetEntry) => {
         if (!readProvider || !userAddress) return;
@@ -1383,10 +1419,13 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
 
                 {/* Show loading only on initial load, not during refresh */}
                 {loading && !initialLoadComplete ? (
-                    <div style={{ textAlign: "center", padding: 40, color: textMuted }}>Loading suspects...</div>
+                    <div style={{ textAlign: "center", padding: 40, color: textMuted }}>
+                        <div>Loading suspects...</div>
+                        <div style={{ fontSize: 11, marginTop: 8, opacity: 0.7 }}>This may take a moment on slow connections</div>
+                    </div>
                 ) : activeJeets.length === 0 ? (
                     <div style={{ textAlign: "center", padding: 40, color: textMuted }}>
-                        <div>No suspects found</div>
+                        <div>{isAutoRefreshing ? "Connecting to server..." : "No suspects found"}</div>
                         {initialLoadComplete && (
                             <button 
                                 onClick={() => { fetchingRef.current = false; fetchDEAData(); }}
