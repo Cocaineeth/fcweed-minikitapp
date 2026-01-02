@@ -269,7 +269,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             let backendFetchFailed = false;
             try { 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout (increased for miniapp)
                 const res = await fetch(`${WARS_BACKEND_URL}/api/dea/jeets`, { signal: controller.signal }); 
                 clearTimeout(timeoutId);
                 const data = await res.json(); 
@@ -288,9 +288,21 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 else console.log("[DEA] Backend fetch timed out");
             }
             
-            // If backend failed and we have no data, preserve existing list
-            if (backendFetchFailed && backendData.length === 0) {
-                console.log("[DEA] Backend failed, preserving existing list");
+            // If backend failed OR returned empty data but we have existing data, preserve existing list
+            if ((backendFetchFailed || backendData.length === 0) && jeets.length > 0) {
+                console.log("[DEA] Backend failed or empty, preserving existing list of", jeets.length, "items");
+                setLastRefresh(Math.floor(Date.now() / 1000));
+                setInitialLoadComplete(true);
+                clearTimeout(safetyTimeout);
+                setLoading(false);
+                setIsAutoRefreshing(false);
+                fetchingRef.current = false;
+                return;
+            }
+            
+            // If backend returned empty and we have no existing data, still mark as complete
+            if (backendData.length === 0) {
+                console.log("[DEA] Backend returned empty jeets, no existing data to preserve");
                 setLastRefresh(Math.floor(Date.now() / 1000));
                 setInitialLoadComplete(true);
                 clearTimeout(safetyTimeout);
