@@ -6,6 +6,12 @@ import { ethers } from "ethers";
 // Battle contract address (same as V5_BATTLES_ADDRESS)
 const BATTLE_CONTRACT = "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00";
 
+// WebSocket RPC for reliable real-time events (Alchemy)
+const WSS_RPC_URL = "wss://base-mainnet.g.alchemy.com/v2/N95I5LVTDkn8MaZule8Fh";
+
+// Fallback HTTP for polling (if WS fails)
+const HTTP_RPC_URL = "https://base-mainnet.g.alchemy.com/v2/N95I5LVTDkn8MaZule8Fh";
+
 // ABI for battle events
 const BATTLE_ABI = [
     "event CartelResult(address indexed attacker, address indexed defender, bool won, uint256 attackPower, uint256 defendPower, uint256 stolen, uint256 damage)",
@@ -348,9 +354,14 @@ const Toast: React.FC<{
 export function BattleEventToast({ theme, readProvider, enabled = true, onBattleEvent }: Props) {
     const [events, setEvents] = useState<BattleEvent[]>([]);
     const nukeTargetsRef = useRef<Set<string>>(new Set());
+    const wsProviderRef = useRef<ethers.providers.WebSocketProvider | null>(null);
     const contractRef = useRef<ethers.Contract | null>(null);
     const onBattleEventRef = useRef(onBattleEvent);
     const refreshDebounceRef = useRef<NodeJS.Timeout | null>(null);
+    const lastBlockRef = useRef<number>(0);
+    const seenEventsRef = useRef<Set<string>>(new Set());
+    const pollingIntervalRef = useRef<NodeJS.Timer | null>(null);
+    const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     // Keep callback ref updated
     useEffect(() => {
@@ -358,7 +369,6 @@ export function BattleEventToast({ theme, readProvider, enabled = true, onBattle
     }, [onBattleEvent]);
 
     // Debounced refresh - waits 2 seconds after last event before triggering refresh
-    // This prevents spam if multiple battles happen quickly
     const triggerRefresh = useCallback(() => {
         if (refreshDebounceRef.current) {
             clearTimeout(refreshDebounceRef.current);
@@ -368,10 +378,18 @@ export function BattleEventToast({ theme, readProvider, enabled = true, onBattle
                 console.log("[BattleToast] 🔄 Triggering live data refresh");
                 onBattleEventRef.current();
             }
-        }, 2000); // 2 second debounce
+        }, 2000);
     }, []);
 
     const addEvent = useCallback((event: BattleEvent) => {
+        // Deduplicate events using unique ID
+        if (seenEventsRef.current.has(event.id)) return;
+        seenEventsRef.current.add(event.id);
+        // Keep only last 100 seen IDs to prevent memory leak
+        if (seenEventsRef.current.size > 100) {
+            const arr = Array.from(seenEventsRef.current);
+            seenEventsRef.current = new Set(arr.slice(-50));
+        }
         setEvents((prev) => [event, ...prev].slice(0, 5)); // Max 5 toasts
     }, []);
 
@@ -382,92 +400,245 @@ export function BattleEventToast({ theme, readProvider, enabled = true, onBattle
     useEffect(() => {
         if (!enabled || !readProvider) return;
 
-        const setupListener = async () => {
+        let isMounted = true;
+        let wsProvider: ethers.providers.WebSocketProvider | null = null;
+        const iface = new ethers.utils.Interface(BATTLE_ABI);
+
+        // Setup event handlers for a contract
+        const setupContractListeners = (contract: ethers.Contract, providerType: string) => {
+            contract.on("NukeUsed", (attacker: string, target: string) => {
+                const key = `${attacker.toLowerCase()}-${target.toLowerCase()}`;
+                nukeTargetsRef.current.add(key);
+                setTimeout(() => nukeTargetsRef.current.delete(key), 5000);
+            });
+
+            contract.on("CartelResult", (attacker, defender, won, _ap, _dp, stolen, damage, event) => {
+                const eventId = `cartel-${event.transactionHash}-${event.logIndex}`;
+                const nukeKey = `${attacker.toLowerCase()}-${defender.toLowerCase()}`;
+                addEvent({
+                    id: eventId,
+                    type: "cartel",
+                    attacker, defender, won,
+                    stolen: stolen.toString(),
+                    damage: damage.toNumber(),
+                    nukeUsed: nukeTargetsRef.current.has(nukeKey),
+                    timestamp: Date.now()
+                });
+                triggerRefresh();
+            });
+
+            contract.on("DeaResult", (attacker, target, won, _ap, _dp, stolen, damage, event) => {
+                const eventId = `dea-${event.transactionHash}-${event.logIndex}`;
+                const nukeKey = `${attacker.toLowerCase()}-${target.toLowerCase()}`;
+                addEvent({
+                    id: eventId,
+                    type: "dea",
+                    attacker, defender: target, won,
+                    stolen: stolen.toString(),
+                    damage: damage.toNumber(),
+                    nukeUsed: nukeTargetsRef.current.has(nukeKey),
+                    timestamp: Date.now()
+                });
+                triggerRefresh();
+            });
+
+            contract.on("PurgeResult", (attacker, target, won, _ap, _dp, stolen, damage, event) => {
+                const eventId = `purge-${event.transactionHash}-${event.logIndex}`;
+                const nukeKey = `${attacker.toLowerCase()}-${target.toLowerCase()}`;
+                addEvent({
+                    id: eventId,
+                    type: "purge",
+                    attacker, defender: target, won,
+                    stolen: stolen.toString(),
+                    damage: damage.toNumber(),
+                    nukeUsed: nukeTargetsRef.current.has(nukeKey),
+                    timestamp: Date.now()
+                });
+                triggerRefresh();
+            });
+
+            console.log(`[BattleToast] 🎮 Event listeners active (${providerType})`);
+        };
+
+        // Try to connect via WebSocket for real-time events
+        const connectWebSocket = () => {
+            if (!isMounted) return;
+            
             try {
-                const contract = new ethers.Contract(BATTLE_CONTRACT, BATTLE_ABI, readProvider);
-                contractRef.current = contract;
+                console.log("[BattleToast] 🔌 Connecting WebSocket...");
+                wsProvider = new ethers.providers.WebSocketProvider(WSS_RPC_URL);
+                wsProviderRef.current = wsProvider;
 
-                // Listen for NukeUsed
-                contract.on("NukeUsed", (attacker: string, target: string) => {
-                    const key = `${attacker.toLowerCase()}-${target.toLowerCase()}`;
-                    nukeTargetsRef.current.add(key);
-                    setTimeout(() => nukeTargetsRef.current.delete(key), 5000);
+                wsProvider.on("error", (error) => {
+                    console.warn("[BattleToast] WebSocket error:", error.message);
                 });
 
-                // Listen for CartelResult
-                contract.on("CartelResult", (
-                    attacker: string, defender: string, won: boolean,
-                    _ap: ethers.BigNumber, _dp: ethers.BigNumber,
-                    stolen: ethers.BigNumber, damage: ethers.BigNumber
-                ) => {
-                    const nukeKey = `${attacker.toLowerCase()}-${defender.toLowerCase()}`;
-                    addEvent({
-                        id: `cartel-${Date.now()}-${Math.random()}`,
-                        type: "cartel",
-                        attacker, defender, won,
-                        stolen: stolen.toString(),
-                        damage: damage.toNumber(),
-                        nukeUsed: nukeTargetsRef.current.has(nukeKey),
-                        timestamp: Date.now()
-                    });
-                    triggerRefresh(); // Live update for all players
-                });
+                // Handle WebSocket close/disconnect
+                const ws = (wsProvider as any)._websocket;
+                if (ws) {
+                    ws.onclose = () => {
+                        console.warn("[BattleToast] WebSocket closed, will reconnect...");
+                        if (isMounted && !reconnectTimeoutRef.current) {
+                            reconnectTimeoutRef.current = setTimeout(() => {
+                                reconnectTimeoutRef.current = null;
+                                connectWebSocket();
+                            }, 5000);
+                        }
+                    };
+                }
 
-                // Listen for DeaResult
-                contract.on("DeaResult", (
-                    attacker: string, target: string, won: boolean,
-                    _ap: ethers.BigNumber, _dp: ethers.BigNumber,
-                    stolen: ethers.BigNumber, damage: ethers.BigNumber
-                ) => {
-                    const nukeKey = `${attacker.toLowerCase()}-${target.toLowerCase()}`;
-                    addEvent({
-                        id: `dea-${Date.now()}-${Math.random()}`,
-                        type: "dea",
-                        attacker, defender: target, won,
-                        stolen: stolen.toString(),
-                        damage: damage.toNumber(),
-                        nukeUsed: nukeTargetsRef.current.has(nukeKey),
-                        timestamp: Date.now()
-                    });
-                    triggerRefresh(); // Live update for all players
-                });
-
-                // Listen for PurgeResult
-                contract.on("PurgeResult", (
-                    attacker: string, target: string, won: boolean,
-                    _ap: ethers.BigNumber, _dp: ethers.BigNumber,
-                    stolen: ethers.BigNumber, damage: ethers.BigNumber
-                ) => {
-                    const nukeKey = `${attacker.toLowerCase()}-${target.toLowerCase()}`;
-                    addEvent({
-                        id: `purge-${Date.now()}-${Math.random()}`,
-                        type: "purge",
-                        attacker, defender: target, won,
-                        stolen: stolen.toString(),
-                        damage: damage.toNumber(),
-                        nukeUsed: nukeTargetsRef.current.has(nukeKey),
-                        timestamp: Date.now()
-                    });
-                    triggerRefresh(); // Live update for all players
-                });
-
-                console.log("[BattleToast] 🎮 Event listeners active");
-            } catch (error) {
-                console.error("[BattleToast] Setup failed:", error);
+                const wsContract = new ethers.Contract(BATTLE_CONTRACT, BATTLE_ABI, wsProvider);
+                setupContractListeners(wsContract, "WebSocket");
+                
+            } catch (e) {
+                console.warn("[BattleToast] WebSocket connection failed, using HTTP polling:", e);
             }
         };
 
-        setupListener();
+        // HTTP polling fallback - checks recent blocks for events
+        const pollForEvents = async () => {
+            if (!isMounted) return;
+            
+            try {
+                const currentBlock = await readProvider.getBlockNumber();
+                
+                // On first poll, just set the block number
+                if (lastBlockRef.current === 0) {
+                    lastBlockRef.current = currentBlock;
+                    return;
+                }
+
+                // Skip if no new blocks
+                if (currentBlock <= lastBlockRef.current) return;
+
+                // Query events from missed blocks (max 10 blocks back)
+                const fromBlock = Math.max(lastBlockRef.current + 1, currentBlock - 10);
+                
+                const contract = new ethers.Contract(BATTLE_CONTRACT, BATTLE_ABI, readProvider);
+                
+                // Query each event type
+                const [cartelLogs, deaLogs, purgeLogs, nukeLogs] = await Promise.all([
+                    contract.queryFilter(contract.filters.CartelResult(), fromBlock, currentBlock),
+                    contract.queryFilter(contract.filters.DeaResult(), fromBlock, currentBlock),
+                    contract.queryFilter(contract.filters.PurgeResult(), fromBlock, currentBlock),
+                    contract.queryFilter(contract.filters.NukeUsed(), fromBlock, currentBlock),
+                ]);
+
+                // Process nuke events first
+                for (const log of nukeLogs) {
+                    const decoded = iface.parseLog(log);
+                    const key = `${decoded.args.attacker.toLowerCase()}-${decoded.args.target.toLowerCase()}`;
+                    nukeTargetsRef.current.add(key);
+                    setTimeout(() => nukeTargetsRef.current.delete(key), 5000);
+                }
+
+                // Process battle events
+                for (const log of cartelLogs) {
+                    const eventId = `cartel-${log.transactionHash}-${log.logIndex}`;
+                    if (seenEventsRef.current.has(eventId)) continue;
+                    const decoded = iface.parseLog(log);
+                    const nukeKey = `${decoded.args.attacker.toLowerCase()}-${decoded.args.defender.toLowerCase()}`;
+                    addEvent({
+                        id: eventId,
+                        type: "cartel",
+                        attacker: decoded.args.attacker,
+                        defender: decoded.args.defender,
+                        won: decoded.args.won,
+                        stolen: decoded.args.stolen.toString(),
+                        damage: decoded.args.damage.toNumber(),
+                        nukeUsed: nukeTargetsRef.current.has(nukeKey),
+                        timestamp: Date.now()
+                    });
+                    triggerRefresh();
+                }
+
+                for (const log of deaLogs) {
+                    const eventId = `dea-${log.transactionHash}-${log.logIndex}`;
+                    if (seenEventsRef.current.has(eventId)) continue;
+                    const decoded = iface.parseLog(log);
+                    const nukeKey = `${decoded.args.attacker.toLowerCase()}-${decoded.args.target.toLowerCase()}`;
+                    addEvent({
+                        id: eventId,
+                        type: "dea",
+                        attacker: decoded.args.attacker,
+                        defender: decoded.args.target,
+                        won: decoded.args.won,
+                        stolen: decoded.args.stolen.toString(),
+                        damage: decoded.args.damage.toNumber(),
+                        nukeUsed: nukeTargetsRef.current.has(nukeKey),
+                        timestamp: Date.now()
+                    });
+                    triggerRefresh();
+                }
+
+                for (const log of purgeLogs) {
+                    const eventId = `purge-${log.transactionHash}-${log.logIndex}`;
+                    if (seenEventsRef.current.has(eventId)) continue;
+                    const decoded = iface.parseLog(log);
+                    const nukeKey = `${decoded.args.attacker.toLowerCase()}-${decoded.args.target.toLowerCase()}`;
+                    addEvent({
+                        id: eventId,
+                        type: "purge",
+                        attacker: decoded.args.attacker,
+                        defender: decoded.args.target,
+                        won: decoded.args.won,
+                        stolen: decoded.args.stolen.toString(),
+                        damage: decoded.args.damage.toNumber(),
+                        nukeUsed: nukeTargetsRef.current.has(nukeKey),
+                        timestamp: Date.now()
+                    });
+                    triggerRefresh();
+                }
+
+                lastBlockRef.current = currentBlock;
+            } catch (e) {
+                // Silently fail - will retry on next poll
+            }
+        };
+
+        // Initialize
+        const init = async () => {
+            // Try WebSocket first for real-time events
+            connectWebSocket();
+            
+            // Also set up HTTP polling as backup (every 3 seconds)
+            // This catches any events that WebSocket might miss
+            pollingIntervalRef.current = setInterval(pollForEvents, 3000);
+            
+            // Initial poll to get current block
+            pollForEvents();
+        };
+
+        init();
 
         return () => {
+            isMounted = false;
+            
+            if (wsProviderRef.current) {
+                try {
+                    wsProviderRef.current.removeAllListeners();
+                    wsProviderRef.current.destroy();
+                } catch (e) {}
+                wsProviderRef.current = null;
+            }
+            
             if (contractRef.current) {
                 contractRef.current.removeAllListeners();
-                console.log("[BattleToast] 🎮 Event listeners stopped");
             }
-            // Clean up debounce timeout
+            
+            if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current);
+            }
+            
+            if (reconnectTimeoutRef.current) {
+                clearTimeout(reconnectTimeoutRef.current);
+            }
+            
             if (refreshDebounceRef.current) {
                 clearTimeout(refreshDebounceRef.current);
             }
+            
+            console.log("[BattleToast] 🎮 Event listeners stopped");
         };
     }, [enabled, readProvider, addEvent, triggerRefresh]);
 

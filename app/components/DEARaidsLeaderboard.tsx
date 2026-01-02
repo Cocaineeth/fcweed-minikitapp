@@ -277,14 +277,18 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 const res = await fetch(`${WARS_BACKEND_URL}/api/dea/jeets`, { signal: controller.signal }); 
                 clearTimeout(timeoutId);
                 const data = await res.json(); 
-                console.log("[DEA] Backend response:", { success: data.success, jeetsCount: data.jeets?.length, building: data.building });
+                console.log("[DEA] Backend response:", { success: data.success, jeetsCount: data.jeets?.length, building: data.building, basic: data.basic });
                 
                 if (data.success && Array.isArray(data.jeets)) {
                     backendData = data.jeets;
-                    cacheBuilding = data.building || false;
+                    cacheBuilding = data.building || data.basic || false;
+                    
+                    if (data.basic) {
+                        console.log("[DEA] Received basic data (cache building), will refresh for full data...");
+                    }
                     
                     // Log any farms with immunity
-                    if (data.jeets.length > 0) {
+                    if (data.jeets.length > 0 && !data.basic) {
                         const farmsWithImmunity = data.jeets.flatMap((j: any) => (j.farms || []).filter((f: any) => f.hasImmunity || f.immunityEndsAt > 0));
                         if (farmsWithImmunity.length > 0) {
                             console.log("[DEA] Farms with immunity from backend:", farmsWithImmunity.map((f: any) => ({ addr: f.address?.slice(0,10), immunityEndsAt: f.immunityEndsAt })));
@@ -508,12 +512,12 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             }
         }, 500);
         
-        // 15 second refresh interval
+        // 10 second refresh interval (faster to pick up cache updates)
         const refreshInterval = setInterval(() => {
             if (!fetchingRef.current) {
                 fetchDEAData();
             }
-        }, 15000);
+        }, 10000);
         
         return () => {
             clearTimeout(initialFetchTimeout);

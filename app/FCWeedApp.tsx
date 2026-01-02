@@ -251,7 +251,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [connecting, setConnecting] = useState(false);
     const [miniAppEthProvider, setMiniAppEthProvider] = useState<any | null>(null);
 
-    const [readProvider] = useState(() => new ethers.providers.JsonRpcProvider(PUBLIC_BASE_RPC));
+    const [readProvider] = useState(() => new ethers.providers.JsonRpcProvider("https://base-mainnet.g.alchemy.com/v2/N95I5LVTDkn8MaZule8Fh"));
 
     // Reset connecting state on mount (in case it got stuck)
     useEffect(() => {
