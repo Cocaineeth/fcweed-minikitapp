@@ -913,7 +913,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                             
                             // Send flag transaction
                             console.log("[DEA] Sending flag transaction...");
-                            const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagData, "2000000"); // 2M gas
+                            const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagData, "3000000"); // 3M gas
                             
                             if (!flagTx) {
                                 // Check if target got flagged by someone else while we were trying
@@ -1096,8 +1096,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             // Step 3: Execute the raid
             setStatus("Initiating DEA Raid...");
             const data = battlesInterface.encodeFunctionData("deaRaid", [selectedTarget.address]);
-            // Gas limit 2M - DEA raids do multiple cross-contract calls
-            const tx = await sendContractTx(V5_BATTLES_ADDRESS, data, "0x1E8480");
+            // Gas limit 4M - DEA raids do multiple cross-contract calls, targets with many NFTs need more gas
+            const tx = await sendContractTx(V5_BATTLES_ADDRESS, data, "0x3D0900");
             if (!tx) { setStatus("Transaction rejected"); setRaiding(false); return; }
             setStatus("Raid in progress...");
             

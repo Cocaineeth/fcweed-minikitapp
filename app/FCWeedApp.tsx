@@ -992,7 +992,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         // NEW: Handle RainbowKit/desktop connections using walletClient
         if (wagmiConnected && wagmiAddress && !usingMiniApp && walletClient) {
             try {
-                console.log("[TX] Attempting walletClient.sendTransaction for:", wagmiAddress);
+                console.log("[TX] Attempting walletClient.sendTransaction for:", wagmiAddress, "gas:", gasLimit || "auto");
                 
                 // Use walletClient from wagmi - this is the correct provider for ANY connected wallet
                 const hash = await walletClient.sendTransaction({
@@ -1000,6 +1000,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     data: data as `0x${string}`,
                     chain: walletClient.chain,
                     account: walletClient.account,
+                    gas: gasLimit ? BigInt(gasLimit.startsWith("0x") ? parseInt(gasLimit, 16) : gasLimit) : undefined,
                 });
                 
                 console.log("[TX] WalletClient tx hash:", hash);
