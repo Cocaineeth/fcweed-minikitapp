@@ -288,21 +288,9 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 else console.log("[DEA] Backend fetch timed out");
             }
             
-            // If backend failed OR returned empty data but we have existing data, preserve existing list
-            if ((backendFetchFailed || backendData.length === 0) && jeets.length > 0) {
-                console.log("[DEA] Backend failed or empty, preserving existing list of", jeets.length, "items");
-                setLastRefresh(Math.floor(Date.now() / 1000));
-                setInitialLoadComplete(true);
-                clearTimeout(safetyTimeout);
-                setLoading(false);
-                setIsAutoRefreshing(false);
-                fetchingRef.current = false;
-                return;
-            }
-            
-            // If backend returned empty and we have no existing data, still mark as complete
-            if (backendData.length === 0) {
-                console.log("[DEA] Backend returned empty jeets, no existing data to preserve");
+            // If backend failed and we have no data, preserve existing list
+            if (backendFetchFailed && backendData.length === 0) {
+                console.log("[DEA] Backend failed, preserving existing list");
                 setLastRefresh(Math.floor(Date.now() / 1000));
                 setInitialLoadComplete(true);
                 clearTimeout(safetyTimeout);
@@ -1190,7 +1178,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             
             // Check if transaction succeeded
             if (receipt.status === 0) {
-                setStatus("❌ Raid reverted on-chain - this shouldn't happen after gas estimation passed. Try again.");
+                setStatus("❌ Raid reverted on-chain - try again or contact support");
                 setRaiding(false);
                 return;
             }
