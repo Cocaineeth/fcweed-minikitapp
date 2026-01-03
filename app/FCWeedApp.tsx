@@ -890,31 +890,62 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
 
     async function sendContractTx(to: string, data: string, gasLimit?: string): Promise<ethers.providers.TransactionResponse | null> {
-        // Helper to get the correct provider
-        const getProvider = () => {
+        // Helper to get the correct provider based on the CONNECTED wallet (not just installed)
+        // This fixes "account not authorized" errors when multiple wallets are installed
+        const getConnectorAwareProvider = () => {
             const anyWindow = window as any;
             
-            // Check for multi-provider scenario (EIP-6963)
+            // Use walletClient info to determine which wallet is actually connected
+            const connectorName = walletClient?.transport?.name?.toLowerCase() || '';
+            const connectorId = (walletClient as any)?.connector?.id?.toLowerCase() || '';
+            
+            console.log("[TX] Getting provider for connector:", connectorName || connectorId || 'unknown');
+            
+            // Match provider to the actually connected wallet
+            const isPhantom = connectorName.includes('phantom') || connectorId.includes('phantom');
+            const isRabby = connectorName.includes('rabby') || connectorId.includes('rabby');
+            const isMetaMask = connectorName.includes('metamask') || connectorId.includes('metamask');
+            const isCoinbase = connectorName.includes('coinbase') || connectorId.includes('coinbase');
+            
+            // Check EIP-6963 multi-provider array first
             if (anyWindow.ethereum?.providers?.length > 0) {
                 const providers = anyWindow.ethereum.providers;
-                const phantomProvider = providers.find((p: any) => p.isPhantom);
-                const rabbyProvider = providers.find((p: any) => p.isRabby);
-                const mmProvider = providers.find((p: any) => p.isMetaMask && !p.isRabby && !p.isPhantom);
                 
-                // Return in priority order based on what's likely connected
-                if (phantomProvider) return phantomProvider;
-                if (rabbyProvider) return rabbyProvider;
-                if (mmProvider) return mmProvider;
+                if (isPhantom) {
+                    const p = providers.find((p: any) => p.isPhantom);
+                    if (p) { console.log("[TX] Using Phantom from EIP-6963"); return p; }
+                }
+                if (isRabby) {
+                    const p = providers.find((p: any) => p.isRabby);
+                    if (p) { console.log("[TX] Using Rabby from EIP-6963"); return p; }
+                }
+                if (isMetaMask) {
+                    const p = providers.find((p: any) => p.isMetaMask && !p.isRabby && !p.isPhantom);
+                    if (p) { console.log("[TX] Using MetaMask from EIP-6963"); return p; }
+                }
+                if (isCoinbase) {
+                    const p = providers.find((p: any) => p.isCoinbaseWallet);
+                    if (p) { console.log("[TX] Using Coinbase from EIP-6963"); return p; }
+                }
             }
             
-            // Phantom's dedicated location
-            if (anyWindow.phantom?.ethereum) return anyWindow.phantom.ethereum;
+            // Dedicated provider locations based on connector
+            if (isPhantom && anyWindow.phantom?.ethereum) {
+                console.log("[TX] Using window.phantom.ethereum");
+                return anyWindow.phantom.ethereum;
+            }
+            if (isRabby && anyWindow.rabby) {
+                console.log("[TX] Using window.rabby");
+                return anyWindow.rabby;
+            }
             
-            // Rabby's dedicated location
-            if (anyWindow.rabby) return anyWindow.rabby;
+            // Standard ethereum fallback
+            if (anyWindow.ethereum) {
+                console.log("[TX] Fallback to window.ethereum");
+                return anyWindow.ethereum;
+            }
             
-            // Standard ethereum
-            return anyWindow.ethereum;
+            return null;
         };
 
         // Check network before any transaction (skip for MiniApp which is always Base)
@@ -1006,7 +1037,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 console.log("[TX] WalletClient tx hash:", hash);
                 
                 // Get a provider to fetch the transaction response
-                const ethProvider = getProvider();
+                const ethProvider = getConnectorAwareProvider();
                 if (ethProvider) {
                     const provider = new ethers.providers.Web3Provider(ethProvider, "any");
                     // Wait a moment for tx to propagate, then fetch
@@ -1038,20 +1069,55 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     cause: e?.cause?.message
                 });
                 const msg = e?.shortMessage || e?.message || "Transaction failed";
+                
+                // Check if this is an authorization error - needs re-auth in fallback
+                const isAuthError = msg.includes("not been authorized") || 
+                                   msg.includes("unauthorized") ||
+                                   msg.includes("not authorized") ||
+                                   e?.code === -32603;
+                
                 if (msg.includes("rejected") || msg.includes("denied") || e?.code === 4001 || e?.code === "ACTION_REJECTED") {
                     setMintStatus("Transaction canceled");
                     return null;
                 }
-                // Don't return null yet - try the raw provider fallback
-                console.log("[TX] WalletClient failed, trying raw provider fallback...");
+                // Don't return null yet - try the raw provider fallback (with re-auth if needed)
+                console.log("[TX] WalletClient failed, trying raw provider fallback...", isAuthError ? "(will re-authorize)" : "");
             }
         }
         
-        // Fallback to raw eth_sendTransaction for better Phantom/Base App compatibility
+        // Fallback to raw eth_sendTransaction with RE-AUTHORIZATION
+        // This fixes "account not authorized" errors on desktop browsers
         if (wagmiConnected && wagmiAddress && !usingMiniApp) {
-            const ethProvider = getProvider();
+            const ethProvider = getConnectorAwareProvider();
             if (ethProvider) {
                 try {
+                    // Re-request accounts to ensure authorization is current
+                    // This is the key fix for "account not authorized" errors
+                    console.log("[TX] Re-requesting account authorization...");
+                    try {
+                        const authorizedAccounts = await ethProvider.request({ method: "eth_requestAccounts" });
+                        console.log("[TX] Authorized accounts:", authorizedAccounts);
+                        
+                        // Verify our address is in the authorized list
+                        const isAuthorized = authorizedAccounts.some(
+                            (acc: string) => acc.toLowerCase() === wagmiAddress.toLowerCase()
+                        );
+                        
+                        if (!isAuthorized) {
+                            console.error("[TX] Connected address not in authorized accounts!");
+                            console.error("[TX] wagmiAddress:", wagmiAddress, "authorized:", authorizedAccounts);
+                            setMintStatus("⚠️ Wallet not authorized - please reconnect");
+                            return null;
+                        }
+                    } catch (authErr: any) {
+                        console.warn("[TX] Re-auth request failed:", authErr);
+                        if (authErr?.code === 4001) {
+                            setMintStatus("Please authorize the wallet connection");
+                            return null;
+                        }
+                        // Otherwise continue - might still work
+                    }
+                    
                     console.log("[TX] Using raw eth_sendTransaction for:", wagmiAddress,
                         "Provider:", ethProvider.isPhantom ? "Phantom" : ethProvider.isRabby ? "Rabby" : ethProvider.isMetaMask ? "MetaMask" : "Unknown");
                     
@@ -1112,6 +1178,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     const msg = e?.shortMessage || e?.reason || e?.message || "Transaction failed";
                     if (msg.includes("rejected") || msg.includes("denied") || msg.includes("canceled") || e?.code === 4001 || e?.code === "ACTION_REJECTED") {
                         setMintStatus("Transaction canceled");
+                    } else if (msg.includes("not been authorized") || msg.includes("not authorized") || msg.includes("unauthorized")) {
+                        setMintStatus("⚠️ Wallet not authorized - disconnect and reconnect");
                     } else if (msg.includes("insufficient") || msg.includes("gas")) {
                         setMintStatus("Insufficient balance or gas");
                     } else if (msg.includes("nonce")) {
