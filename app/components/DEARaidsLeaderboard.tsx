@@ -39,7 +39,7 @@ const STAKING_ABI = [
 
 // ItemShop ABI for Nuke and Shield check
 const ITEMSHOP_ABI = [
-    "function hasActiveNukeReady(address) view returns (bool)",
+    "function canBypassShield(address) view returns (bool)",
     "function nukeExpiry(address) view returns (uint256)",
     "function shieldExpiry(address) view returns (uint256)"
 ];
@@ -232,10 +232,10 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, ITEMSHOP_ABI, readProvider);
                     const [atkStats, fullPower, canAttack, lastAttack, hasNuke] = await Promise.all([
                         battlesContract.getAtkStats(userAddress), 
-                        battlesContract.getPower(userAddress), // Returns (base, atk, def) - atk includes boosts!
+                        battlesContract.getPower(userAddress),
                         battlesContract.canDea(userAddress),
                         battlesContract.lastDea(userAddress),
-                        itemShopContract.hasActiveNukeReady(userAddress).catch(() => false) // Check for active Nuke
+                        itemShopContract.canBypassShield(userAddress).catch(() => false)
                     ]);
                     
                     // Store whether user can raid
@@ -554,7 +554,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             });
             if (userAddress) {
                 calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("getPower", [userAddress]) });
-                calls.push({ target: V5_ITEMSHOP_ADDRESS, callData: itemShopInterface.encodeFunctionData("hasActiveNukeReady", [userAddress]) });
+                calls.push({ target: V5_ITEMSHOP_ADDRESS, callData: itemShopInterface.encodeFunctionData("canBypassShield", [userAddress]) });
                 // Add canDea check for the user
                 calls.push({ target: V5_BATTLES_ADDRESS, callData: battlesInterface.encodeFunctionData("canDea", [userAddress]) });
             }
@@ -1176,6 +1176,8 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     setStatus("❌ Insufficient FCWEED balance or approval");
                 } else if (reason.includes("!on")) {
                     setStatus("❌ DEA Raids are currently disabled");
+                } else if (reason.includes("call revert exception") || reason.includes("execution reverted")) {
+                    setStatus("❌ Transaction would fail - target may have no rewards or contract issue");
                 } else {
                     setStatus("❌ Raid would fail: " + (reason.length > 50 ? reason.slice(0, 50) + "..." : reason || "Unknown reason"));
                 }
