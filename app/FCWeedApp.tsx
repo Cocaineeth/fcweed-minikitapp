@@ -3215,9 +3215,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             // Create interface for water functions
             const waterInterface = new ethers.utils.Interface([
-                "function waterPlants(uint256[] calldata ids)",
-                "function waterPlantWithAmount(uint256 id, uint256 amount)",
-                "function waterPlantsWithBalance(uint256[] calldata ids)"
+                "function waterPlant(uint256 id)",
+                "function waterPlants(uint256[] calldata ids)"
             ]);
             
             let tx;
