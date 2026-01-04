@@ -2023,243 +2023,251 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }, [theme]);
 
     async function ensureWallet(forceSelection: boolean = false) {
-        // Check if already connected via wagmi/RainbowKit
-        if (wagmiConnected && wagmiAddress && !forceSelection) {
-            const anyWindow = window as any;
-            if (anyWindow.ethereum) {
-                const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
-                // Pass address explicitly to getSigner() - fixes Phantom/Base App wallet compatibility
-                return { signer: ethersProvider.getSigner(wagmiAddress), provider: ethersProvider, userAddress: wagmiAddress, isMini: false };
-            }
-        }
+            const { isMiniApp: detectedMiniApp, isMobile } = detectMiniAppEnvironment();
 
-        if (signer && provider && userAddress && !forceSelection) {
-            return { signer, provider, userAddress, isMini: usingMiniApp };
-        }
-        
-        // Clear the disconnect flag when user explicitly connects
-        userDisconnected.current = false;
-
-        try {
-            setConnecting(true);
-            setMintStatus("");
-
-            let p: ethers.providers.Web3Provider;
-            let s: ethers.Signer;
-            let addr: string;
-            let isMini = false;
-            let ethProv: any | null = null;
-
-            const { isMiniApp: detectedMiniApp, isMobile, isBaseApp } = detectMiniAppEnvironment();
-
-            console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, isBaseApp, userAgent: navigator.userAgent });
-
-            // Check if we're in Farcaster context
+            // Check if we're in Farcaster context FIRST - before checking wagmi
             let inFarcasterContext = false;
             try {
                 const context = await sdk.context;
                 if (context) {
                     inFarcasterContext = true;
-                    console.log("[Wallet] In Farcaster context, will use SDK wallet only");
+                    console.log("[Wallet] In Farcaster context - will prioritize SDK wallet over browser extensions");
                 }
             } catch {}
 
-            // Try Farcaster SDK first (for Warpcast users)
-            if (inFarcasterContext || detectedMiniApp) {
-                try {
-                    console.log("[Wallet] Attempting Farcaster SDK wallet connection...");
+            // If in Farcaster context and already have miniApp connection, use it
+            if ((inFarcasterContext || detectedMiniApp) && miniAppEthProvider && userAddress && !forceSelection) {
+                console.log("[Wallet] Reusing existing Farcaster SDK wallet connection");
+                return { signer: null, provider: null, userAddress, isMini: true };
+            }
 
-                    try {
-                        await sdk.actions.ready();
-                        console.log("[Wallet] SDK ready confirmed");
-                    } catch (readyErr) {
-                        console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
+            // ONLY check wagmi/RainbowKit if NOT in Farcaster context
+            if (!inFarcasterContext && !detectedMiniApp) {
+                if (wagmiConnected && wagmiAddress && !forceSelection) {
+                    const anyWindow = window as any;
+                    if (anyWindow.ethereum) {
+                        const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
+                        // Pass address explicitly to getSigner() - fixes Phantom/Base App wallet compatibility
+                        return { signer: ethersProvider.getSigner(wagmiAddress), provider: ethersProvider, userAddress: wagmiAddress, isMini: false };
                     }
-
-                    try {
-                        ethProv = await sdk.wallet.getEthereumProvider();
-                        if (ethProv) {
-                            console.log("[Wallet] Got provider via Farcaster SDK");
-                            const providerInfo = {
-                                isRabby: !!(ethProv as any).isRabby,
-                                isMetaMask: !!(ethProv as any).isMetaMask,
-                                isCoinbaseWallet: !!(ethProv as any).isCoinbaseWallet,
-                                isFarcaster: !!(ethProv as any).isFarcaster,
-                            };
-                            console.log("[Wallet] Provider info:", providerInfo);
-                            isMini = true;
-                        }
-                    } catch (err1) {
-                        console.warn("[Wallet] Farcaster SDK getEthereumProvider failed:", err1);
-                        if ((sdk.wallet as any).ethProvider) {
-                            ethProv = (sdk.wallet as any).ethProvider;
-                            console.log("[Wallet] Got provider via ethProvider property");
-                            isMini = true;
-                        }
-                    }
-                } catch (err) {
-                    console.warn("[Wallet] Farcaster SDK wallet failed:", err);
                 }
-                
-                // If in Farcaster context but SDK failed, don't fall back to window.ethereum
-                if (!ethProv && inFarcasterContext) {
-                    console.log("[Wallet] In Farcaster but SDK wallet failed, not falling back to extensions");
-                    setMintStatus("Please enable wallet in Farcaster settings");
+
+                if (signer && provider && userAddress && !forceSelection) {
+                    return { signer, provider, userAddress, isMini: usingMiniApp };
+                }
+            }
+
+            // Clear the disconnect flag when user explicitly connects
+            userDisconnected.current = false;
+
+            try {
+                setConnecting(true);
+                setMintStatus("");
+
+                let p: ethers.providers.Web3Provider;
+                let s: ethers.Signer;
+                let addr: string;
+                let isMini = false;
+                let ethProv: any | null = null;
+
+                console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, inFarcasterContext, userAgent: navigator.userAgent });
+
+                // Try Farcaster SDK first (for Warpcast users)
+                if (inFarcasterContext || detectedMiniApp) {
+                    try {
+                        console.log("[Wallet] Attempting Farcaster SDK wallet connection...");
+
+                        try {
+                            await sdk.actions.ready();
+                            console.log("[Wallet] SDK ready confirmed");
+                        } catch (readyErr) {
+                            console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
+                        }
+
+                        try {
+                            ethProv = await sdk.wallet.getEthereumProvider();
+                            if (ethProv) {
+                                console.log("[Wallet] Got provider via Farcaster SDK");
+                                const providerInfo = {
+                                    isRabby: !!(ethProv as any).isRabby,
+                                    isMetaMask: !!(ethProv as any).isMetaMask,
+                                    isCoinbaseWallet: !!(ethProv as any).isCoinbaseWallet,
+                                    isFarcaster: !!(ethProv as any).isFarcaster,
+                                };
+                                console.log("[Wallet] Provider info:", providerInfo);
+                                isMini = true;
+                            }
+                        } catch (err1) {
+                            console.warn("[Wallet] Farcaster SDK getEthereumProvider failed:", err1);
+                            if ((sdk.wallet as any).ethProvider) {
+                                ethProv = (sdk.wallet as any).ethProvider;
+                                console.log("[Wallet] Got provider via ethProvider property");
+                                isMini = true;
+                            }
+                        }
+                    } catch (err) {
+                        console.warn("[Wallet] Farcaster SDK wallet failed:", err);
+                    }
+
+                    // If in Farcaster context but SDK failed, don't fall back to window.ethereum
+                    if (!ethProv && inFarcasterContext) {
+                        console.log("[Wallet] In Farcaster but SDK wallet failed, not falling back to extensions");
+                        setMintStatus("Please enable wallet in Farcaster settings");
+                        setConnecting(false);
+                        return null;
+                    }
+                }
+
+                // Only check window.ethereum if NOT in Farcaster context
+                if (!ethProv && !inFarcasterContext && !detectedMiniApp) {
+                    const anyWindow = window as any;
+                    if (anyWindow.ethereum) {
+                        const windowProviderInfo = {
+                            isRabby: !!anyWindow.ethereum.isRabby,
+                            isMetaMask: !!anyWindow.ethereum.isMetaMask,
+                            isCoinbaseWallet: !!anyWindow.ethereum.isCoinbaseWallet,
+                            isBase: !!anyWindow.ethereum.isBase,
+                        };
+                        console.log("[Wallet] window.ethereum info:", windowProviderInfo);
+                        ethProv = anyWindow.ethereum;
+                        console.log("[Wallet] Using window.ethereum as provider");
+                        isMini = false;
+                    } else if (anyWindow.coinbaseWalletExtension) {
+                        ethProv = anyWindow.coinbaseWalletExtension;
+                        console.log("[Wallet] Got provider via coinbaseWalletExtension");
+                        isMini = false;
+                    }
+                }
+
+
+                if (ethProv) {
+                    setUsingMiniApp(isMini);
+                    setMiniAppEthProvider(ethProv);
+
+                    try {
+                        console.log("[Wallet] Requesting accounts...");
+                        const accounts = await ethProv.request({ method: "eth_requestAccounts" });
+                        console.log("[Wallet] Got accounts:", accounts);
+                    } catch (err: any) {
+                        console.warn("[Wallet] eth_requestAccounts failed:", err);
+                        if (err?.code === 4001) {
+                            throw new Error("Wallet connection rejected. Please approve the connection request.");
+                        }
+                    }
+
+                    p = new ethers.providers.Web3Provider(ethProv as any, "any");
+
+                    // Get address FIRST from provider - this works with all wallets
+                    try {
+                        const accounts = await ethProv.request({ method: "eth_accounts" });
+                        if (accounts && accounts.length > 0) {
+                            addr = accounts[0];
+                            console.log("[Wallet] Got address from eth_accounts:", addr);
+                        } else {
+                            throw new Error("No accounts available");
+                        }
+                    } catch (accErr) {
+                        console.warn("[Wallet] eth_accounts failed, trying getSigner fallback:", accErr);
+                        // Fallback for legacy providers
+                        try {
+                            const tempSigner = p.getSigner();
+                            addr = await tempSigner.getAddress();
+                            console.log("[Wallet] Got address from getSigner fallback:", addr);
+                        } catch (signerErr) {
+                            throw new Error("Could not get wallet address. Please make sure you have a wallet connected.");
+                        }
+                    }
+
+                    // Get signer with EXPLICIT address - this fixes Phantom/Base App/Rabby compatibility
+                    // The key fix: passing the address to getSigner() ensures it works with wallets
+                    // that don't support the default getSigner() behavior
+                    s = p.getSigner(addr);
+                    console.log("[Wallet] Created signer for address:", addr, "isMini:", isMini);
+                } else {
+                    // No provider found - use RainbowKit modal as fallback for web users
+                    setUsingMiniApp(false);
+
+                    if (openConnectModal) {
+                        console.log("[Wallet] No provider found, opening RainbowKit modal...");
+                        setConnecting(false);
+                        openConnectModal();
+                        return null; // RainbowKit will handle connection, useEffect will sync state
+                    }
+
+                    const errorMsg = isMobile
+                        ? "No wallet found. Please install Coinbase Wallet or MetaMask."
+                        : "No wallet found. Please install MetaMask or another Web3 wallet.";
+                    setMintStatus(errorMsg);
                     setConnecting(false);
                     return null;
                 }
-            }
 
-            // Only check window.ethereum if NOT in Farcaster context
-            if (!ethProv && !inFarcasterContext) {
-                const anyWindow = window as any;
-                if (anyWindow.ethereum) {
-                    const windowProviderInfo = {
-                        isRabby: !!anyWindow.ethereum.isRabby,
-                        isMetaMask: !!anyWindow.ethereum.isMetaMask,
-                        isCoinbaseWallet: !!anyWindow.ethereum.isCoinbaseWallet,
-                        isBase: !!anyWindow.ethereum.isBase,
-                    };
-                    console.log("[Wallet] window.ethereum info:", windowProviderInfo);
-                    ethProv = anyWindow.ethereum;
-                    console.log("[Wallet] Using window.ethereum as provider");
-                    isMini = false;
-                } else if (anyWindow.coinbaseWalletExtension) {
-                    ethProv = anyWindow.coinbaseWalletExtension;
-                    console.log("[Wallet] Got provider via coinbaseWalletExtension");
-                    isMini = false;
-                }
-            }
-
-
-            if (ethProv) {
-                setUsingMiniApp(isMini);
-                setMiniAppEthProvider(ethProv);
-
+                let currentChainId: number;
                 try {
-                    console.log("[Wallet] Requesting accounts...");
-                    const accounts = await ethProv.request({ method: "eth_requestAccounts" });
-                    console.log("[Wallet] Got accounts:", accounts);
-                } catch (err: any) {
-                    console.warn("[Wallet] eth_requestAccounts failed:", err);
-                    if (err?.code === 4001) {
-                        throw new Error("Wallet connection rejected. Please approve the connection request.");
-                    }
+                    const net = await p.getNetwork();
+                    currentChainId = net.chainId;
+                } catch {
+                    currentChainId = 0;
                 }
 
-                p = new ethers.providers.Web3Provider(ethProv as any, "any");
-                
-                // Get address FIRST from provider - this works with all wallets
-                try {
-                    const accounts = await ethProv.request({ method: "eth_accounts" });
-                    if (accounts && accounts.length > 0) {
-                        addr = accounts[0];
-                        console.log("[Wallet] Got address from eth_accounts:", addr);
-                    } else {
-                        throw new Error("No accounts available");
-                    }
-                } catch (accErr) {
-                    console.warn("[Wallet] eth_accounts failed, trying getSigner fallback:", accErr);
-                    // Fallback for legacy providers
-                    try {
-                        const tempSigner = p.getSigner();
-                        addr = await tempSigner.getAddress();
-                        console.log("[Wallet] Got address from getSigner fallback:", addr);
-                    } catch (signerErr) {
-                        throw new Error("Could not get wallet address. Please make sure you have a wallet connected.");
-                    }
-                }
+                if (currentChainId !== CHAIN_ID) {
+                    console.log("[Wallet] Wrong chain, attempting to switch to Base...");
 
-                // Get signer with EXPLICIT address - this fixes Phantom/Base App/Rabby compatibility
-                // The key fix: passing the address to getSigner() ensures it works with wallets
-                // that don't support the default getSigner() behavior
-                s = p.getSigner(addr);
-                console.log("[Wallet] Created signer for address:", addr, "isMini:", isMini);
-            } else {
-                // No provider found - use RainbowKit modal as fallback for web users
-                setUsingMiniApp(false);
-                
-                if (openConnectModal) {
-                    console.log("[Wallet] No provider found, opening RainbowKit modal...");
-                    setConnecting(false);
-                    openConnectModal();
-                    return null; // RainbowKit will handle connection, useEffect will sync state
-                }
+                    const switchProvider = isMini ? ethProv : (window as any).ethereum;
 
-                const errorMsg = isMobile
-                    ? "No wallet found. Please install Coinbase Wallet or MetaMask."
-                    : "No wallet found. Please install MetaMask or another Web3 wallet.";
-                setMintStatus(errorMsg);
-                setConnecting(false);
-                return null;
-            }
+                    if (switchProvider?.request) {
+                        try {
+                            await switchProvider.request({
+                                method: "wallet_switchEthereumChain",
+                                params: [{ chainId: "0x2105" }],
+                            });
 
-            let currentChainId: number;
-            try {
-                const net = await p.getNetwork();
-                currentChainId = net.chainId;
-            } catch {
-                currentChainId = 0;
-            }
+                            p = new ethers.providers.Web3Provider(switchProvider as any, "any");
+                            // Pass address explicitly after chain switch
+                            s = p.getSigner(addr);
+                            console.log("[Wallet] Switched to Base");
+                        } catch (switchErr: any) {
+                            console.warn("[Wallet] Chain switch failed:", switchErr);
 
-            if (currentChainId !== CHAIN_ID) {
-                console.log("[Wallet] Wrong chain, attempting to switch to Base...");
-
-                const switchProvider = isMini ? ethProv : (window as any).ethereum;
-
-                if (switchProvider?.request) {
-                    try {
-                        await switchProvider.request({
-                            method: "wallet_switchEthereumChain",
-                            params: [{ chainId: "0x2105" }],
-                        });
-
-                        p = new ethers.providers.Web3Provider(switchProvider as any, "any");
-                        // Pass address explicitly after chain switch
-                        s = p.getSigner(addr);
-                        console.log("[Wallet] Switched to Base");
-                    } catch (switchErr: any) {
-                        console.warn("[Wallet] Chain switch failed:", switchErr);
-
-                        if (switchErr.code === 4902 && !isMini) {
-                            try {
-                                await switchProvider.request({
-                                    method: "wallet_addEthereumChain",
-                                    params: [{
-                                        chainId: "0x2105",
-                                        chainName: "Base",
-                                        nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-                                        rpcUrls: ["https://mainnet.base.org"],
-                                        blockExplorerUrls: ["https://basescan.org"],
-                                    }],
-                                });
-                                p = new ethers.providers.Web3Provider(switchProvider, "any");
-                                // Pass address explicitly after adding chain
-                                s = p.getSigner(addr);
-                            } catch {
-                                console.warn("[Wallet] Failed to add Base chain");
+                            if (switchErr.code === 4902 && !isMini) {
+                                try {
+                                    await switchProvider.request({
+                                        method: "wallet_addEthereumChain",
+                                        params: [{
+                                            chainId: "0x2105",
+                                            chainName: "Base",
+                                            nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+                                            rpcUrls: ["https://mainnet.base.org"],
+                                            blockExplorerUrls: ["https://basescan.org"],
+                                        }],
+                                    });
+                                    p = new ethers.providers.Web3Provider(switchProvider, "any");
+                                    // Pass address explicitly after adding chain
+                                    s = p.getSigner(addr);
+                                } catch {
+                                    console.warn("[Wallet] Failed to add Base chain");
+                                }
                             }
                         }
                     }
                 }
+
+                setProvider(p);
+                setSigner(s);
+                setUserAddress(addr);
+                setConnecting(false);
+
+                return { signer: s, provider: p, userAddress: addr, isMini };
+            } catch (err: any) {
+                console.error("[Wallet] Connection failed:", err);
+                const errorMessage = err?.message || "Wallet connection failed";
+                setMintStatus(
+                    errorMessage.length > 100 ? errorMessage.substring(0, 100) + "..." : errorMessage
+                );
+                setConnecting(false);
+                return null;
             }
-
-            setProvider(p);
-            setSigner(s);
-            setUserAddress(addr);
-            setConnecting(false);
-
-            return { signer: s, provider: p, userAddress: addr, isMini };
-        } catch (err: any) {
-            console.error("[Wallet] Connection failed:", err);
-            const errorMessage = err?.message || "Wallet connection failed";
-            setMintStatus(
-                errorMessage.length > 100 ? errorMessage.substring(0, 100) + "..." : errorMessage
-            );
-            setConnecting(false);
-            return null;
         }
-    }
 
     async function handleMintLand() {
         try {
@@ -3176,132 +3184,73 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         finally { setActionLoading(false); }
     }
 
-    async function handleV4WaterPlants() {
-        if (selectedV4PlantsToWater.length === 0) return;
-        
-        try {
-            setActionLoading(true);
-            setV4ActionStatus("Watering plants...");
-            
-            // Get user's water balance
-            const userWaterBalance = v4StakingStats?.water 
-                ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18))
-                : 0;
-            
-            // Helper function to calculate default water amount (rounded up to 0.1L)
-            const getDefaultWater = (needed: number) => Math.max(0.1, Math.ceil((needed || 0.1) * 10) / 10);
-            
-            // Check if user has ANY custom amounts set (via +/- buttons)
-            const hasCustomAmounts = selectedV4PlantsToWater.some(id => 
-                v4CustomWaterAmounts[id] !== undefined && 
-                Math.abs(v4CustomWaterAmounts[id] - getDefaultWater(v4WaterNeeded[id])) > 0.01
-            );
-            
-            // Calculate total water user wants to use
-            const totalWaterToUse = selectedV4PlantsToWater.reduce((sum, id) => {
-                const customAmt = v4CustomWaterAmounts[id];
-                const neededAmt = getDefaultWater(v4WaterNeeded[id]);
-                return sum + (customAmt !== undefined ? customAmt : neededAmt);
-            }, 0);
-            
-            console.log("[V4 Water] Total to use:", totalWaterToUse, "User balance:", userWaterBalance);
-            
-            // VALIDATION: User must have enough water
-            if (userWaterBalance < totalWaterToUse) {
-                setV4ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterToUse.toFixed(2)}L`);
-                setActionLoading(false);
-                return;
-            }
-            
-            // Create interface for water functions
-            const waterInterface = new ethers.utils.Interface([
-                "function waterPlant(uint256 id)",
-                "function waterPlants(uint256[] calldata ids)"
-            ]);
-            
-            let tx;
-            
-            if (hasCustomAmounts || selectedV4PlantsToWater.length === 1) {
-                // Use waterPlantWithAmount for precise control
-                const plantId = selectedV4PlantsToWater[0];
-                
-                if (selectedV4PlantsToWater.length === 1) {
-                    const amountToUse = v4CustomWaterAmounts[plantId] !== undefined 
-                        ? v4CustomWaterAmounts[plantId] 
-                        : getDefaultWater(v4WaterNeeded[plantId]);
-                    const finalAmount = Math.min(amountToUse, userWaterBalance);
-                    const amountWei = ethers.utils.parseUnits(finalAmount.toFixed(18), 18);
-                    
-                    tx = await txAction().sendContractTx(
-                        V4_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei])
-                    );
-                } else {
-                    // Multiple plants with custom amounts - water one by one
-                    for (let i = 0; i < selectedV4PlantsToWater.length; i++) {
-                        const pid = selectedV4PlantsToWater[i];
-                        const amountToUse = v4CustomWaterAmounts[pid] !== undefined 
-                            ? v4CustomWaterAmounts[pid] 
-                            : getDefaultWater(v4WaterNeeded[pid]);
-                        
-                        if (amountToUse <= 0) continue;
-                        
-                        const amountWei = ethers.utils.parseUnits(amountToUse.toFixed(18), 18);
-                        setV4ActionStatus(`Watering plant ${i+1}/${selectedV4PlantsToWater.length}...`);
-                        
-                        tx = await txAction().sendContractTx(
-                            V4_STAKING_ADDRESS, 
-                            waterInterface.encodeFunctionData("waterPlantWithAmount", [pid, amountWei])
-                        );
-                        
-                        if (!tx) throw new Error("Transaction rejected");
-                        await waitForTx(tx);
-                    }
-                    
-                    setV4ActionStatus("All plants watered!");
-                    setSelectedV4PlantsToWater([]);
-                    setV4CustomWaterAmounts({});
-                    setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
-                    return;
-                }
-            } else {
-                // No custom amounts, multiple plants
-                const totalNeededFor100 = selectedV4PlantsToWater.reduce((sum, id) => 
-                    sum + getDefaultWater(v4WaterNeeded[id]), 0
-                );
-                
-                if (userWaterBalance >= totalNeededFor100) {
-                    tx = await txAction().sendContractTx(
-                        V4_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater])
-                    );
-                } else {
-                    tx = await txAction().sendContractTx(
-                        V4_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlantsWithBalance", [selectedV4PlantsToWater])
-                    );
-                }
-            }
-            
-            if (!tx) throw new Error("Transaction rejected");
-            await waitForTx(tx);
-            setV4ActionStatus("Plants watered!");
-            setSelectedV4PlantsToWater([]);
-            setV4CustomWaterAmounts({});
-            setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
-            
-        } catch (err: any) {
-            const msg = err.message || String(err);
-            if (msg.includes("!water") || msg.includes("Not enough water")) {
-                setV4ActionStatus("Error: Not enough water! Buy more from the shop.");
-            } else if (msg.includes("rejected") || msg.includes("canceled")) {
-                setV4ActionStatus("Transaction canceled");
-            } else {
-                setV4ActionStatus("Error: " + msg.slice(0, 60));
-            }
-        } finally {
-            setActionLoading(false);
-        }
+    aasync function handleV4WaterPlants() {
+             if (selectedV4PlantsToWater.length === 0) return;
+
+             try {
+                 setActionLoading(true);
+                 setV4ActionStatus("Watering plants...");
+
+                 // Get user's water balance
+                 const userWaterBalance = v4StakingStats?.water
+                     ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18))
+                     : 0;
+
+                 // Calculate total water needed
+                 const totalWaterNeeded = selectedV4PlantsToWater.reduce((sum, id) => sum + (v4WaterNeeded[id] || 0), 0);
+
+                 console.log("[V4 Water] Total needed:", totalWaterNeeded, "User balance:", userWaterBalance);
+
+                 // VALIDATION: User must have enough water
+                 if (userWaterBalance < totalWaterNeeded) {
+                     setV4ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterNeeded.toFixed(2)}L`);
+                     setActionLoading(false);
+                     return;
+                 }
+
+                 // V4 contract only has waterPlant(uint256) and waterPlants(uint256[])
+                 // It does NOT have waterPlantWithAmount or waterPlantsWithBalance
+                 const waterInterface = new ethers.utils.Interface([
+                     "function waterPlant(uint256 id)",
+                     "function waterPlants(uint256[] calldata ids)"
+                 ]);
+
+                 let tx;
+
+                 if (selectedV4PlantsToWater.length === 1) {
+                     // Single plant - use waterPlant
+                     tx = await txAction().sendContractTx(
+                         V4_STAKING_ADDRESS,
+                         waterInterface.encodeFunctionData("waterPlant", [selectedV4PlantsToWater[0]])
+                     );
+                 } else {
+                     // Multiple plants - use waterPlants
+                     tx = await txAction().sendContractTx(
+                         V4_STAKING_ADDRESS,
+                         waterInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater])
+                     );
+                 }
+
+                 if (!tx) throw new Error("Transaction rejected");
+                 await waitForTx(tx);
+                 setV4ActionStatus("Plants watered!");
+                 setSelectedV4PlantsToWater([]);
+                 setV4CustomWaterAmounts({});
+                 setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
+
+             } catch (err: any) {
+                 const msg = err.message || String(err);
+                 if (msg.includes("!water") || msg.includes("Not enough water")) {
+                     setV4ActionStatus("Error: Not enough water! Buy more from the shop.");
+                 } else if (msg.includes("rejected") || msg.includes("canceled")) {
+                     setV4ActionStatus("Transaction canceled");
+                 } else {
+                     setV4ActionStatus("Error: " + msg.slice(0, 60));
+                 }
+             } finally {
+                 setActionLoading(false);
+             }
+         }
     }
 
     // ==================== V5 STAKING ====================
