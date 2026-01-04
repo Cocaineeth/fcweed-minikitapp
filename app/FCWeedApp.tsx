@@ -3185,73 +3185,63 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
 
     async function handleV4WaterPlants() {
-             if (selectedV4PlantsToWater.length === 0) return;
+            if (selectedV4PlantsToWater.length === 0) return;
 
-             try {
-                 setActionLoading(true);
-                 setV4ActionStatus("Watering plants...");
+            try {
+                setActionLoading(true);
+                setV4ActionStatus("Watering plants...");
 
-                 // Get user's water balance
-                 const userWaterBalance = v4StakingStats?.water
-                     ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18))
-                     : 0;
+                const userWaterBalance = v4StakingStats?.water
+                    ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18))
+                    : 0;
 
-                 // Calculate total water needed
-                 const totalWaterNeeded = selectedV4PlantsToWater.reduce((sum, id) => sum + (v4WaterNeeded[id] || 0), 0);
+                const totalWaterNeeded = selectedV4PlantsToWater.reduce((sum, id) => sum + (v4WaterNeeded[id] || 0), 0);
 
-                 console.log("[V4 Water] Total needed:", totalWaterNeeded, "User balance:", userWaterBalance);
+                if (userWaterBalance < totalWaterNeeded) {
+                    setV4ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterNeeded.toFixed(2)}L`);
+                    setActionLoading(false);
+                    return;
+                }
 
-                 // VALIDATION: User must have enough water
-                 if (userWaterBalance < totalWaterNeeded) {
-                     setV4ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterNeeded.toFixed(2)}L`);
-                     setActionLoading(false);
-                     return;
-                 }
+                const waterInterface = new ethers.utils.Interface([
+                    "function waterPlant(uint256 id)",
+                    "function waterPlants(uint256[] calldata ids)"
+                ]);
 
-                 // V4 contract only has waterPlant(uint256) and waterPlants(uint256[])
-                 // It does NOT have waterPlantWithAmount or waterPlantsWithBalance
-                 const waterInterface = new ethers.utils.Interface([
-                     "function waterPlant(uint256 id)",
-                     "function waterPlants(uint256[] calldata ids)"
-                 ]);
+                let tx;
 
-                 let tx;
+                if (selectedV4PlantsToWater.length === 1) {
+                    tx = await txAction().sendContractTx(
+                        V4_STAKING_ADDRESS,
+                        waterInterface.encodeFunctionData("waterPlant", [selectedV4PlantsToWater[0]])
+                    );
+                } else {
+                    tx = await txAction().sendContractTx(
+                        V4_STAKING_ADDRESS,
+                        waterInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater])
+                    );
+                }
 
-                 if (selectedV4PlantsToWater.length === 1) {
-                     // Single plant - use waterPlant
-                     tx = await txAction().sendContractTx(
-                         V4_STAKING_ADDRESS,
-                         waterInterface.encodeFunctionData("waterPlant", [selectedV4PlantsToWater[0]])
-                     );
-                 } else {
-                     // Multiple plants - use waterPlants
-                     tx = await txAction().sendContractTx(
-                         V4_STAKING_ADDRESS,
-                         waterInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater])
-                     );
-                 }
+                if (!tx) throw new Error("Transaction rejected");
+                await waitForTx(tx);
+                setV4ActionStatus("Plants watered!");
+                setSelectedV4PlantsToWater([]);
+                setV4CustomWaterAmounts({});
+                setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
 
-                 if (!tx) throw new Error("Transaction rejected");
-                 await waitForTx(tx);
-                 setV4ActionStatus("Plants watered!");
-                 setSelectedV4PlantsToWater([]);
-                 setV4CustomWaterAmounts({});
-                 setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
-
-             } catch (err: any) {
-                 const msg = err.message || String(err);
-                 if (msg.includes("!water") || msg.includes("Not enough water")) {
-                     setV4ActionStatus("Error: Not enough water! Buy more from the shop.");
-                 } else if (msg.includes("rejected") || msg.includes("canceled")) {
-                     setV4ActionStatus("Transaction canceled");
-                 } else {
-                     setV4ActionStatus("Error: " + msg.slice(0, 60));
-                 }
-             } finally {
-                 setActionLoading(false);
-             }
-         }
-    }
+            } catch (err: any) {
+                const msg = err.message || String(err);
+                if (msg.includes("!water") || msg.includes("Not enough water")) {
+                    setV4ActionStatus("Error: Not enough water! Buy more from the shop.");
+                } else if (msg.includes("rejected") || msg.includes("canceled")) {
+                    setV4ActionStatus("Transaction canceled");
+                } else {
+                    setV4ActionStatus("Error: " + msg.slice(0, 60));
+                }
+            } finally {
+                setActionLoading(false);
+            }
+        }
 
     // ==================== V5 STAKING ====================
     const refreshV5StakingRef = useRef(false);
