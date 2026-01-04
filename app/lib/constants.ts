@@ -97,11 +97,11 @@ export const GIFS = [
 
 export const PLAYLIST = [
   {
-    title: "HUGEL, Totó La Momposina - La Verdolaga",
+    title: "Grupo Soñador - El Gigante De Hierro",
     src: "/audio/track1.mp3",
   },
-  { title: "Raffa Guido - Famax", src: "/audio/track2.mp3" },
-  { title: "HUGEL x Topic x Arash feat. Daecolm - I Adore You", src: "/audio/track3.mp3" },
+  { title: "Luniz - I got 5 on it", src: "/audio/track2.mp3" },
+  { title: "WAR - Low Rider", src: "/audio/track3.mp3" },
 ];
 
 export const SUPER_PLANT_IDS = new Set<number>([]);
