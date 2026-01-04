@@ -3309,25 +3309,43 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             // Fetch combat power from Battles contract (includes ItemShop boosts)
             try {
                 const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, [
-                    "function getPower(address) view returns (uint256 base, uint256 atk, uint256 def)"
+                    "function getPower(address) view returns (uint256 base, uint256 atk, uint256 def)",
+                    "function canCartel(address) view returns (bool)",
+                    "function lastCartel(address) view returns (uint256)"
                 ], readProvider);
                 const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, [
-                    "function hasActiveNukeReady(address) view returns (bool)"
+                    "function canBypassShield(address) view returns (bool)"
                 ], readProvider);
                 
                 const [powerResult, hasNuke] = await Promise.all([
                     battlesContract.getPower(userAddress),
-                    itemShopContract.hasActiveNukeReady(userAddress).catch(() => false)
+                    itemShopContract.canBypassShield(userAddress).catch(() => false)
                 ]);
                 
-                let atkPower = powerResult[1].toNumber(); // ATK power includes boosts
-                const defPower = powerResult[2].toNumber(); // DEF power (base, no boosts)
+                let atkPower = powerResult[1].toNumber();
+                const defPower = powerResult[2].toNumber();
                 if (hasNuke) {
-                    atkPower = Math.floor(atkPower * 101); // Nuke = 101x
+                    atkPower = Math.floor(atkPower * 101);
                 }
                 setContractCombatPower(atkPower);
                 setContractDefensePower(defPower);
                 console.log("[V5] Contract combat power:", atkPower, "defense:", defPower, "hasNuke:", hasNuke);
+
+                // Fetch Cartel Wars cooldown on page load
+                try {
+                    const canAttack = await battlesContract.canCartel(userAddress);
+                    if (!canAttack) {
+                        const lastAttackTime = await battlesContract.lastCartel(userAddress);
+                        const cooldownEnd = lastAttackTime.toNumber() + 21600;
+                        const now = Math.floor(Date.now() / 1000);
+                        const remaining = cooldownEnd > now ? cooldownEnd - now : 0;
+                        setWarsCooldown(remaining);
+                    } else {
+                        setWarsCooldown(0);
+                    }
+                } catch (e) {
+                    console.error("[V5] Failed to get wars cooldown:", e);
+                }
             } catch (e) {
                 console.error("[V5] Failed to get combat power:", e);
             }
