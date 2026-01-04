@@ -1396,13 +1396,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     ];
                     const crateVault = new ethers.Contract(CRATE_VAULT_ADDRESS, crateVaultAbi, readProvider);
                     const stats = await crateVault.getUserStats(userAddress);
-                    const dustBalance = stats.dustBalance ?? stats[0];
+                    const dustBalanceRaw = stats.dustBalance ?? stats[0];
                     
-                    console.log("[Shop] Dust check - price:", dustPrice.toString(), "balance:", dustBalance.toString());
+                    // CrateVault stores dust as raw integers (500 = 500 dust)
+                    // ItemShop stores dustPrice in 18 decimals (200 dust = 200e18)
+                    // Scale dustBalance to 18 decimals for comparison
+                    const dustBalanceScaled = ethers.BigNumber.from(dustBalanceRaw).mul(ethers.BigNumber.from(10).pow(18));
                     
-                    if (dustBalance.lt(dustPrice)) {
+                    console.log("[Shop] Dust check - price:", dustPrice.toString(), "balance raw:", dustBalanceRaw.toString(), "balance scaled:", dustBalanceScaled.toString());
+                    
+                    if (dustBalanceScaled.lt(dustPrice)) {
                         const needed = parseFloat(ethers.utils.formatUnits(dustPrice, 18));
-                        const have = parseFloat(ethers.utils.formatUnits(dustBalance, 18));
+                        const have = typeof dustBalanceRaw === 'number' ? dustBalanceRaw : dustBalanceRaw.toNumber();
                         setShopStatus(`Insufficient Dust! Need ${needed.toLocaleString()}, have ${have.toLocaleString()}. Open crates to earn Dust.`);
                         setShopLoading(false);
                         return;
