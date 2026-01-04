@@ -14,6 +14,8 @@ import { makeTxActions } from "./lib/tx";
 import { loadLeaderboard, LeaderboardItem } from "./lib/leaderboard";
 import { CrateReward, StakingStats, NewStakingStats, FarmerRow, OwnedState} from "./lib/types";
 import { detectMiniAppEnvironment, waitForTx } from "./lib/auxilary";
+import { clearAuthStorage } from "./lib/referralAuth";
+import { ReferralsPanel } from "./components/ReferralsPanel";
 import { ThePurge } from "./components/ThePurge";
 import { DEARaidsLeaderboard } from "./components/DEARaidsLeaderboard";
 import { BattleEventToast } from "./components/BattleEventToast";
@@ -251,7 +253,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [connecting, setConnecting] = useState(false);
     const [miniAppEthProvider, setMiniAppEthProvider] = useState<any | null>(null);
 
-    const [readProvider] = useState(() => new ethers.providers.JsonRpcProvider("https://base-mainnet.g.alchemy.com/v2/N95I5LVTDkn8MaZule8Fh"));
+    const [readProvider] = useState(() => new ethers.providers.JsonRpcProvider(PUBLIC_BASE_RPC));
 
     // Reset connecting state on mount (in case it got stuck)
     useEffect(() => {
@@ -341,23 +343,47 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
     // Sync wagmi state to local state
     useEffect(() => {
-        if (wagmiConnected && wagmiAddress && !userAddress && !usingMiniApp) {
-            console.log("[Wagmi] Syncing wagmi connection to local state:", wagmiAddress);
-            setUserAddress(wagmiAddress);
-            setConnecting(false);
-            
-            const ethProvider = getConnectedProvider();
-            if (ethProvider) {
-                const ethersProvider = new ethers.providers.Web3Provider(ethProvider, "any");
-                setProvider(ethersProvider);
-                setSigner(ethersProvider.getSigner(wagmiAddress));
-                setMiniAppEthProvider(ethProvider);
-                console.log("[Wagmi] Provider set up successfully for:", wagmiAddress);
-            } else {
-                console.warn("[Wagmi] No ethereum provider found!");
+        // Keep local state in sync with wagmi. This needs to handle wallet *changes*,
+        // not just first connection, otherwise switching accounts leaves stale state.
+        if (wagmiConnected && wagmiAddress && !usingMiniApp)
+        {
+            const next = wagmiAddress;
+            const prev = userAddress;
+
+            const changed = !!prev && prev.toLowerCase() !== next.toLowerCase();
+
+            if (!prev || changed)
+            {
+                console.log("[Wagmi] Syncing wagmi connection to local state:", next);
+
+                // If wallet changed, clear any cached auth tied to the old address.
+                if (changed)
+                {
+                    try { clearAuthStorage(); } catch {}
+                }
+
+                setUserAddress(next);
+                setConnecting(false);
+
+                const ethProvider = getConnectedProvider();
+                if (ethProvider)
+                {
+                    const ethersProvider = new ethers.providers.Web3Provider(ethProvider, "any");
+                    setProvider(ethersProvider);
+                    setSigner(ethersProvider.getSigner(next));
+                    setMiniAppEthProvider(ethProvider);
+                    console.log("[Wagmi] Provider set up successfully for:", next);
+                }
+                else
+                {
+                    console.warn("[Wagmi] No ethereum provider found!");
+                }
             }
-        } else if (!wagmiConnected && userAddress && !usingMiniApp) {
+        }
+        else if (!wagmiConnected && userAddress && !usingMiniApp)
+        {
             // RainbowKit disconnected - clear state
+            try { clearAuthStorage(); } catch {}
             setUserAddress(null);
             setProvider(null);
             setSigner(null);
@@ -719,154 +745,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         return txRef.current;
     }
 
-    async function checkAndSwitchToBase(): Promise<boolean> {
-        if (usingMiniApp) return true;
-        
-        const BASE_CHAIN_ID = 8453;
-        const BASE_CHAIN_HEX = "0x2105";
-        
-        const getEthProvider = () => {
-            const anyWindow = window as any;
-            
-            if (anyWindow.ethereum?.providers?.length > 0) {
-                const providers = anyWindow.ethereum.providers;
-                const phantomProvider = providers.find((p: any) => p.isPhantom);
-                const rabbyProvider = providers.find((p: any) => p.isRabby);
-                const mmProvider = providers.find((p: any) => p.isMetaMask && !p.isRabby && !p.isPhantom);
-                
-                if (phantomProvider) return phantomProvider;
-                if (rabbyProvider) return rabbyProvider;
-                if (mmProvider) return mmProvider;
-            }
-            
-            if (anyWindow.phantom?.ethereum) return anyWindow.phantom.ethereum;
-            if (anyWindow.rabby) return anyWindow.rabby;
-            return anyWindow.ethereum;
-        };
-        
-        const ethProvider = getEthProvider();
-        if (!ethProvider) {
-            console.warn("[Network] No provider found for network check");
-            return true;
-        }
-        
-        try {
-            const chainIdHex = await ethProvider.request({ method: "eth_chainId" });
-            const currentChainId = parseInt(chainIdHex, 16);
-            
-            console.log("[Network] Current chain:", currentChainId, "Required:", BASE_CHAIN_ID);
-            
-            if (currentChainId === BASE_CHAIN_ID) {
-                return true;
-            }
-            
-            console.log("[Network] Wrong network detected, prompting switch to Base...");
-            setMintStatus("Please switch to Base network...");
-            
-            try {
-                await ethProvider.request({
-                    method: "wallet_switchEthereumChain",
-                    params: [{ chainId: BASE_CHAIN_HEX }],
-                });
-                console.log("[Network] Successfully switched to Base");
-                setMintStatus("");
-                await new Promise(r => setTimeout(r, 500));
-                return true;
-                
-            } catch (switchError: any) {
-                console.warn("[Network] Switch error:", switchError);
-                
-                if (switchError.code === 4902) {
-                    console.log("[Network] Base not found, attempting to add...");
-                    setMintStatus("Adding Base network...");
-                    
-                    try {
-                        await ethProvider.request({
-                            method: "wallet_addEthereumChain",
-                            params: [{
-                                chainId: BASE_CHAIN_HEX,
-                                chainName: "Base",
-                                nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-                                rpcUrls: ["https://mainnet.base.org"],
-                                blockExplorerUrls: ["https://basescan.org"],
-                            }],
-                        });
-                        console.log("[Network] Base added successfully");
-                        setMintStatus("");
-                        await new Promise(r => setTimeout(r, 500));
-                        return true;
-                        
-                    } catch (addError: any) {
-                        console.error("[Network] Failed to add Base:", addError);
-                        setMintStatus("Please add Base network manually");
-                        return false;
-                    }
-                }
-                
-                if (switchError.code === 4001) {
-                    setMintStatus("Please switch to Base network to continue");
-                } else {
-                    setMintStatus("Network switch failed. Please switch to Base manually.");
-                }
-                return false;
-            }
-        } catch (e: any) {
-            console.error("[Network] Check failed:", e);
-            return true;
-        }
-    }
-
     async function ensureFcweedAllowance(spender: string, amount: ethers.BigNumber): Promise<boolean> {
         if (!userAddress || !readProvider) return false;
-        
-        const onBase = await checkAndSwitchToBase();
-        if (!onBase) {
-            console.error("[Allowance] Not on Base network");
-            return false;
-        }
-        
         try {
             const fcweed = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             const current = await fcweed.allowance(userAddress, spender);
-            
-            console.log("[Allowance] Current:", ethers.utils.formatUnits(current, 18), "Required:", ethers.utils.formatUnits(amount, 18));
-            
-            if (current.gte(amount)) {
-                console.log("[Allowance] Sufficient allowance exists");
-                return true;
-            }
-            
+            if (current.gte(amount)) return true;
             setMintStatus("Approving FCWEED...");
             const approveData = erc20Interface.encodeFunctionData("approve", [spender, ethers.constants.MaxUint256]);
-            const tx = await sendContractTx(FCWEED_ADDRESS, approveData, "100000");
-            
-            if (!tx) {
-                setMintStatus("Approval rejected");
-                return false;
-            }
-            
-            setMintStatus("Waiting for approval confirmation...");
+            const tx = await sendContractTx(FCWEED_ADDRESS, approveData);
+            if (!tx) return false;
             await waitForTx(tx, readProvider);
-            
-            const newAllowance = await fcweed.allowance(userAddress, spender);
-            if (newAllowance.lt(amount)) {
-                console.error("[Allowance] Approval did not take effect");
-                setMintStatus("Approval failed. Please try again.");
-                return false;
-            }
-            
-            setMintStatus("");
-            console.log("[Allowance] Approval successful");
             return true;
-            
-        } catch (e: any) {
-            console.error("[Allowance] Check/approval failed:", e);
-            const msg = e?.message || "Approval failed";
-            if (msg.includes("rejected") || msg.includes("denied") || e?.code === 4001) {
-                setMintStatus("Approval rejected by user");
-            } else {
-                setMintStatus("Approval failed");
-            }
+        } catch (e) {
+            console.error("Allowance check failed:", e);
             return false;
         }
     }
@@ -890,72 +782,32 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
 
     async function sendContractTx(to: string, data: string, gasLimit?: string): Promise<ethers.providers.TransactionResponse | null> {
-        // Helper to get the correct provider based on the CONNECTED wallet (not just installed)
-        // This fixes "account not authorized" errors when multiple wallets are installed
-        const getConnectorAwareProvider = () => {
+        // Helper to get the correct provider
+        const getProvider = () => {
             const anyWindow = window as any;
             
-            // Use walletClient info to determine which wallet is actually connected
-            const connectorName = walletClient?.transport?.name?.toLowerCase() || '';
-            const connectorId = (walletClient as any)?.connector?.id?.toLowerCase() || '';
-            
-            console.log("[TX] Getting provider for connector:", connectorName || connectorId || 'unknown');
-            
-            // Match provider to the actually connected wallet
-            const isPhantom = connectorName.includes('phantom') || connectorId.includes('phantom');
-            const isRabby = connectorName.includes('rabby') || connectorId.includes('rabby');
-            const isMetaMask = connectorName.includes('metamask') || connectorId.includes('metamask');
-            const isCoinbase = connectorName.includes('coinbase') || connectorId.includes('coinbase');
-            
-            // Check EIP-6963 multi-provider array first
+            // Check for multi-provider scenario (EIP-6963)
             if (anyWindow.ethereum?.providers?.length > 0) {
                 const providers = anyWindow.ethereum.providers;
+                const phantomProvider = providers.find((p: any) => p.isPhantom);
+                const rabbyProvider = providers.find((p: any) => p.isRabby);
+                const mmProvider = providers.find((p: any) => p.isMetaMask && !p.isRabby && !p.isPhantom);
                 
-                if (isPhantom) {
-                    const p = providers.find((p: any) => p.isPhantom);
-                    if (p) { console.log("[TX] Using Phantom from EIP-6963"); return p; }
-                }
-                if (isRabby) {
-                    const p = providers.find((p: any) => p.isRabby);
-                    if (p) { console.log("[TX] Using Rabby from EIP-6963"); return p; }
-                }
-                if (isMetaMask) {
-                    const p = providers.find((p: any) => p.isMetaMask && !p.isRabby && !p.isPhantom);
-                    if (p) { console.log("[TX] Using MetaMask from EIP-6963"); return p; }
-                }
-                if (isCoinbase) {
-                    const p = providers.find((p: any) => p.isCoinbaseWallet);
-                    if (p) { console.log("[TX] Using Coinbase from EIP-6963"); return p; }
-                }
+                // Return in priority order based on what's likely connected
+                if (phantomProvider) return phantomProvider;
+                if (rabbyProvider) return rabbyProvider;
+                if (mmProvider) return mmProvider;
             }
             
-            // Dedicated provider locations based on connector
-            if (isPhantom && anyWindow.phantom?.ethereum) {
-                console.log("[TX] Using window.phantom.ethereum");
-                return anyWindow.phantom.ethereum;
-            }
-            if (isRabby && anyWindow.rabby) {
-                console.log("[TX] Using window.rabby");
-                return anyWindow.rabby;
-            }
+            // Phantom's dedicated location
+            if (anyWindow.phantom?.ethereum) return anyWindow.phantom.ethereum;
             
-            // Standard ethereum fallback
-            if (anyWindow.ethereum) {
-                console.log("[TX] Fallback to window.ethereum");
-                return anyWindow.ethereum;
-            }
+            // Rabby's dedicated location
+            if (anyWindow.rabby) return anyWindow.rabby;
             
-            return null;
+            // Standard ethereum
+            return anyWindow.ethereum;
         };
-
-        // Check network before any transaction (skip for MiniApp which is always Base)
-        if (!usingMiniApp && wagmiConnected) {
-            const onBase = await checkAndSwitchToBase();
-            if (!onBase) {
-                console.error("[TX] Not on Base network, transaction blocked");
-                return null;
-            }
-        }
 
         // Handle Farcaster MiniApp transactions FIRST
         if (usingMiniApp && miniAppEthProvider && userAddress) {
@@ -1023,7 +875,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         // NEW: Handle RainbowKit/desktop connections using walletClient
         if (wagmiConnected && wagmiAddress && !usingMiniApp && walletClient) {
             try {
-                console.log("[TX] Attempting walletClient.sendTransaction for:", wagmiAddress, "gas:", gasLimit || "auto");
+                console.log("[TX] Attempting walletClient.sendTransaction for:", wagmiAddress);
                 
                 // Use walletClient from wagmi - this is the correct provider for ANY connected wallet
                 const hash = await walletClient.sendTransaction({
@@ -1031,13 +883,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     data: data as `0x${string}`,
                     chain: walletClient.chain,
                     account: walletClient.account,
-                    gas: gasLimit ? BigInt(gasLimit.startsWith("0x") ? parseInt(gasLimit, 16) : gasLimit) : undefined,
                 });
                 
                 console.log("[TX] WalletClient tx hash:", hash);
                 
                 // Get a provider to fetch the transaction response
-                const ethProvider = getConnectorAwareProvider();
+                const ethProvider = getProvider();
                 if (ethProvider) {
                     const provider = new ethers.providers.Web3Provider(ethProvider, "any");
                     // Wait a moment for tx to propagate, then fetch
@@ -1069,55 +920,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     cause: e?.cause?.message
                 });
                 const msg = e?.shortMessage || e?.message || "Transaction failed";
-                
-                // Check if this is an authorization error - needs re-auth in fallback
-                const isAuthError = msg.includes("not been authorized") || 
-                                   msg.includes("unauthorized") ||
-                                   msg.includes("not authorized") ||
-                                   e?.code === -32603;
-                
                 if (msg.includes("rejected") || msg.includes("denied") || e?.code === 4001 || e?.code === "ACTION_REJECTED") {
                     setMintStatus("Transaction canceled");
                     return null;
                 }
-                // Don't return null yet - try the raw provider fallback (with re-auth if needed)
-                console.log("[TX] WalletClient failed, trying raw provider fallback...", isAuthError ? "(will re-authorize)" : "");
+                // Don't return null yet - try the raw provider fallback
+                console.log("[TX] WalletClient failed, trying raw provider fallback...");
             }
         }
         
-        // Fallback to raw eth_sendTransaction with RE-AUTHORIZATION
-        // This fixes "account not authorized" errors on desktop browsers
+        // Fallback to raw eth_sendTransaction for better Phantom/Base App compatibility
         if (wagmiConnected && wagmiAddress && !usingMiniApp) {
-            const ethProvider = getConnectorAwareProvider();
+            const ethProvider = getProvider();
             if (ethProvider) {
                 try {
-                    // Re-request accounts to ensure authorization is current
-                    // This is the key fix for "account not authorized" errors
-                    console.log("[TX] Re-requesting account authorization...");
-                    try {
-                        const authorizedAccounts = await ethProvider.request({ method: "eth_requestAccounts" });
-                        console.log("[TX] Authorized accounts:", authorizedAccounts);
-                        
-                        // Verify our address is in the authorized list
-                        const isAuthorized = authorizedAccounts.some(
-                            (acc: string) => acc.toLowerCase() === wagmiAddress.toLowerCase()
-                        );
-                        
-                        if (!isAuthorized) {
-                            console.error("[TX] Connected address not in authorized accounts!");
-                            console.error("[TX] wagmiAddress:", wagmiAddress, "authorized:", authorizedAccounts);
-                            setMintStatus("⚠️ Wallet not authorized - please reconnect");
-                            return null;
-                        }
-                    } catch (authErr: any) {
-                        console.warn("[TX] Re-auth request failed:", authErr);
-                        if (authErr?.code === 4001) {
-                            setMintStatus("Please authorize the wallet connection");
-                            return null;
-                        }
-                        // Otherwise continue - might still work
-                    }
-                    
                     console.log("[TX] Using raw eth_sendTransaction for:", wagmiAddress,
                         "Provider:", ethProvider.isPhantom ? "Phantom" : ethProvider.isRabby ? "Rabby" : ethProvider.isMetaMask ? "MetaMask" : "Unknown");
                     
@@ -1178,8 +994,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     const msg = e?.shortMessage || e?.reason || e?.message || "Transaction failed";
                     if (msg.includes("rejected") || msg.includes("denied") || msg.includes("canceled") || e?.code === 4001 || e?.code === "ACTION_REJECTED") {
                         setMintStatus("Transaction canceled");
-                    } else if (msg.includes("not been authorized") || msg.includes("not authorized") || msg.includes("unauthorized")) {
-                        setMintStatus("⚠️ Wallet not authorized - disconnect and reconnect");
                     } else if (msg.includes("insufficient") || msg.includes("gas")) {
                         setMintStatus("Insufficient balance or gas");
                     } else if (msg.includes("nonce")) {
@@ -1491,84 +1305,86 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setShopStatus(`Buying item...`);
         try {
             const itemShopAbi = [
-                "function purchaseWithFcweed(uint256 itemId)",
-                "function purchaseWithDust(uint256 itemId)",
-                "function getItemConfig(uint256 itemId) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, uint256 soldToday, bool isWeapon)",
+                "function buyItem(uint256 itemId, bool payWithDust) external",
+                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active)",
                 "function shopEnabled() view returns (bool)",
             ];
             const itemShopInterface = new ethers.utils.Interface(itemShopAbi);
             const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
             
-            // V11 getItemConfig returns: (name, fcweedPrice, dustPrice, boostBps, duration, dailySupply, soldToday, isWeapon)
-            const item = await itemShop.getItemConfig(itemId);
+            const item = await itemShop.itemConfigs(itemId);
             
-            let data: string;
             if (currency === "fcweed") {
                 const fcweedPrice = item.fcweedPrice;
-                if (fcweedPrice.gt(0)) {
-                    setShopStatus("Checking allowance...");
-                    const approved = await ensureFcweedAllowance(V5_ITEMSHOP_ADDRESS, fcweedPrice);
-                    if (!approved) {
-                        setShopStatus("Approval failed");
+                if (fcweedPrice.eq(0)) {
+                    setShopStatus("This item cannot be purchased with FCWEED");
+                    setShopLoading(false);
+                    return;
+                }
+                setShopStatus("Checking allowance...");
+                const approved = await ensureFcweedAllowance(V5_ITEMSHOP_ADDRESS, fcweedPrice);
+                if (!approved) {
+                    setShopStatus("Approval canceled or failed");
+                    setShopLoading(false);
+                    return;
+                }
+            } else {
+                const dustPrice = item.dustPrice;
+                if (dustPrice.eq(0)) {
+                    setShopStatus("This item cannot be purchased with Dust");
+                    setShopLoading(false);
+                    return;
+                }
+                setShopStatus("Checking dust balance...");
+                try {
+                    const crateVaultAbi = [
+                        "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)"
+                    ];
+                    const crateVault = new ethers.Contract(CRATE_VAULT_ADDRESS, crateVaultAbi, readProvider);
+                    const stats = await crateVault.getUserStats(userAddress);
+                    const dustBalance = stats.dustBalance ?? stats[0];
+                    
+                    console.log("[Shop] Dust check - price:", dustPrice.toString(), "balance:", dustBalance.toString());
+                    
+                    if (dustBalance.lt(dustPrice)) {
+                        const needed = parseFloat(ethers.utils.formatUnits(dustPrice, 18));
+                        const have = parseFloat(ethers.utils.formatUnits(dustBalance, 18));
+                        setShopStatus(`Insufficient Dust! Need ${needed.toLocaleString()}, have ${have.toLocaleString()}. Open crates to earn Dust.`);
                         setShopLoading(false);
                         return;
                     }
+                } catch (e) {
+                    console.error("[Shop] Dust balance check failed:", e);
                 }
-                data = itemShopInterface.encodeFunctionData("purchaseWithFcweed", [itemId]);
-            } else {
-                // ============== PRE-FLIGHT DUST BALANCE CHECK ==============
-                const dustPrice = item.dustPrice;
-                if (dustPrice.gt(0)) {
-                    setShopStatus("Checking dust balance...");
-                    try {
-                        // Use same function as UI display (getUserStats)
-                        const crateVaultAbi = [
-                            "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)"
-                        ];
-                        const crateVault = new ethers.Contract(CRATE_VAULT_ADDRESS, crateVaultAbi, readProvider);
-                        const stats = await crateVault.getUserStats(userAddress);
-                        const dustBalance = stats.dustBalance ?? stats[0];
-                        
-                        console.log("[Shop] Dust check - price:", dustPrice.toString(), "balance:", dustBalance.toString());
-                        
-                        if (dustBalance.lt(dustPrice)) {
-                            // Dust has NO decimals - use raw numbers
-                            const needed = dustPrice.toNumber();
-                            const have = dustBalance.toNumber();
-                            setShopStatus(`Insufficient Dust! Need ${needed.toLocaleString()}, have ${have.toLocaleString()}. Open crates to earn Dust.`);
-                            setShopLoading(false);
-                            return;
-                        }
-                    } catch (e) {
-                        console.error("[Shop] Dust balance check failed:", e);
-                        // Continue anyway - let contract handle it
-                    }
-                }
-                // ============== END DUST CHECK ==============
-                data = itemShopInterface.encodeFunctionData("purchaseWithDust", [itemId]);
             }
+            
             setShopStatus("Confirming purchase...");
+            const payWithDust = currency === "dust";
+            const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, payWithDust]);
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
             if (!tx) {
-                setShopStatus("Transaction rejected");
+                setShopStatus("Transaction canceled");
                 setShopLoading(false);
                 return;
             }
             await tx.wait();
             setShopStatus("✅ Purchase successful!");
-            // Refresh all balances and inventory after purchase
             fetchInventory();
             refreshAllData();
             setTimeout(() => setShopStatus(""), 3000);
         } catch (e: any) {
-            // Better error message handling
-            const reason = e?.reason || e?.message || "Purchase failed";
-            if (reason.includes("Insufficient dust")) {
-                setShopStatus("Insufficient Dust! Open more crates to earn Dust.");
-            } else if (reason.includes("Sold out")) {
+            const reason = e?.reason || e?.shortMessage || e?.message || "Purchase failed";
+            console.error("[Shop] Purchase error:", reason);
+            if (reason.includes("!water") || reason.includes("Insufficient")) {
+                setShopStatus("Insufficient balance!");
+            } else if (reason.includes("exhausted") || reason.includes("Sold out")) {
                 setShopStatus("Item sold out for today!");
-            } else if (reason.includes("Shop disabled")) {
+            } else if (reason.includes("disabled") || reason.includes("closed")) {
                 setShopStatus("Shop is currently disabled");
+            } else if (reason.includes("not available") || reason.includes("FCWEED payment not available")) {
+                setShopStatus("This payment method not available for this item");
+            } else if (reason.includes("rejected") || reason.includes("denied") || reason.includes("canceled") || e?.code === 4001) {
+                setShopStatus("Transaction canceled");
             } else {
                 setShopStatus(reason.slice(0, 100));
             }
@@ -2023,251 +1839,243 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }, [theme]);
 
     async function ensureWallet(forceSelection: boolean = false) {
-            const { isMiniApp: detectedMiniApp, isMobile } = detectMiniAppEnvironment();
+        // Check if already connected via wagmi/RainbowKit
+        if (wagmiConnected && wagmiAddress && !forceSelection) {
+            const anyWindow = window as any;
+            if (anyWindow.ethereum) {
+                const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
+                // Pass address explicitly to getSigner() - fixes Phantom/Base App wallet compatibility
+                return { signer: ethersProvider.getSigner(wagmiAddress), provider: ethersProvider, userAddress: wagmiAddress, isMini: false };
+            }
+        }
 
-            // Check if we're in Farcaster context FIRST - before checking wagmi
+        if (signer && provider && userAddress && !forceSelection) {
+            return { signer, provider, userAddress, isMini: usingMiniApp };
+        }
+        
+        // Clear the disconnect flag when user explicitly connects
+        userDisconnected.current = false;
+
+        try {
+            setConnecting(true);
+            setMintStatus("");
+
+            let p: ethers.providers.Web3Provider;
+            let s: ethers.Signer;
+            let addr: string;
+            let isMini = false;
+            let ethProv: any | null = null;
+
+            const { isMiniApp: detectedMiniApp, isMobile, isBaseApp } = detectMiniAppEnvironment();
+
+            console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, isBaseApp, userAgent: navigator.userAgent });
+
+            // Check if we're in Farcaster context
             let inFarcasterContext = false;
             try {
                 const context = await sdk.context;
                 if (context) {
                     inFarcasterContext = true;
-                    console.log("[Wallet] In Farcaster context - will prioritize SDK wallet over browser extensions");
+                    console.log("[Wallet] In Farcaster context, will use SDK wallet only");
                 }
             } catch {}
 
-            // If in Farcaster context and already have miniApp connection, use it
-            if ((inFarcasterContext || detectedMiniApp) && miniAppEthProvider && userAddress && !forceSelection) {
-                console.log("[Wallet] Reusing existing Farcaster SDK wallet connection");
-                return { signer: null, provider: null, userAddress, isMini: true };
-            }
-
-            // ONLY check wagmi/RainbowKit if NOT in Farcaster context
-            if (!inFarcasterContext && !detectedMiniApp) {
-                if (wagmiConnected && wagmiAddress && !forceSelection) {
-                    const anyWindow = window as any;
-                    if (anyWindow.ethereum) {
-                        const ethersProvider = new ethers.providers.Web3Provider(anyWindow.ethereum, "any");
-                        // Pass address explicitly to getSigner() - fixes Phantom/Base App wallet compatibility
-                        return { signer: ethersProvider.getSigner(wagmiAddress), provider: ethersProvider, userAddress: wagmiAddress, isMini: false };
-                    }
-                }
-
-                if (signer && provider && userAddress && !forceSelection) {
-                    return { signer, provider, userAddress, isMini: usingMiniApp };
-                }
-            }
-
-            // Clear the disconnect flag when user explicitly connects
-            userDisconnected.current = false;
-
-            try {
-                setConnecting(true);
-                setMintStatus("");
-
-                let p: ethers.providers.Web3Provider;
-                let s: ethers.Signer;
-                let addr: string;
-                let isMini = false;
-                let ethProv: any | null = null;
-
-                console.log("[Wallet] Environment:", { detectedMiniApp, isMobile, inFarcasterContext, userAgent: navigator.userAgent });
-
-                // Try Farcaster SDK first (for Warpcast users)
-                if (inFarcasterContext || detectedMiniApp) {
-                    try {
-                        console.log("[Wallet] Attempting Farcaster SDK wallet connection...");
-
-                        try {
-                            await sdk.actions.ready();
-                            console.log("[Wallet] SDK ready confirmed");
-                        } catch (readyErr) {
-                            console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
-                        }
-
-                        try {
-                            ethProv = await sdk.wallet.getEthereumProvider();
-                            if (ethProv) {
-                                console.log("[Wallet] Got provider via Farcaster SDK");
-                                const providerInfo = {
-                                    isRabby: !!(ethProv as any).isRabby,
-                                    isMetaMask: !!(ethProv as any).isMetaMask,
-                                    isCoinbaseWallet: !!(ethProv as any).isCoinbaseWallet,
-                                    isFarcaster: !!(ethProv as any).isFarcaster,
-                                };
-                                console.log("[Wallet] Provider info:", providerInfo);
-                                isMini = true;
-                            }
-                        } catch (err1) {
-                            console.warn("[Wallet] Farcaster SDK getEthereumProvider failed:", err1);
-                            if ((sdk.wallet as any).ethProvider) {
-                                ethProv = (sdk.wallet as any).ethProvider;
-                                console.log("[Wallet] Got provider via ethProvider property");
-                                isMini = true;
-                            }
-                        }
-                    } catch (err) {
-                        console.warn("[Wallet] Farcaster SDK wallet failed:", err);
-                    }
-
-                    // If in Farcaster context but SDK failed, don't fall back to window.ethereum
-                    if (!ethProv && inFarcasterContext) {
-                        console.log("[Wallet] In Farcaster but SDK wallet failed, not falling back to extensions");
-                        setMintStatus("Please enable wallet in Farcaster settings");
-                        setConnecting(false);
-                        return null;
-                    }
-                }
-
-                // Only check window.ethereum if NOT in Farcaster context
-                if (!ethProv && !inFarcasterContext && !detectedMiniApp) {
-                    const anyWindow = window as any;
-                    if (anyWindow.ethereum) {
-                        const windowProviderInfo = {
-                            isRabby: !!anyWindow.ethereum.isRabby,
-                            isMetaMask: !!anyWindow.ethereum.isMetaMask,
-                            isCoinbaseWallet: !!anyWindow.ethereum.isCoinbaseWallet,
-                            isBase: !!anyWindow.ethereum.isBase,
-                        };
-                        console.log("[Wallet] window.ethereum info:", windowProviderInfo);
-                        ethProv = anyWindow.ethereum;
-                        console.log("[Wallet] Using window.ethereum as provider");
-                        isMini = false;
-                    } else if (anyWindow.coinbaseWalletExtension) {
-                        ethProv = anyWindow.coinbaseWalletExtension;
-                        console.log("[Wallet] Got provider via coinbaseWalletExtension");
-                        isMini = false;
-                    }
-                }
-
-
-                if (ethProv) {
-                    setUsingMiniApp(isMini);
-                    setMiniAppEthProvider(ethProv);
+            // Try Farcaster SDK first (for Warpcast users)
+            if (inFarcasterContext || detectedMiniApp) {
+                try {
+                    console.log("[Wallet] Attempting Farcaster SDK wallet connection...");
 
                     try {
-                        console.log("[Wallet] Requesting accounts...");
-                        const accounts = await ethProv.request({ method: "eth_requestAccounts" });
-                        console.log("[Wallet] Got accounts:", accounts);
-                    } catch (err: any) {
-                        console.warn("[Wallet] eth_requestAccounts failed:", err);
-                        if (err?.code === 4001) {
-                            throw new Error("Wallet connection rejected. Please approve the connection request.");
-                        }
+                        await sdk.actions.ready();
+                        console.log("[Wallet] SDK ready confirmed");
+                    } catch (readyErr) {
+                        console.warn("[Wallet] SDK ready call failed (may already be ready):", readyErr);
                     }
 
-                    p = new ethers.providers.Web3Provider(ethProv as any, "any");
-
-                    // Get address FIRST from provider - this works with all wallets
                     try {
-                        const accounts = await ethProv.request({ method: "eth_accounts" });
-                        if (accounts && accounts.length > 0) {
-                            addr = accounts[0];
-                            console.log("[Wallet] Got address from eth_accounts:", addr);
-                        } else {
-                            throw new Error("No accounts available");
+                        ethProv = await sdk.wallet.getEthereumProvider();
+                        if (ethProv) {
+                            console.log("[Wallet] Got provider via Farcaster SDK");
+                            const providerInfo = {
+                                isRabby: !!(ethProv as any).isRabby,
+                                isMetaMask: !!(ethProv as any).isMetaMask,
+                                isCoinbaseWallet: !!(ethProv as any).isCoinbaseWallet,
+                                isFarcaster: !!(ethProv as any).isFarcaster,
+                            };
+                            console.log("[Wallet] Provider info:", providerInfo);
+                            isMini = true;
                         }
-                    } catch (accErr) {
-                        console.warn("[Wallet] eth_accounts failed, trying getSigner fallback:", accErr);
-                        // Fallback for legacy providers
-                        try {
-                            const tempSigner = p.getSigner();
-                            addr = await tempSigner.getAddress();
-                            console.log("[Wallet] Got address from getSigner fallback:", addr);
-                        } catch (signerErr) {
-                            throw new Error("Could not get wallet address. Please make sure you have a wallet connected.");
+                    } catch (err1) {
+                        console.warn("[Wallet] Farcaster SDK getEthereumProvider failed:", err1);
+                        if ((sdk.wallet as any).ethProvider) {
+                            ethProv = (sdk.wallet as any).ethProvider;
+                            console.log("[Wallet] Got provider via ethProvider property");
+                            isMini = true;
                         }
                     }
-
-                    // Get signer with EXPLICIT address - this fixes Phantom/Base App/Rabby compatibility
-                    // The key fix: passing the address to getSigner() ensures it works with wallets
-                    // that don't support the default getSigner() behavior
-                    s = p.getSigner(addr);
-                    console.log("[Wallet] Created signer for address:", addr, "isMini:", isMini);
-                } else {
-                    // No provider found - use RainbowKit modal as fallback for web users
-                    setUsingMiniApp(false);
-
-                    if (openConnectModal) {
-                        console.log("[Wallet] No provider found, opening RainbowKit modal...");
-                        setConnecting(false);
-                        openConnectModal();
-                        return null; // RainbowKit will handle connection, useEffect will sync state
-                    }
-
-                    const errorMsg = isMobile
-                        ? "No wallet found. Please install Coinbase Wallet or MetaMask."
-                        : "No wallet found. Please install MetaMask or another Web3 wallet.";
-                    setMintStatus(errorMsg);
+                } catch (err) {
+                    console.warn("[Wallet] Farcaster SDK wallet failed:", err);
+                }
+                
+                // If in Farcaster context but SDK failed, don't fall back to window.ethereum
+                if (!ethProv && inFarcasterContext) {
+                    console.log("[Wallet] In Farcaster but SDK wallet failed, not falling back to extensions");
+                    setMintStatus("Please enable wallet in Farcaster settings");
                     setConnecting(false);
                     return null;
                 }
+            }
 
-                let currentChainId: number;
+            // Only check window.ethereum if NOT in Farcaster context
+            if (!ethProv && !inFarcasterContext) {
+                const anyWindow = window as any;
+                if (anyWindow.ethereum) {
+                    const windowProviderInfo = {
+                        isRabby: !!anyWindow.ethereum.isRabby,
+                        isMetaMask: !!anyWindow.ethereum.isMetaMask,
+                        isCoinbaseWallet: !!anyWindow.ethereum.isCoinbaseWallet,
+                        isBase: !!anyWindow.ethereum.isBase,
+                    };
+                    console.log("[Wallet] window.ethereum info:", windowProviderInfo);
+                    ethProv = anyWindow.ethereum;
+                    console.log("[Wallet] Using window.ethereum as provider");
+                    isMini = false;
+                } else if (anyWindow.coinbaseWalletExtension) {
+                    ethProv = anyWindow.coinbaseWalletExtension;
+                    console.log("[Wallet] Got provider via coinbaseWalletExtension");
+                    isMini = false;
+                }
+            }
+
+
+            if (ethProv) {
+                setUsingMiniApp(isMini);
+                setMiniAppEthProvider(ethProv);
+
                 try {
-                    const net = await p.getNetwork();
-                    currentChainId = net.chainId;
-                } catch {
-                    currentChainId = 0;
+                    console.log("[Wallet] Requesting accounts...");
+                    const accounts = await ethProv.request({ method: "eth_requestAccounts" });
+                    console.log("[Wallet] Got accounts:", accounts);
+                } catch (err: any) {
+                    console.warn("[Wallet] eth_requestAccounts failed:", err);
+                    if (err?.code === 4001) {
+                        throw new Error("Wallet connection rejected. Please approve the connection request.");
+                    }
                 }
 
-                if (currentChainId !== CHAIN_ID) {
-                    console.log("[Wallet] Wrong chain, attempting to switch to Base...");
+                p = new ethers.providers.Web3Provider(ethProv as any, "any");
+                
+                // Get address FIRST from provider - this works with all wallets
+                try {
+                    const accounts = await ethProv.request({ method: "eth_accounts" });
+                    if (accounts && accounts.length > 0) {
+                        addr = accounts[0];
+                        console.log("[Wallet] Got address from eth_accounts:", addr);
+                    } else {
+                        throw new Error("No accounts available");
+                    }
+                } catch (accErr) {
+                    console.warn("[Wallet] eth_accounts failed, trying getSigner fallback:", accErr);
+                    // Fallback for legacy providers
+                    try {
+                        const tempSigner = p.getSigner();
+                        addr = await tempSigner.getAddress();
+                        console.log("[Wallet] Got address from getSigner fallback:", addr);
+                    } catch (signerErr) {
+                        throw new Error("Could not get wallet address. Please make sure you have a wallet connected.");
+                    }
+                }
 
-                    const switchProvider = isMini ? ethProv : (window as any).ethereum;
+                // Get signer with EXPLICIT address - this fixes Phantom/Base App/Rabby compatibility
+                // The key fix: passing the address to getSigner() ensures it works with wallets
+                // that don't support the default getSigner() behavior
+                s = p.getSigner(addr);
+                console.log("[Wallet] Created signer for address:", addr, "isMini:", isMini);
+            } else {
+                // No provider found - use RainbowKit modal as fallback for web users
+                setUsingMiniApp(false);
+                
+                if (openConnectModal) {
+                    console.log("[Wallet] No provider found, opening RainbowKit modal...");
+                    setConnecting(false);
+                    openConnectModal();
+                    return null; // RainbowKit will handle connection, useEffect will sync state
+                }
 
-                    if (switchProvider?.request) {
-                        try {
-                            await switchProvider.request({
-                                method: "wallet_switchEthereumChain",
-                                params: [{ chainId: "0x2105" }],
-                            });
+                const errorMsg = isMobile
+                    ? "No wallet found. Please install Coinbase Wallet or MetaMask."
+                    : "No wallet found. Please install MetaMask or another Web3 wallet.";
+                setMintStatus(errorMsg);
+                setConnecting(false);
+                return null;
+            }
 
-                            p = new ethers.providers.Web3Provider(switchProvider as any, "any");
-                            // Pass address explicitly after chain switch
-                            s = p.getSigner(addr);
-                            console.log("[Wallet] Switched to Base");
-                        } catch (switchErr: any) {
-                            console.warn("[Wallet] Chain switch failed:", switchErr);
+            let currentChainId: number;
+            try {
+                const net = await p.getNetwork();
+                currentChainId = net.chainId;
+            } catch {
+                currentChainId = 0;
+            }
 
-                            if (switchErr.code === 4902 && !isMini) {
-                                try {
-                                    await switchProvider.request({
-                                        method: "wallet_addEthereumChain",
-                                        params: [{
-                                            chainId: "0x2105",
-                                            chainName: "Base",
-                                            nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-                                            rpcUrls: ["https://mainnet.base.org"],
-                                            blockExplorerUrls: ["https://basescan.org"],
-                                        }],
-                                    });
-                                    p = new ethers.providers.Web3Provider(switchProvider, "any");
-                                    // Pass address explicitly after adding chain
-                                    s = p.getSigner(addr);
-                                } catch {
-                                    console.warn("[Wallet] Failed to add Base chain");
-                                }
+            if (currentChainId !== CHAIN_ID) {
+                console.log("[Wallet] Wrong chain, attempting to switch to Base...");
+
+                const switchProvider = isMini ? ethProv : (window as any).ethereum;
+
+                if (switchProvider?.request) {
+                    try {
+                        await switchProvider.request({
+                            method: "wallet_switchEthereumChain",
+                            params: [{ chainId: "0x2105" }],
+                        });
+
+                        p = new ethers.providers.Web3Provider(switchProvider as any, "any");
+                        // Pass address explicitly after chain switch
+                        s = p.getSigner(addr);
+                        console.log("[Wallet] Switched to Base");
+                    } catch (switchErr: any) {
+                        console.warn("[Wallet] Chain switch failed:", switchErr);
+
+                        if (switchErr.code === 4902 && !isMini) {
+                            try {
+                                await switchProvider.request({
+                                    method: "wallet_addEthereumChain",
+                                    params: [{
+                                        chainId: "0x2105",
+                                        chainName: "Base",
+                                        nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+                                        rpcUrls: ["https://mainnet.base.org"],
+                                        blockExplorerUrls: ["https://basescan.org"],
+                                    }],
+                                });
+                                p = new ethers.providers.Web3Provider(switchProvider, "any");
+                                // Pass address explicitly after adding chain
+                                s = p.getSigner(addr);
+                            } catch {
+                                console.warn("[Wallet] Failed to add Base chain");
                             }
                         }
                     }
                 }
-
-                setProvider(p);
-                setSigner(s);
-                setUserAddress(addr);
-                setConnecting(false);
-
-                return { signer: s, provider: p, userAddress: addr, isMini };
-            } catch (err: any) {
-                console.error("[Wallet] Connection failed:", err);
-                const errorMessage = err?.message || "Wallet connection failed";
-                setMintStatus(
-                    errorMessage.length > 100 ? errorMessage.substring(0, 100) + "..." : errorMessage
-                );
-                setConnecting(false);
-                return null;
             }
+
+            setProvider(p);
+            setSigner(s);
+            setUserAddress(addr);
+            setConnecting(false);
+
+            return { signer: s, provider: p, userAddress: addr, isMini };
+        } catch (err: any) {
+            console.error("[Wallet] Connection failed:", err);
+            const errorMessage = err?.message || "Wallet connection failed";
+            setMintStatus(
+                errorMessage.length > 100 ? errorMessage.substring(0, 100) + "..." : errorMessage
+            );
+            setConnecting(false);
+            return null;
         }
+    }
 
     async function handleMintLand() {
         try {
@@ -3185,63 +2993,133 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
 
     async function handleV4WaterPlants() {
-            if (selectedV4PlantsToWater.length === 0) return;
-
-            try {
-                setActionLoading(true);
-                setV4ActionStatus("Watering plants...");
-
-                const userWaterBalance = v4StakingStats?.water
-                    ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18))
-                    : 0;
-
-                const totalWaterNeeded = selectedV4PlantsToWater.reduce((sum, id) => sum + (v4WaterNeeded[id] || 0), 0);
-
-                if (userWaterBalance < totalWaterNeeded) {
-                    setV4ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterNeeded.toFixed(2)}L`);
-                    setActionLoading(false);
+        if (selectedV4PlantsToWater.length === 0) return;
+        
+        try {
+            setActionLoading(true);
+            setV4ActionStatus("Watering plants...");
+            
+            // Get user's water balance
+            const userWaterBalance = v4StakingStats?.water 
+                ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18))
+                : 0;
+            
+            // Helper function to calculate default water amount (rounded up to 0.1L)
+            const getDefaultWater = (needed: number) => Math.max(0.1, Math.ceil((needed || 0.1) * 10) / 10);
+            
+            // Check if user has ANY custom amounts set (via +/- buttons)
+            const hasCustomAmounts = selectedV4PlantsToWater.some(id => 
+                v4CustomWaterAmounts[id] !== undefined && 
+                Math.abs(v4CustomWaterAmounts[id] - getDefaultWater(v4WaterNeeded[id])) > 0.01
+            );
+            
+            // Calculate total water user wants to use
+            const totalWaterToUse = selectedV4PlantsToWater.reduce((sum, id) => {
+                const customAmt = v4CustomWaterAmounts[id];
+                const neededAmt = getDefaultWater(v4WaterNeeded[id]);
+                return sum + (customAmt !== undefined ? customAmt : neededAmt);
+            }, 0);
+            
+            console.log("[V4 Water] Total to use:", totalWaterToUse, "User balance:", userWaterBalance);
+            
+            // VALIDATION: User must have enough water
+            if (userWaterBalance < totalWaterToUse) {
+                setV4ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterToUse.toFixed(2)}L`);
+                setActionLoading(false);
+                return;
+            }
+            
+            // Create interface for water functions
+            const waterInterface = new ethers.utils.Interface([
+                "function waterPlants(uint256[] calldata ids)",
+                "function waterPlantWithAmount(uint256 id, uint256 amount)",
+                "function waterPlantsWithBalance(uint256[] calldata ids)"
+            ]);
+            
+            let tx;
+            
+            if (hasCustomAmounts || selectedV4PlantsToWater.length === 1) {
+                // Use waterPlantWithAmount for precise control
+                const plantId = selectedV4PlantsToWater[0];
+                
+                if (selectedV4PlantsToWater.length === 1) {
+                    const amountToUse = v4CustomWaterAmounts[plantId] !== undefined 
+                        ? v4CustomWaterAmounts[plantId] 
+                        : getDefaultWater(v4WaterNeeded[plantId]);
+                    const finalAmount = Math.min(amountToUse, userWaterBalance);
+                    const amountWei = ethers.utils.parseUnits(finalAmount.toFixed(18), 18);
+                    
+                    tx = await txAction().sendContractTx(
+                        V4_STAKING_ADDRESS, 
+                        waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei])
+                    );
+                } else {
+                    // Multiple plants with custom amounts - water one by one
+                    for (let i = 0; i < selectedV4PlantsToWater.length; i++) {
+                        const pid = selectedV4PlantsToWater[i];
+                        const amountToUse = v4CustomWaterAmounts[pid] !== undefined 
+                            ? v4CustomWaterAmounts[pid] 
+                            : getDefaultWater(v4WaterNeeded[pid]);
+                        
+                        if (amountToUse <= 0) continue;
+                        
+                        const amountWei = ethers.utils.parseUnits(amountToUse.toFixed(18), 18);
+                        setV4ActionStatus(`Watering plant ${i+1}/${selectedV4PlantsToWater.length}...`);
+                        
+                        tx = await txAction().sendContractTx(
+                            V4_STAKING_ADDRESS, 
+                            waterInterface.encodeFunctionData("waterPlantWithAmount", [pid, amountWei])
+                        );
+                        
+                        if (!tx) throw new Error("Transaction rejected");
+                        await waitForTx(tx);
+                    }
+                    
+                    setV4ActionStatus("All plants watered!");
+                    setSelectedV4PlantsToWater([]);
+                    setV4CustomWaterAmounts({});
+                    setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
                     return;
                 }
-
-                const waterInterface = new ethers.utils.Interface([
-                    "function waterPlant(uint256 id)",
-                    "function waterPlants(uint256[] calldata ids)"
-                ]);
-
-                let tx;
-
-                if (selectedV4PlantsToWater.length === 1) {
+            } else {
+                // No custom amounts, multiple plants
+                const totalNeededFor100 = selectedV4PlantsToWater.reduce((sum, id) => 
+                    sum + getDefaultWater(v4WaterNeeded[id]), 0
+                );
+                
+                if (userWaterBalance >= totalNeededFor100) {
                     tx = await txAction().sendContractTx(
-                        V4_STAKING_ADDRESS,
-                        waterInterface.encodeFunctionData("waterPlant", [selectedV4PlantsToWater[0]])
-                    );
-                } else {
-                    tx = await txAction().sendContractTx(
-                        V4_STAKING_ADDRESS,
+                        V4_STAKING_ADDRESS, 
                         waterInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater])
                     );
-                }
-
-                if (!tx) throw new Error("Transaction rejected");
-                await waitForTx(tx);
-                setV4ActionStatus("Plants watered!");
-                setSelectedV4PlantsToWater([]);
-                setV4CustomWaterAmounts({});
-                setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
-
-            } catch (err: any) {
-                const msg = err.message || String(err);
-                if (msg.includes("!water") || msg.includes("Not enough water")) {
-                    setV4ActionStatus("Error: Not enough water! Buy more from the shop.");
-                } else if (msg.includes("rejected") || msg.includes("canceled")) {
-                    setV4ActionStatus("Transaction canceled");
                 } else {
-                    setV4ActionStatus("Error: " + msg.slice(0, 60));
+                    tx = await txAction().sendContractTx(
+                        V4_STAKING_ADDRESS, 
+                        waterInterface.encodeFunctionData("waterPlantsWithBalance", [selectedV4PlantsToWater])
+                    );
                 }
-            } finally {
-                setActionLoading(false);
             }
+            
+            if (!tx) throw new Error("Transaction rejected");
+            await waitForTx(tx);
+            setV4ActionStatus("Plants watered!");
+            setSelectedV4PlantsToWater([]);
+            setV4CustomWaterAmounts({});
+            setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
+            
+        } catch (err: any) {
+            const msg = err.message || String(err);
+            if (msg.includes("!water") || msg.includes("Not enough water")) {
+                setV4ActionStatus("Error: Not enough water! Buy more from the shop.");
+            } else if (msg.includes("rejected") || msg.includes("canceled")) {
+                setV4ActionStatus("Transaction canceled");
+            } else {
+                setV4ActionStatus("Error: " + msg.slice(0, 60));
+            }
+        } finally {
+            setActionLoading(false);
         }
+    }
 
     // ==================== V5 STAKING ====================
     const refreshV5StakingRef = useRef(false);
@@ -3686,36 +3564,60 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         
         try {
             setActionLoading(true);
-            setV5ActionStatus("Watering plants...");
+            setV5ActionStatus("Checking plants...");
             
             // Get user's water balance
             const userWaterBalance = v5StakingStats?.water 
                 ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18))
                 : 0;
             
-            // Helper function to calculate default water amount (rounded up to 0.1L)
-            const getDefaultWater = (needed: number) => Math.max(0.1, Math.ceil((needed || 0.1) * 10) / 10);
+            // FIX #1: Filter out plants that don't actually need water
+            const plantsNeedingWater = selectedV5PlantsToWater.filter(id => {
+                const needed = v5WaterNeeded[id] ?? 0;
+                const health = v5PlantHealths[id] ?? 100;
+                return needed > 0 && health < 100;
+            });
+            
+            if (plantsNeedingWater.length === 0) {
+                setV5ActionStatus("All selected plants are already at 100% health!");
+                setSelectedV5PlantsToWater([]);
+                setV5CustomWaterAmounts({});
+                setActionLoading(false);
+                return;
+            }
+            
+            // Inform user if some plants were skipped
+            if (plantsNeedingWater.length < selectedV5PlantsToWater.length) {
+                const skipped = selectedV5PlantsToWater.length - plantsNeedingWater.length;
+                console.log(`[Water] Skipping ${skipped} plants that are already full`);
+            }
+            
+            // FIX #2: Better getDefaultWater that returns 0 for full plants
+            const getDefaultWater = (needed: number): number => {
+                if (!needed || needed <= 0) return 0;
+                return Math.max(0.1, Math.ceil(needed * 10) / 10);
+            };
             
             // Check if user has ANY custom amounts set (via +/- buttons)
-            const hasCustomAmounts = selectedV5PlantsToWater.some(id => 
+            const hasCustomAmounts = plantsNeedingWater.some(id => 
                 v5CustomWaterAmounts[id] !== undefined && 
                 Math.abs(v5CustomWaterAmounts[id] - getDefaultWater(v5WaterNeeded[id])) > 0.01
             );
             
             // Calculate total water user wants to use
-            const totalWaterToUse = selectedV5PlantsToWater.reduce((sum, id) => {
+            const totalWaterToUse = plantsNeedingWater.reduce((sum, id) => {
                 const customAmt = v5CustomWaterAmounts[id];
                 const neededAmt = getDefaultWater(v5WaterNeeded[id]);
                 return sum + (customAmt !== undefined ? customAmt : neededAmt);
             }, 0);
             
-            console.log("[Water] Plants:", selectedV5PlantsToWater);
+            console.log("[Water] Plants needing water:", plantsNeedingWater);
             console.log("[Water] Custom amounts:", v5CustomWaterAmounts);
             console.log("[Water] Has custom amounts:", hasCustomAmounts);
             console.log("[Water] Total to use:", totalWaterToUse, "User balance:", userWaterBalance);
             
-            // VALIDATION: User must have enough water for what they're trying to use
-            if (userWaterBalance < totalWaterToUse) {
+            // VALIDATION: User must have enough water
+            if (userWaterBalance < totalWaterToUse - 0.001) {
                 setV5ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterToUse.toFixed(2)}L`);
                 setActionLoading(false);
                 return;
@@ -3729,47 +3631,59 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             ]);
             
             let tx;
+            setV5ActionStatus("Watering plants...");
             
-            // DECISION LOGIC:
-            // 1. If user has custom amounts set OR single plant → use waterPlantWithAmount for precise control
-            // 2. If multiple plants, no custom, and enough water for all → use waterPlants (batch)
-            
-            if (hasCustomAmounts || selectedV5PlantsToWater.length === 1) {
-                // Use waterPlantWithAmount for precise control
-                const plantId = selectedV5PlantsToWater[0];
+            if (hasCustomAmounts || plantsNeedingWater.length === 1) {
+                const plantId = plantsNeedingWater[0];
                 
-                if (selectedV5PlantsToWater.length === 1) {
-                    // Single plant - use exact amount user specified
+                if (plantsNeedingWater.length === 1) {
+                    const actualNeeded = v5WaterNeeded[plantId] ?? 0;
                     const amountToUse = v5CustomWaterAmounts[plantId] !== undefined 
                         ? v5CustomWaterAmounts[plantId] 
-                        : getDefaultWater(v5WaterNeeded[plantId]);
+                        : getDefaultWater(actualNeeded);
                     
-                    // Cap at user's balance (safety check)
-                    const finalAmount = Math.min(amountToUse, userWaterBalance);
-                    const amountWei = ethers.utils.parseUnits(finalAmount.toFixed(18), 18);
+                    const cappedAmount = Math.min(amountToUse, actualNeeded, userWaterBalance);
                     
-                    console.log("[Water] Single plant", plantId, "amount:", finalAmount, "L");
+                    if (cappedAmount <= 0) {
+                        setV5ActionStatus("Plant doesn't need water!");
+                        setActionLoading(false);
+                        return;
+                    }
+                    
+                    // FIX #3: Proper precision - round to 6 decimals
+                    const roundedAmount = Math.round(cappedAmount * 1e6) / 1e6;
+                    const amountWei = ethers.utils.parseUnits(roundedAmount.toFixed(6), 18);
+                    
+                    console.log("[Water] Single plant", plantId, "amount:", roundedAmount, "L (needed:", actualNeeded, ")");
                     
                     tx = await txAction().sendContractTx(
                         V5_STAKING_ADDRESS, 
                         waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei])
                     );
                 } else {
-                    // Multiple plants with custom amounts - water them one by one
-                    setV5ActionStatus(`Watering ${selectedV5PlantsToWater.length} plants...`);
+                    setV5ActionStatus(`Watering ${plantsNeedingWater.length} plants...`);
                     
-                    for (let i = 0; i < selectedV5PlantsToWater.length; i++) {
-                        const pid = selectedV5PlantsToWater[i];
+                    for (let i = 0; i < plantsNeedingWater.length; i++) {
+                        const pid = plantsNeedingWater[i];
+                        const actualNeeded = v5WaterNeeded[pid] ?? 0;
+                        
+                        if (actualNeeded <= 0) {
+                            console.log(`[Water] Skipping plant ${pid} - already full`);
+                            continue;
+                        }
+                        
                         const amountToUse = v5CustomWaterAmounts[pid] !== undefined 
                             ? v5CustomWaterAmounts[pid] 
-                            : getDefaultWater(v5WaterNeeded[pid]);
+                            : getDefaultWater(actualNeeded);
                         
-                        if (amountToUse <= 0) continue;
+                        const cappedAmount = Math.min(amountToUse, actualNeeded);
+                        if (cappedAmount <= 0) continue;
                         
-                        const amountWei = ethers.utils.parseUnits(amountToUse.toFixed(18), 18);
+                        const roundedAmount = Math.round(cappedAmount * 1e6) / 1e6;
+                        const amountWei = ethers.utils.parseUnits(roundedAmount.toFixed(6), 18);
                         
-                        console.log(`[Water] Plant ${i+1}/${selectedV5PlantsToWater.length}:`, pid, "amount:", amountToUse, "L");
-                        setV5ActionStatus(`Watering plant ${i+1}/${selectedV5PlantsToWater.length}...`);
+                        console.log(`[Water] Plant ${i+1}/${plantsNeedingWater.length}:`, pid, "amount:", roundedAmount, "L");
+                        setV5ActionStatus(`Watering plant ${i+1}/${plantsNeedingWater.length}...`);
                         
                         tx = await txAction().sendContractTx(
                             V5_STAKING_ADDRESS, 
@@ -3787,24 +3701,21 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     return;
                 }
             } else {
-                // No custom amounts, multiple plants, user wants to water all to 100%
-                const totalNeededFor100 = selectedV5PlantsToWater.reduce((sum, id) => 
-                    sum + getDefaultWater(v5WaterNeeded[id]), 0
+                const totalNeededFor100 = plantsNeedingWater.reduce((sum, id) => 
+                    sum + (v5WaterNeeded[id] ?? 0), 0
                 );
                 
-                if (userWaterBalance >= totalNeededFor100) {
-                    // User has enough for full 100% on all plants - use batch waterPlants
+                if (userWaterBalance >= totalNeededFor100 - 0.001) {
                     console.log("[Water] Batch watering to 100% - total needed:", totalNeededFor100);
                     tx = await txAction().sendContractTx(
                         V5_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlants", [selectedV5PlantsToWater])
+                        waterInterface.encodeFunctionData("waterPlants", [plantsNeedingWater])
                     );
                 } else {
-                    // Not enough for 100% - use waterPlantsWithBalance to spread available water
-                    console.log("[Water] Using waterPlantsWithBalance - spreading", userWaterBalance, "across", selectedV5PlantsToWater.length, "plants");
+                    console.log("[Water] Using waterPlantsWithBalance - spreading", userWaterBalance, "across", plantsNeedingWater.length, "plants");
                     tx = await txAction().sendContractTx(
                         V5_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlantsWithBalance", [selectedV5PlantsToWater])
+                        waterInterface.encodeFunctionData("waterPlantsWithBalance", [plantsNeedingWater])
                     );
                 }
             }
@@ -3818,10 +3729,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
         } catch (err: any) {
             const msg = err.message || String(err);
-            if (msg.includes("!water") || msg.includes("Not enough water")) {
+            console.error("[Water] Error:", msg);
+            
+            if (msg.includes("Already Full") || msg.includes("full")) {
+                setV5ActionStatus("Error: Plant is already at 100% health!");
+            } else if (msg.includes("!water") || msg.includes("Not enough water")) {
                 setV5ActionStatus("Error: Not enough water! Buy more from the shop.");
-            } else if (msg.includes("rejected") || msg.includes("canceled")) {
+            } else if (msg.includes("!yours")) {
+                setV5ActionStatus("Error: You don't own this plant!");
+            } else if (msg.includes("rejected") || msg.includes("canceled") || msg.includes("denied") || (err as any)?.code === 4001) {
                 setV5ActionStatus("Transaction canceled");
+            } else if (msg.includes("insufficient funds") || msg.includes("gas")) {
+                setV5ActionStatus("Error: Insufficient ETH for gas");
             } else {
                 setV5ActionStatus("Error: " + msg.slice(0, 60));
             }
@@ -4004,12 +3923,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
     }, [refreshTrigger, userAddress]);
 
-    async function handleWarsSearch() {
+    async function handleWarsSearch(skip: string[] = []) {
         if (warsTransactionInProgress.current) return;
-        await executeWarsSearch();
+        await executeWarsSearch(skip);
     }
     
-    async function executeWarsSearch() {
+    async function executeWarsSearch(skip: string[] = []) {
         if (warsTransactionInProgress.current) return;
         warsTransactionInProgress.current = true;
         setWarsSearching(true);
@@ -4048,7 +3967,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 const response = await fetch(`${BACKEND_API_URL}/api/search`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ attacker: ctx.userAddress }),
+                    body: JSON.stringify({ attacker: ctx.userAddress, skip }),
                     signal: controller.signal,
                 });
                 clearTimeout(timeoutId);
@@ -4339,47 +4258,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
             setWarsStatus("Attacking (50K fee - confirm in wallet)...");
 
-            // Pre-flight gas estimation to catch revert reasons before user pays gas
-            const attackData = v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]);
-            try {
-                await readProvider.estimateGas({
-                    from: ctx.userAddress,
-                    to: V5_BATTLES_ADDRESS,
-                    data: attackData
-                });
-            } catch (gasErr: any) {
-                const reason = gasErr?.reason || gasErr?.data?.message || gasErr?.message || "";
-                console.error("[Wars] Gas estimation failed:", reason, gasErr);
-                
-                if (reason.includes("!cd")) {
-                    setWarsStatus("❌ Cooldown active - wait 6h between attacks");
-                } else if (reason.includes("!shld")) {
-                    setWarsStatus("❌ Target has a shield! Search for a new target.");
-                } else if (reason.includes("!exp")) {
-                    setWarsStatus("❌ Signature expired - search for a new target");
-                } else if (reason.includes("!sig")) {
-                    setWarsStatus("❌ Invalid signature - search for a new target");
-                } else if (reason.includes("!p")) {
-                    setWarsStatus("❌ You need staked NFTs to attack");
-                } else if (reason.includes("!tgt")) {
-                    setWarsStatus("❌ Target invalid - no plants or insufficient pending rewards");
-                } else if (reason.includes("!fee") || reason.includes("ERC20") || reason.includes("allowance")) {
-                    setWarsStatus("❌ Insufficient FCWEED balance or approval");
-                } else if (reason.includes("!on")) {
-                    setWarsStatus("❌ Cartel Wars is currently disabled");
-                } else {
-                    setWarsStatus("❌ Attack would fail: " + (reason.length > 50 ? reason.slice(0, 50) + "..." : reason || "Unknown reason"));
-                }
-                setWarsSearching(false);
-                warsTransactionInProgress.current = false;
-                return;
-            }
-
             // Execute cartelAttack - this pays 50K AND executes the battle
             const tx = await txAction().sendContractTx(
                 V5_BATTLES_ADDRESS,
-                attackData,
-                "0x3D0900" // 4M gas - battles do multiple cross-contract calls, targets with many NFTs need more gas
+                v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]),
+                "0x1E8480" // 2M gas - battles do multiple cross-contract calls
             );
 
             if (!tx) {
@@ -4394,7 +4277,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             // Check if transaction failed
             if (receipt && receipt.status === 0) {
-                setWarsStatus("❌ Attack reverted on-chain - this shouldn't happen after gas estimation passed. Try again or contact support.");
+                setWarsStatus("Transaction failed - the attack was reverted");
                 setWarsSearching(false);
                 warsTransactionInProgress.current = false;
                 return;
@@ -4590,7 +4473,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function handleNextOpponent() {
         if (warsTransactionInProgress.current) return;
 
-        // Clear state and search again
+        const currentTarget = warsTarget;
+        
         setWarsTarget(null);
         setWarsTargetStats(null);
         setWarsTargetRevealed(false);
@@ -4601,7 +4485,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setWarsResult(null);
         setWarsStatus("");
 
-        handleWarsSearch();
+        handleWarsSearch(currentTarget ? [currentTarget] : []);
     }
 
     useEffect(() => {
@@ -4977,40 +4861,38 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
                 let approveTx: ethers.providers.TransactionResponse | null = null;
 
-                if (isMiniAppWallet && miniAppProvider) {
-
-                    console.log("[Crate] Using mini app wallet for approval");
-                    approveTx = await txAction().sendWalletCalls(
-                        ctx.userAddress,
-                        FCWEED_ADDRESS,
-                        erc20Interface.encodeFunctionData("approve", [CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256])
-                    );
-                } else {
-
-                    console.log("[Crate] Using external wallet for approval via sendContractTx");
-                    try {
-                        // Use sendContractTx for proper Phantom/Base App wallet compatibility
+                try {
+                    if (isMiniAppWallet && miniAppProvider) {
+                        console.log("[Crate] Using mini app wallet for approval");
+                        approveTx = await txAction().sendWalletCalls(
+                            ctx.userAddress,
+                            FCWEED_ADDRESS,
+                            erc20Interface.encodeFunctionData("approve", [CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256])
+                        );
+                    } else {
+                        console.log("[Crate] Using external wallet for approval via sendContractTx");
                         const approveData = erc20Interface.encodeFunctionData("approve", [CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256]);
                         approveTx = await sendContractTx(FCWEED_ADDRESS, approveData);
-                    } catch (approveErr: any) {
-                        clearTimeout(timeoutId);
-                        crateTransactionInProgress.current = false;
-                        console.error("[Crate] Approval error:", approveErr);
-                        if (approveErr?.code === 4001 || approveErr?.code === "ACTION_REJECTED") {
-                            setCrateError("Approval rejected");
-                        } else {
-                            setCrateError("Approval failed: " + (approveErr?.reason || approveErr?.message || "Unknown error").slice(0, 50));
-                        }
-                        setCrateLoading(false);
-                        setCrateStatus("");
-                        return;
                     }
+                } catch (approveErr: any) {
+                    clearTimeout(timeoutId);
+                    crateTransactionInProgress.current = false;
+                    console.error("[Crate] Approval error:", approveErr);
+                    const errMsg = approveErr?.shortMessage || approveErr?.reason || approveErr?.message || "Unknown error";
+                    if (approveErr?.code === 4001 || approveErr?.code === "ACTION_REJECTED" || errMsg.includes("rejected") || errMsg.includes("denied") || errMsg.includes("canceled")) {
+                        setCrateError("Approval canceled by user");
+                    } else {
+                        setCrateError("Approval failed: " + errMsg.slice(0, 50));
+                    }
+                    setCrateLoading(false);
+                    setCrateStatus("");
+                    return;
                 }
 
                 if (!approveTx) {
                     clearTimeout(timeoutId);
                     crateTransactionInProgress.current = false;
-                    setCrateError("Approval rejected");
+                    setCrateError("Approval not completed. Please try again.");
                     setCrateLoading(false);
                     setCrateStatus("");
                     return;
@@ -6228,8 +6110,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>6h cooldown</b> between attacks</li>
                                 <li style={{ color: "#ef4444", marginTop: 8 }}><b>DEA RAIDS (Hunt Sellers)</b> — Target wallets that sold FCWEED!</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>100K FCWEED</b> raid fee to attack sellers</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>6h cooldown</b> (Same Target) | <b style={{ color: "#fbbf24" }}>20 min cooldown</b> (After Successful Raid)</li>
-                                <li style={{ color: "#dc2626", marginTop: 8 }}><b>THE PURGE (Chaos Event) (Awaiting Schedule)</b> — Weekly chaos mode!</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>6h cooldown</b> (Same Target) | <b style={{ color: "#fbbf24" }}>2h cooldown</b> (After Successful Raid)</li>
+                                <li style={{ color: "#dc2626", marginTop: 8 }}><b>THE PURGE (Chaos Event) (LIVE)</b> — Weekly chaos mode!</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Active <b>Saturday 11PM - Sunday 11PM EST</b></li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>250K FCWEED</b> to target ANY wallet directly</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>20 min cooldown</b> | <b style={{ color: "#ef4444" }}>All shields BYPASSED</b></li>
@@ -6565,8 +6447,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     </div>
                 )}
 
-                {/* Wars section - always mounted to preserve DEA list state, hidden when not active */}
-                <section className={styles.infoCard} style={{ ...getCardStyle({ textAlign: "center", padding: 16 }), display: activeTab === "wars" ? "block" : "none" }}>
+                {activeTab === "wars" && (
+                    <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 16 })}>
                         <h2 style={{ fontSize: 18, margin: "0 0 8px", color: "#ef4444" }}>⚔️ Cartel Wars</h2>
 
                         
@@ -6605,11 +6487,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     <div style={{ fontSize: 9, color: theme === "light" ? "#475569" : "#c0c9f4", lineHeight: 1.5, paddingLeft: 8 }}>
                                         • Target wallets that sold FCWEED (under investigation)<br/>
                                         • Pay <span style={{ color: "#fbbf24" }}>100K FCWEED</span> raid fee<br/>
-                                        • <span style={{ color: "#fbbf24" }}>6h cooldown</span> (Same Target) | <span style={{ color: "#fbbf24" }}>20 min cooldown</span> (After Successful Raid)
+                                        • <span style={{ color: "#fbbf24" }}>6h cooldown</span> (Same Target) | <span style={{ color: "#fbbf24" }}>2h cooldown</span> (After Successful Raid)
                                     </div>
                                 </div>
                                 <div style={{ borderTop: "1px solid rgba(139,92,246,0.2)", paddingTop: 10 }}>
-                                    <div style={{ fontSize: 10, fontWeight: 600, color: "#dc2626", marginBottom: 4 }}>🔪 THE PURGE (Chaos Event) (Awaiting Schedule)</div>
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: "#dc2626", marginBottom: 4 }}>🔪 THE PURGE (Chaos Event) (LIVE)</div>
                                     <div style={{ fontSize: 9, color: theme === "light" ? "#475569" : "#c0c9f4", lineHeight: 1.5, paddingLeft: 8 }}>
                                         • Scheduled chaos events - target ANY wallet directly for <span style={{ color: "#fbbf24" }}>250K FCWEED</span>!<br/>
                                         • <span style={{ color: "#fbbf24" }}>20 min cooldown</span> | <span style={{ color: "#ef4444" }}>All shields BYPASSED</span>. No mercy.
@@ -7046,19 +6928,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             refreshData={refreshAllData}
                         />
                     </section>
+                )}
 
 
 
                                 {activeTab === "referrals" && (
-                    <section className={styles.infoCard} style={getCardStyle({ position: "relative", textAlign: "center", padding: 40, minHeight: 300 })}>
-                        <div style={{ position: "absolute", inset: 0, background: "rgba(5,8,18,0.85)", backdropFilter: "blur(8px)", borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
-                            <div>
-                                <div style={{ fontSize: 48, marginBottom: 12 }}>📜</div>
-                                <h2 style={{ fontSize: 20, color: "#fbbf24" }}>Coming Soon</h2>
-                                <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 8, maxWidth: 280, lineHeight: 1.5 }}>Earn Dust by completing Quests and Referring Friends</p>
-                            </div>
-                        </div>
-                    </section>
+                    <ReferralsPanel
+                        connected={connected}
+                        userAddress={userAddress}
+                        signer={signer}
+                        chainId={CHAIN_ID}
+                        backendBaseUrl={"https://api.fcweed.xyz"}
+                    />
                 )}
 
                 {activeTab === "shop" && (
