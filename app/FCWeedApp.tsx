@@ -877,13 +877,27 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             try {
                 console.log("[TX] Attempting walletClient.sendTransaction for:", wagmiAddress);
                 
-                // Use walletClient from wagmi - this is the correct provider for ANY connected wallet
-                const hash = await walletClient.sendTransaction({
+                // Build transaction params
+                const txParams: any = {
                     to: to as `0x${string}`,
                     data: data as `0x${string}`,
                     chain: walletClient.chain,
                     account: walletClient.account,
-                });
+                };
+                
+                // Include gas limit if provided (critical for battles/crates)
+                if (gasLimit) {
+                    // Convert hex string to bigint for viem
+                    if (gasLimit.startsWith("0x")) {
+                        txParams.gas = BigInt(gasLimit);
+                    } else {
+                        txParams.gas = BigInt(parseInt(gasLimit, 10));
+                    }
+                    console.log("[TX] WalletClient gas limit:", txParams.gas.toString());
+                }
+                
+                // Use walletClient from wagmi - this is the correct provider for ANY connected wallet
+                const hash = await walletClient.sendTransaction(txParams);
                 
                 console.log("[TX] WalletClient tx hash:", hash);
                 
@@ -1164,7 +1178,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             const iface = new ethers.utils.Interface(["function activateShield() external"]);
             const data = iface.encodeFunctionData("activateShield", []);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("Shield activated! 24h protection.");
@@ -1187,7 +1201,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             const iface = new ethers.utils.Interface(["function activateAttackBoost() external"]);
             const data = iface.encodeFunctionData("activateAttackBoost", []);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("Attack boost activated!");
@@ -1210,7 +1224,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             const iface = new ethers.utils.Interface(["function activateAK47() external"]);
             const data = iface.encodeFunctionData("activateAK47", []);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("AK-47 activated! +100% combat power for 12h");
@@ -1233,7 +1247,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             const iface = new ethers.utils.Interface(["function activateRPG() external"]);
             const data = iface.encodeFunctionData("activateRPG", []);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("RPG activated! +500% combat power for 3h");
@@ -1257,7 +1271,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             const iface = new ethers.utils.Interface(["function activateNuke() external"]);
             const data = iface.encodeFunctionData("activateNuke", []);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("☢️ TACTICAL NUKE ACTIVATED! +10000% combat power for 10min");
@@ -1281,7 +1295,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             const iface = new ethers.utils.Interface(["function useHealthPackBatch(uint256[] plantIds)"]);
             const data = iface.encodeFunctionData("useHealthPackBatch", [selectedPlantsForHealthPack]);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            // Gas scales with number of plants - 200k base + 100k per plant
+            const gasLimit = 200000 + (selectedPlantsForHealthPack.length * 100000);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x" + gasLimit.toString(16));
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("Health pack used! Plants healed to 80%");
@@ -1304,8 +1320,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setShopLoading(true);
         setShopStatus(`Buying item...`);
         try {
+            // V12 ItemShop uses separate functions for each payment method
             const itemShopAbi = [
-                "function buyItem(uint256 itemId, bool payWithDust) external",
+                "function purchaseWithFcweed(uint256 itemId) external",
+                "function purchaseWithDust(uint256 itemId) external",
                 "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active)",
                 "function shopEnabled() view returns (bool)",
             ];
@@ -1328,6 +1346,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     setShopLoading(false);
                     return;
                 }
+                
+                setShopStatus("Confirming purchase...");
+                const data = itemShopInterface.encodeFunctionData("purchaseWithFcweed", [itemId]);
+                const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
+                if (!tx) {
+                    setShopStatus("Transaction canceled");
+                    setShopLoading(false);
+                    return;
+                }
+                await tx.wait();
             } else {
                 const dustPrice = item.dustPrice;
                 if (dustPrice.eq(0)) {
@@ -1356,18 +1384,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 } catch (e) {
                     console.error("[Shop] Dust balance check failed:", e);
                 }
+                
+                setShopStatus("Confirming purchase...");
+                const data = itemShopInterface.encodeFunctionData("purchaseWithDust", [itemId]);
+                const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
+                if (!tx) {
+                    setShopStatus("Transaction canceled");
+                    setShopLoading(false);
+                    return;
+                }
+                await tx.wait();
             }
             
-            setShopStatus("Confirming purchase...");
-            const payWithDust = currency === "dust";
-            const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, payWithDust]);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
-            if (!tx) {
-                setShopStatus("Transaction canceled");
-                setShopLoading(false);
-                return;
-            }
-            await tx.wait();
             setShopStatus("✅ Purchase successful!");
             fetchInventory();
             refreshAllData();
@@ -1375,13 +1403,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         } catch (e: any) {
             const reason = e?.reason || e?.shortMessage || e?.message || "Purchase failed";
             console.error("[Shop] Purchase error:", reason);
-            if (reason.includes("!water") || reason.includes("Insufficient")) {
+            if (reason.includes("!water") || reason.includes("Insufficient") || reason.includes("Transfer failed")) {
                 setShopStatus("Insufficient balance!");
             } else if (reason.includes("exhausted") || reason.includes("Sold out")) {
                 setShopStatus("Item sold out for today!");
-            } else if (reason.includes("disabled") || reason.includes("closed")) {
+            } else if (reason.includes("disabled") || reason.includes("closed") || reason.includes("Shop disabled")) {
                 setShopStatus("Shop is currently disabled");
-            } else if (reason.includes("not available") || reason.includes("FCWEED payment not available")) {
+            } else if (reason.includes("not available") || reason.includes("Not available")) {
                 setShopStatus("This payment method not available for this item");
             } else if (reason.includes("rejected") || reason.includes("denied") || reason.includes("canceled") || e?.code === 4001) {
                 setShopStatus("Transaction canceled");
@@ -2102,7 +2130,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             }
             
             // Use local sendContractTx for MiniApp support
-            const tx = await sendContractTx(LAND_ADDRESS, data);
+            const tx = await sendContractTx(LAND_ADDRESS, data, "0x7A120"); // 500k gas
             if (!tx) return;
             setMintStatus("Land mint transaction sent. Waiting for confirmation…");
             await waitForTx(tx);
@@ -2146,7 +2174,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             }
             
             // Use local sendContractTx for MiniApp support
-            const tx = await sendContractTx(PLANT_ADDRESS, data);
+            const tx = await sendContractTx(PLANT_ADDRESS, data, "0x7A120"); // 500k gas
             if (!tx) return;
             setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
             await waitForTx(tx);
@@ -3798,12 +3826,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             const allowance = await tokenContract.allowance(userAddress, V5_STAKING_ADDRESS);
             if (allowance.lt(cost)) {
-                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_STAKING_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_STAKING_ADDRESS, ethers.constants.MaxUint256]));
                 if (!approveTx) throw new Error("Approval rejected");
                 await waitForTx(approveTx);
             }
             setWaterStatus("Buying water...");
-            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("buyWater", [waterBuyAmount]));
+            const tx = await sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("buyWater", [waterBuyAmount]), "0x1E8480"); // 2M gas
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setWaterStatus("Water purchased!");
@@ -4064,7 +4092,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
             if (allowance.lt(revealFee)) {
                 setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120"); // 500k gas
                 if (!approveTx) {
                     setWarsStatus("Approval rejected");
                     setWarsSearching(false);
@@ -4079,7 +4107,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             // Transfer 50K to treasury for reveal (doesn't attack yet)
             setWarsStatus("Paying reveal fee (50K - confirm in wallet)...");
             const treasuryAddress = "0x5a567898881CEf8DF767D192b74d99513CAa6e46";
-            const transferTx = await txAction().sendContractTx(
+            const transferTx = await sendContractTx(
                 FCWEED_ADDRESS,
                 erc20Interface.encodeFunctionData("transfer", [treasuryAddress, revealFee]),
                 "0x30D40" // 200k gas
@@ -4226,7 +4254,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
             if (allowance.lt(attackFee)) {
                 setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120"); // 500k gas
                 if (!approveTx) {
                     setWarsStatus("Approval rejected");
                     setWarsSearching(false);
@@ -4244,10 +4272,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             if (shieldInfo[0]) {
                 setWarsStatus("Removing your shield...");
-                const removeShieldTx = await txAction().sendContractTx(
+                const removeShieldTx = await sendContractTx(
                     V5_ITEMSHOP_ADDRESS, 
                     v5ItemShopInterface.encodeFunctionData("removeShieldSelf", []), 
-                    "0x4C4B40"
+                    "0x4C4B40" // 5M gas
                 );
                 if (!removeShieldTx) {
                     setWarsStatus("Shield removal rejected");
@@ -4262,7 +4290,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setWarsStatus("Attacking (50K fee - confirm in wallet)...");
 
             // Execute cartelAttack - this pays 50K AND executes the battle
-            const tx = await txAction().sendContractTx(
+            const tx = await sendContractTx(
                 V5_BATTLES_ADDRESS,
                 v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]),
                 "0x1E8480" // 2M gas - battles do multiple cross-contract calls

@@ -965,7 +965,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                             
                             // Send flag transaction
                             console.log("[DEA] Sending flag transaction...");
-                            const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagData, "3000000"); // 3M gas
+                            const flagTx = await sendContractTx(V5_BATTLES_ADDRESS, flagData, "0x2DC6C0"); // 3M gas
                             
                             if (!flagTx) {
                                 // Check if target got flagged by someone else while we were trying
