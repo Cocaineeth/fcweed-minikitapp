@@ -31,6 +31,7 @@ export function ReferralsPanel(props: Props) {
     const [summary, setSummary] = useState<ReferralSummary | null>(null);
     const [referrerCode, setReferrerCode] = useState<string>("");
     const [claimTx, setClaimTx] = useState<string>("");
+    const [copied, setCopied] = useState(false);
 
     const canAuth = props.connected && !!props.userAddress && !!props.signer;
     const rewardPerReferral = 0.5;
@@ -105,7 +106,8 @@ export function ReferralsPanel(props: Props) {
     const onCopy = async (text: string) => {
         try {
             await navigator.clipboard.writeText(text);
-            alert("✅ Copied");
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
         } catch {
             prompt("Copy:", text);
         }
@@ -230,14 +232,17 @@ export function ReferralsPanel(props: Props) {
                         {summary && (
                             <>
                                 {summary.canReferMore ? (
-                                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-                                        <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 8, padding: "10px 14px", border: "1px solid rgba(251,191,36,0.3)" }}>
-                                            <span style={{ fontSize: 11, color: "#9ca3af" }}>Code: </span>
-                                            <span style={{ fontSize: 15, fontWeight: 800, color: "#fbbf24", letterSpacing: 1 }}>{summary.myCode || "—"}</span>
+                                    <div style={{ marginBottom: 12 }}>
+                                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                                            <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 8, padding: "10px 14px", border: "1px solid rgba(251,191,36,0.3)" }}>
+                                                <span style={{ fontSize: 11, color: "#9ca3af" }}>Code: </span>
+                                                <span style={{ fontSize: 15, fontWeight: 800, color: "#fbbf24", letterSpacing: 1 }}>{summary.myCode || "—"}</span>
+                                            </div>
+                                            <button type="button" className={styles.btnPrimary} onClick={() => onCopy(summary.myCode)} disabled={!summary.myCode} style={{ padding: "10px 16px", fontSize: 12, background: "linear-gradient(135deg, #fbbf24, #f59e0b)", color: "#000", fontWeight: 700, borderRadius: 8, border: "none", cursor: summary.myCode ? "pointer" : "not-allowed" }}>
+                                                {copied ? "✓ Copied" : "📋 Copy"}
+                                            </button>
                                         </div>
-                                        <button type="button" className={styles.btnPrimary} onClick={() => onCopy(summary.myCode)} disabled={!summary.myCode} style={{ padding: "10px 16px", fontSize: 12, background: "linear-gradient(135deg, #fbbf24, #f59e0b)", color: "#000", fontWeight: 700, borderRadius: 8, border: "none", cursor: summary.myCode ? "pointer" : "not-allowed" }}>
-                                            📋 Copy
-                                        </button>
+                                        {copied && <div style={{ fontSize: 10, color: "#10b981", marginTop: 4 }}>✓ copied to clipboard</div>}
                                     </div>
                                 ) : (
                                     <div style={{ fontSize: 12, color: "#ef4444", background: "rgba(239,68,68,0.1)", borderRadius: 8, padding: 10, border: "1px solid rgba(239,68,68,0.3)", marginBottom: 12 }}>
