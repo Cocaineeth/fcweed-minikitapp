@@ -124,7 +124,8 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState<string>("");
     const [fid, setFid] = useState<number | null>(null);
-    const menuRef = useRef<HTMLDivElement>(null);
+    const [manualFid, setManualFid] = useState<string>("");
+    const [inFarcasterContext, setInFarcasterContext] = useState(false);
 
     // Load preferences from localStorage on mount
     useEffect(() => {
@@ -138,6 +139,12 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
         
         const enabled = localStorage.getItem("fcweed_notifications_enabled") === "true";
         setNotificationsEnabled(enabled);
+        
+        const savedFid = localStorage.getItem("fcweed_fid");
+        if (savedFid) {
+            setFid(Number(savedFid));
+            setManualFid(savedFid);
+        }
 
         // Get Farcaster FID if in frame context
         const getFid = async () => {
@@ -145,21 +152,13 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
                 const context = await sdk.context;
                 if (context?.user?.fid) {
                     setFid(context.user.fid);
+                    setManualFid(String(context.user.fid));
+                    setInFarcasterContext(true);
+                    localStorage.setItem("fcweed_fid", String(context.user.fid));
                 }
             } catch {}
         };
         getFid();
-    }, []);
-
-    // Close menu on outside click
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
     // Save preferences to localStorage whenever they change
@@ -169,40 +168,65 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
 
     // Request notification permission from Farcaster
     const enableNotifications = async () => {
+        // Check if we have an FID (either from context or manual entry)
+        const effectiveFid = fid || (manualFid ? Number(manualFid) : null);
+        
+        if (!effectiveFid) {
+            setStatus("❌ Enter your Farcaster FID first");
+            return;
+        }
+        
         setLoading(true);
-        setStatus("Requesting permission...");
+        setStatus("Enabling notifications...");
         
         try {
-            // Request notification permission via Farcaster SDK
-            const result = await sdk.actions.addFrame();
+            // Try to add frame if in Farcaster context (but don't fail if not)
+            if (inFarcasterContext) {
+                try {
+                    await sdk.actions.addFrame();
+                } catch (e) {
+                    console.log("[Notifications] addFrame not available, continuing anyway");
+                }
+            }
             
-            if (result?.added) {
-                setNotificationsEnabled(true);
-                localStorage.setItem("fcweed_notifications_enabled", "true");
-                setStatus("✅ Notifications enabled!");
+            // Register with backend - this is what actually matters
+            if (backendUrl && userAddress) {
+                const response = await fetch(`${backendUrl}/api/notifications/register`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        address: userAddress,
+                        fid: effectiveFid,
+                        preferences: preferences,
+                    }),
+                });
                 
-                // Register with backend
-                if (backendUrl && userAddress && fid) {
-                    try {
-                        await fetch(`${backendUrl}/api/notifications/register`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                address: userAddress,
-                                fid: fid,
-                                preferences: preferences,
-                            }),
-                        });
-                    } catch (e) {
-                        console.error("[Notifications] Backend registration failed:", e);
-                    }
+                if (response.ok) {
+                    setNotificationsEnabled(true);
+                    localStorage.setItem("fcweed_notifications_enabled", "true");
+                    localStorage.setItem("fcweed_fid", String(effectiveFid));
+                    setFid(effectiveFid);
+                    setStatus("✅ Notifications enabled!");
+                } else {
+                    const err = await response.json();
+                    setStatus(`❌ ${err.error || "Registration failed"}`);
                 }
             } else {
-                setStatus("❌ Permission denied");
+                // Just save locally if no backend or no wallet
+                setNotificationsEnabled(true);
+                localStorage.setItem("fcweed_notifications_enabled", "true");
+                localStorage.setItem("fcweed_fid", String(effectiveFid));
+                setFid(effectiveFid);
+                setStatus("✅ Preferences saved!");
             }
         } catch (e: any) {
             console.error("[Notifications] Enable failed:", e);
-            setStatus("❌ Not in Farcaster frame");
+            // Still enable locally even if backend fails
+            setNotificationsEnabled(true);
+            localStorage.setItem("fcweed_notifications_enabled", "true");
+            localStorage.setItem("fcweed_fid", String(effectiveFid));
+            setFid(effectiveFid);
+            setStatus("✅ Saved locally (backend unavailable)");
         }
         
         setLoading(false);
@@ -263,184 +287,305 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
     const enabledCount = Object.values(preferences).filter(Boolean).length;
 
     return (
-        <div className="relative" ref={menuRef}>
+        <>
             {/* Bell Icon Button */}
             <button
-                onClick={() => setIsOpen(!isOpen)}
-                className={`p-2 rounded-lg transition-colors relative ${
-                    isDark 
-                        ? "hover:bg-gray-700 text-gray-300" 
-                        : "hover:bg-gray-200 text-gray-600"
-                }`}
+                onClick={() => setIsOpen(true)}
+                style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 8,
+                    border: `1px solid ${isDark ? "rgba(255,255,255,0.2)" : "#cbd5e1"}`,
+                    background: isDark ? "rgba(255,255,255,0.1)" : "#f1f5f9",
+                    color: isDark ? "#fff" : "#1e293b",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    position: "relative",
+                }}
                 title="Notification Settings"
             >
-                <svg 
-                    xmlns="http://www.w3.org/2000/svg" 
-                    width="20" 
-                    height="20" 
-                    viewBox="0 0 24 24" 
-                    fill="none" 
-                    stroke="currentColor" 
-                    strokeWidth="2" 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round"
-                >
-                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                </svg>
-                {/* Notification badge */}
+                🔔
+                {/* Green dot when enabled */}
                 {notificationsEnabled && (
-                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-900" />
+                    <span style={{
+                        position: "absolute",
+                        top: -2,
+                        right: -2,
+                        width: 10,
+                        height: 10,
+                        background: "#22c55e",
+                        borderRadius: "50%",
+                        border: `2px solid ${isDark ? "#1f2937" : "#fff"}`,
+                    }} />
                 )}
             </button>
 
-            {/* Dropdown Menu */}
+            {/* Modal Overlay */}
             {isOpen && (
-                <div 
-                    className={`absolute right-0 top-12 w-80 max-h-[70vh] overflow-y-auto rounded-xl shadow-2xl z-50 ${
-                        isDark ? "bg-gray-800 border border-gray-700" : "bg-white border border-gray-200"
-                    }`}
+                <div
+                    onClick={() => setIsOpen(false)}
+                    style={{
+                        position: "fixed",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: "rgba(0,0,0,0.7)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        zIndex: 9999,
+                        padding: 16,
+                    }}
                 >
-                    {/* Header */}
-                    <div className={`sticky top-0 p-4 border-b ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
-                        <div className="flex items-center justify-between mb-2">
-                            <h3 className={`font-bold text-lg ${isDark ? "text-white" : "text-gray-900"}`}>
-                                🔔 Notifications
-                            </h3>
-                            <button 
-                                onClick={() => setIsOpen(false)}
-                                className={`p-1 rounded ${isDark ? "hover:bg-gray-700" : "hover:bg-gray-100"}`}
-                            >
-                                ✕
-                            </button>
-                        </div>
-                        
-                        {/* Master Toggle */}
-                        <div className={`flex items-center justify-between p-3 rounded-lg ${
-                            isDark ? "bg-gray-700" : "bg-gray-100"
-                        }`}>
-                            <div>
-                                <div className={`font-medium ${isDark ? "text-white" : "text-gray-900"}`}>
-                                    {notificationsEnabled ? "✅ Enabled" : "❌ Disabled"}
-                                </div>
-                                <div className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
-                                    {notificationsEnabled ? `${enabledCount} alerts active` : "Click to enable"}
-                                </div>
-                            </div>
-                            <button
-                                onClick={notificationsEnabled ? disableNotifications : enableNotifications}
-                                disabled={loading}
-                                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                                    notificationsEnabled
-                                        ? "bg-red-500 hover:bg-red-600 text-white"
-                                        : "bg-green-500 hover:bg-green-600 text-white"
-                                } ${loading ? "opacity-50 cursor-not-allowed" : ""}`}
-                            >
-                                {loading ? "..." : notificationsEnabled ? "Disable" : "Enable"}
-                            </button>
-                        </div>
-                        
-                        {status && (
-                            <div className={`mt-2 text-sm text-center ${
-                                status.includes("✅") ? "text-green-400" : 
-                                status.includes("❌") ? "text-red-400" : 
-                                isDark ? "text-gray-400" : "text-gray-500"
-                            }`}>
-                                {status}
-                            </div>
-                        )}
-
-                        {/* Quick Actions */}
-                        {notificationsEnabled && (
-                            <div className="flex gap-2 mt-3">
-                                <button
-                                    onClick={enableAll}
-                                    className={`flex-1 py-1.5 text-xs rounded font-medium ${
-                                        isDark ? "bg-gray-600 hover:bg-gray-500 text-white" : "bg-gray-200 hover:bg-gray-300 text-gray-700"
-                                    }`}
+                    {/* Modal Content */}
+                    <div 
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: "100%",
+                            maxWidth: 400,
+                            maxHeight: "80vh",
+                            overflowY: "auto",
+                            borderRadius: 16,
+                            background: isDark ? "#1f2937" : "#fff",
+                            border: `1px solid ${isDark ? "#374151" : "#e5e7eb"}`,
+                            boxShadow: "0 25px 50px -12px rgba(0,0,0,0.5)",
+                        }}
+                    >
+                        {/* Header */}
+                        <div style={{
+                            position: "sticky",
+                            top: 0,
+                            padding: 16,
+                            borderBottom: `1px solid ${isDark ? "#374151" : "#e5e7eb"}`,
+                            background: isDark ? "#1f2937" : "#fff",
+                            borderRadius: "16px 16px 0 0",
+                        }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: isDark ? "#fff" : "#1f2937" }}>
+                                    🔔 Notifications
+                                </h3>
+                                <button 
+                                    onClick={() => setIsOpen(false)}
+                                    style={{
+                                        width: 32,
+                                        height: 32,
+                                        borderRadius: 8,
+                                        border: "none",
+                                        background: isDark ? "#374151" : "#f3f4f6",
+                                        color: isDark ? "#9ca3af" : "#6b7280",
+                                        cursor: "pointer",
+                                        fontSize: 16,
+                                    }}
                                 >
-                                    Enable All
-                                </button>
-                                <button
-                                    onClick={disableAll}
-                                    className={`flex-1 py-1.5 text-xs rounded font-medium ${
-                                        isDark ? "bg-gray-600 hover:bg-gray-500 text-white" : "bg-gray-200 hover:bg-gray-300 text-gray-700"
-                                    }`}
-                                >
-                                    Disable All
+                                    ✕
                                 </button>
                             </div>
-                        )}
-                    </div>
-
-                    {/* Notification Categories */}
-                    {notificationsEnabled && (
-                        <div className="p-3">
-                            {NOTIFICATION_CATEGORIES.map((category, idx) => (
-                                <div key={idx} className="mb-4">
-                                    <div className={`text-xs font-bold uppercase tracking-wide mb-2 ${
-                                        isDark ? "text-gray-400" : "text-gray-500"
-                                    }`}>
-                                        {category.title}
+                            
+                            {/* FID Input (show when FID not already set) */}
+                            {!fid && !notificationsEnabled && (
+                                <div style={{ marginBottom: 12 }}>
+                                    <label style={{ 
+                                        display: "block", 
+                                        fontSize: 12, 
+                                        color: isDark ? "#9ca3af" : "#6b7280",
+                                        marginBottom: 4 
+                                    }}>
+                                        Your Farcaster FID {inFarcasterContext ? "(auto-detected)" : "(find in Warpcast → Settings)"}
+                                    </label>
+                                    <input
+                                        type="number"
+                                        value={manualFid}
+                                        onChange={(e) => setManualFid(e.target.value)}
+                                        placeholder="e.g. 12345"
+                                        style={{
+                                            width: "100%",
+                                            padding: "8px 12px",
+                                            borderRadius: 8,
+                                            border: `1px solid ${isDark ? "#4b5563" : "#d1d5db"}`,
+                                            background: isDark ? "#374151" : "#f9fafb",
+                                            color: isDark ? "#fff" : "#1f2937",
+                                            fontSize: 14,
+                                        }}
+                                    />
+                                </div>
+                            )}
+                            
+                            {/* Master Toggle */}
+                            <div style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                padding: 12,
+                                borderRadius: 8,
+                                background: isDark ? "#374151" : "#f3f4f6",
+                            }}>
+                                <div>
+                                    <div style={{ fontWeight: 600, color: isDark ? "#fff" : "#1f2937" }}>
+                                        {notificationsEnabled ? "✅ Enabled" : "❌ Disabled"}
                                     </div>
-                                    <div className="space-y-1">
-                                        {category.keys.map((key) => {
-                                            const info = NOTIFICATION_LABELS[key];
-                                            return (
-                                                <button
-                                                    key={key}
-                                                    onClick={() => togglePreference(key)}
-                                                    className={`w-full flex items-center justify-between p-2 rounded-lg transition-colors ${
-                                                        isDark 
-                                                            ? "hover:bg-gray-700" 
-                                                            : "hover:bg-gray-100"
-                                                    }`}
-                                                >
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-lg">{info.emoji}</span>
-                                                        <div className="text-left">
-                                                            <div className={`text-sm font-medium ${
-                                                                isDark ? "text-white" : "text-gray-900"
-                                                            }`}>
-                                                                {info.label}
-                                                            </div>
-                                                            <div className={`text-xs ${
-                                                                isDark ? "text-gray-500" : "text-gray-400"
-                                                            }`}>
-                                                                {info.description}
+                                    <div style={{ fontSize: 12, color: isDark ? "#9ca3af" : "#6b7280" }}>
+                                        {notificationsEnabled ? `${enabledCount} alerts active` : "Click to enable"}
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={notificationsEnabled ? disableNotifications : enableNotifications}
+                                    disabled={loading}
+                                    style={{
+                                        padding: "8px 16px",
+                                        borderRadius: 8,
+                                        border: "none",
+                                        fontWeight: 600,
+                                        fontSize: 14,
+                                        cursor: loading ? "not-allowed" : "pointer",
+                                        opacity: loading ? 0.5 : 1,
+                                        background: notificationsEnabled ? "#ef4444" : "#22c55e",
+                                        color: "#fff",
+                                    }}
+                                >
+                                    {loading ? "..." : notificationsEnabled ? "Disable" : "Enable"}
+                                </button>
+                            </div>
+                            
+                            {status && (
+                                <div style={{
+                                    marginTop: 8,
+                                    fontSize: 13,
+                                    textAlign: "center",
+                                    color: status.includes("✅") ? "#22c55e" : status.includes("❌") ? "#ef4444" : isDark ? "#9ca3af" : "#6b7280",
+                                }}>
+                                    {status}
+                                </div>
+                            )}
+
+                            {/* Quick Actions */}
+                            {notificationsEnabled && (
+                                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                                    <button
+                                        onClick={enableAll}
+                                        style={{
+                                            flex: 1,
+                                            padding: "6px 12px",
+                                            fontSize: 12,
+                                            borderRadius: 6,
+                                            border: "none",
+                                            fontWeight: 500,
+                                            background: isDark ? "#4b5563" : "#e5e7eb",
+                                            color: isDark ? "#fff" : "#374151",
+                                            cursor: "pointer",
+                                        }}
+                                    >
+                                        Enable All
+                                    </button>
+                                    <button
+                                        onClick={disableAll}
+                                        style={{
+                                            flex: 1,
+                                            padding: "6px 12px",
+                                            fontSize: 12,
+                                            borderRadius: 6,
+                                            border: "none",
+                                            fontWeight: 500,
+                                            background: isDark ? "#4b5563" : "#e5e7eb",
+                                            color: isDark ? "#fff" : "#374151",
+                                            cursor: "pointer",
+                                        }}
+                                    >
+                                        Disable All
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Notification Categories */}
+                        {notificationsEnabled && (
+                            <div style={{ padding: 12 }}>
+                                {NOTIFICATION_CATEGORIES.map((category, idx) => (
+                                    <div key={idx} style={{ marginBottom: 16 }}>
+                                        <div style={{
+                                            fontSize: 11,
+                                            fontWeight: 700,
+                                            textTransform: "uppercase",
+                                            letterSpacing: "0.05em",
+                                            marginBottom: 8,
+                                            color: isDark ? "#9ca3af" : "#6b7280",
+                                        }}>
+                                            {category.title}
+                                        </div>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                            {category.keys.map((key) => {
+                                                const info = NOTIFICATION_LABELS[key];
+                                                return (
+                                                    <button
+                                                        key={key}
+                                                        onClick={() => togglePreference(key)}
+                                                        style={{
+                                                            width: "100%",
+                                                            display: "flex",
+                                                            alignItems: "center",
+                                                            justifyContent: "space-between",
+                                                            padding: "8px 12px",
+                                                            borderRadius: 8,
+                                                            border: "none",
+                                                            background: isDark ? "#374151" : "#f9fafb",
+                                                            cursor: "pointer",
+                                                            textAlign: "left",
+                                                        }}
+                                                    >
+                                                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                            <span style={{ fontSize: 16 }}>{info.emoji}</span>
+                                                            <div>
+                                                                <div style={{ fontSize: 13, fontWeight: 500, color: isDark ? "#fff" : "#1f2937" }}>
+                                                                    {info.label}
+                                                                </div>
+                                                                <div style={{ fontSize: 11, color: isDark ? "#6b7280" : "#9ca3af" }}>
+                                                                    {info.description}
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                    {/* Toggle Switch */}
-                                                    <div className={`w-10 h-6 rounded-full p-1 transition-colors ${
-                                                        preferences[key] 
-                                                            ? "bg-green-500" 
-                                                            : isDark ? "bg-gray-600" : "bg-gray-300"
-                                                    }`}>
-                                                        <div className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                                                            preferences[key] ? "translate-x-4" : "translate-x-0"
-                                                        }`} />
-                                                    </div>
-                                                </button>
-                                            );
-                                        })}
+                                                        {/* Toggle Switch */}
+                                                        <div style={{
+                                                            width: 40,
+                                                            height: 24,
+                                                            borderRadius: 12,
+                                                            padding: 2,
+                                                            background: preferences[key] ? "#22c55e" : isDark ? "#4b5563" : "#d1d5db",
+                                                            transition: "background 0.2s",
+                                                        }}>
+                                                            <div style={{
+                                                                width: 20,
+                                                                height: 20,
+                                                                borderRadius: 10,
+                                                                background: "#fff",
+                                                                transition: "transform 0.2s",
+                                                                transform: preferences[key] ? "translateX(16px)" : "translateX(0)",
+                                                            }} />
+                                                        </div>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
+                                ))}
+                            </div>
+                        )}
 
-                    {/* Footer */}
-                    <div className={`p-3 border-t text-center ${
-                        isDark ? "border-gray-700" : "border-gray-200"
-                    }`}>
-                        <div className={`text-xs ${isDark ? "text-gray-500" : "text-gray-400"}`}>
-                            Requires Farcaster frame context
+                        {/* Footer */}
+                        <div style={{
+                            padding: 12,
+                            borderTop: `1px solid ${isDark ? "#374151" : "#e5e7eb"}`,
+                            textAlign: "center",
+                        }}>
+                            <div style={{ fontSize: 11, color: isDark ? "#6b7280" : "#9ca3af" }}>
+                                {fid ? `FID: ${fid}` : "Enter FID to receive Farcaster notifications"}
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
-        </div>
+        </>
     );
 }
 
