@@ -3818,7 +3818,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const v4TotalWaterNeededForSelected = useMemo(() => selectedV4PlantsToWater.reduce((sum, id) => sum + Math.max(1, v4WaterNeeded[id] || 0), 0), [selectedV4PlantsToWater, v4WaterNeeded]);
 
     // Use environment variable or default to production URL
-    const BACKEND_API_URL = WARS_BACKEND_URL || process.env.NEXT_PUBLIC_WARS_API_URL || "https://fcweed-wars-backend.onrender.com";
+    const BACKEND_API_URL = WARS_BACKEND_URL || process.env.NEXT_PUBLIC_WARS_API_URL || "https://wars.x420ponzi.com";
     const [warsBackendStatus, setWarsBackendStatus] = useState<"unknown" | "online" | "offline">("unknown");
 
     // Check backend health when wars tab opens
