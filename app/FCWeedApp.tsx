@@ -3184,7 +3184,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         finally { setActionLoading(false); }
     }
 
-    aasync function handleV4WaterPlants() {
+    async function handleV4WaterPlants() {
              if (selectedV4PlantsToWater.length === 0) return;
 
              try {
