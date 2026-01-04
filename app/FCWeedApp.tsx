@@ -3994,12 +3994,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 const rawPending = stats?.pendingRewards;
                 if (rawPending !== null && rawPending !== undefined && rawPending !== "" && rawPending !== "0") {
                     try {
-                        const pendingStr = rawPending.toString().trim();
-                        if (pendingStr && !isNaN(parseFloat(pendingStr))) {
-                            pendingBN = ethers.utils.parseUnits(pendingStr, 18);
+                        const pendingNum = parseFloat(rawPending.toString());
+                        if (!isNaN(pendingNum) && pendingNum > 0) {
+                            // Use parseUnits for proper BigNumber conversion
+                            pendingBN = ethers.utils.parseUnits(pendingNum.toFixed(2), 18);
                         }
-                    } catch {
-                        try { pendingBN = ethers.BigNumber.from(rawPending); } catch {}
+                    } catch (e) {
+                        console.log("[Wars] Pending parse error:", e);
                     }
                 }
                 
@@ -4008,6 +4009,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     avgHealth: stats?.avgHealth || 100,
                     battlePower: stats?.battlePower || 0,
                     pendingRewards: pendingBN,
+                    pendingFormatted: stats?.pendingFormatted || "0",
                     hasShield: stats?.hasShield || false,
                 });
                 
@@ -4101,12 +4103,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const rawPending = stats?.pendingRewards;
             if (rawPending !== null && rawPending !== undefined && rawPending !== "" && rawPending !== "0") {
                 try {
-                    const pendingStr = rawPending.toString().trim();
-                    if (pendingStr && !isNaN(parseFloat(pendingStr))) {
-                        pendingBN = ethers.utils.parseUnits(pendingStr, 18);
+                    const pendingNum = parseFloat(rawPending.toString());
+                    if (!isNaN(pendingNum) && pendingNum > 0) {
+                        const pendingWei = Math.floor(pendingNum * 1e18).toString();
+                        pendingBN = ethers.BigNumber.from(pendingWei);
                     }
-                } catch {
-                    try { pendingBN = ethers.BigNumber.from(rawPending); } catch {}
+                } catch (e) {
+                    console.log("[Wars] Pending parse error:", e);
                 }
             }
 
@@ -4310,12 +4313,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const rawPending = stats?.pendingRewards;
             if (rawPending !== null && rawPending !== undefined && rawPending !== "" && rawPending !== "0") {
                 try {
-                    const pendingStr = rawPending.toString().trim();
-                    if (pendingStr && !isNaN(parseFloat(pendingStr))) {
-                        pendingBN = ethers.utils.parseUnits(pendingStr, 18);
+                    const pendingNum = parseFloat(rawPending.toString());
+                    if (!isNaN(pendingNum) && pendingNum > 0) {
+                        const pendingWei = Math.floor(pendingNum * 1e18).toString();
+                        pendingBN = ethers.BigNumber.from(pendingWei);
                     }
-                } catch {
-                    try { pendingBN = ethers.BigNumber.from(rawPending); } catch {}
+                } catch (e) {
+                    console.log("[Wars] Pending parse error:", e);
                 }
             }
             
@@ -6770,7 +6774,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                     <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 10, padding: 12, textAlign: "center" }}>
                                                         <div style={{ fontSize: 10, color: "#fbbf24", marginBottom: 4 }}>💰 PENDING LOOT</div>
                                                         <div style={{ fontSize: 22, fontWeight: 700, color: "#fbbf24" }}>
-                                                            {warsTargetStats.pendingRewards ? (parseFloat(ethers.utils.formatUnits(warsTargetStats.pendingRewards, 18)) / 1000).toFixed(0) + "K" : "0"}
+                                                            {warsTargetStats.pendingFormatted || "0"}
                                                         </div>
                                                     </div>
                                                 </div>
