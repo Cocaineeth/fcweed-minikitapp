@@ -1037,44 +1037,61 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function fetchInventory() {
         if (!userAddress || !readProvider) return;
         try {
+            // V14 ItemShop ABI
             const itemShopAbi = [
                 "function inventory(address user, uint256 itemId) view returns (uint256)",
-                "function getUserInventory(address) view returns (uint256 ak47, uint256 rpg, uint256 nuke, uint256 healthPack, uint256 shield, uint256 attackBoost)",
-                "function getDailyStock(uint256 itemId) view returns (uint256 remaining, uint256 total)",
-                "function getItemConfig(uint256 itemId) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, uint256 soldToday, bool isWeapon)",
+                "function getUserFullInventory(address) view returns (uint256[])",
+                "function getRemainingSupply(uint256 itemId) view returns (uint256)",
+                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active)",
                 "function hasActiveShield(address) view returns (bool active, uint256 expiresAt)",
-                "function getUserActiveBoosts(address) view returns (uint256 ak47Boost, uint256 ak47Expires, uint256 rpgBoost, uint256 rpgExpires, uint256 attackBoostBps, uint256 attackBoostExpires, bool nukeReady, uint256 nukeExpires, bool shieldActive, uint256 shieldExpires, uint256 totalBoost)",
+                "function getActiveBoosts(address) view returns (uint256 ak47Boost, uint256 ak47Expires, uint256 rpgBoost, uint256 rpgExpires, uint256 attackBoost, uint256 attackBoostExpires, bool nukeActive, uint256 nukeExpires, uint256 shieldExpires)",
             ];
             const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
             
-            // V11 uses getUserInventory for batch fetching
+            // V14 uses getUserFullInventory which returns uint256[] array
             let inv = { ak47: 0, rpg: 0, nuke: 0, healthPack: 0, shield: 0, attackBoost: 0 };
             let boosts = { ak47Expires: 0, rpgExpires: 0, attackBoostExpires: 0, nukeExpires: 0, shieldExpires: 0 };
             
             try {
-                const invResult = await itemShop.getUserInventory(userAddress);
+                const invResult = await itemShop.getUserFullInventory(userAddress);
+                // V14 returns array: [ak47, rpg, nuke, healthPack, shield, attackBoost]
                 inv = {
-                    ak47: invResult.ak47.toNumber(),
-                    rpg: invResult.rpg.toNumber(),
-                    nuke: invResult.nuke.toNumber(),
-                    healthPack: invResult.healthPack.toNumber(),
-                    shield: invResult.shield.toNumber(),
-                    attackBoost: invResult.attackBoost.toNumber(),
+                    ak47: Number(invResult[0]),
+                    rpg: Number(invResult[1]),
+                    nuke: Number(invResult[2]),
+                    healthPack: Number(invResult[3]),
+                    shield: Number(invResult[4]),
+                    attackBoost: Number(invResult[5]),
                 };
+                console.log("[Inventory] V14 fetched:", inv);
             } catch (e) {
-                console.log("[Inventory] getUserInventory failed, trying individual calls");
+                console.log("[Inventory] getUserFullInventory failed, trying individual calls:", e);
+                // Fallback to individual inventory calls
+                for (let i = 1; i <= 6; i++) {
+                    try {
+                        const count = await itemShop.inventory(userAddress, i);
+                        const num = Number(count);
+                        if (i === 1) inv.ak47 = num;
+                        if (i === 2) inv.rpg = num;
+                        if (i === 3) inv.nuke = num;
+                        if (i === 4) inv.healthPack = num;
+                        if (i === 5) inv.shield = num;
+                        if (i === 6) inv.attackBoost = num;
+                    } catch {}
+                }
             }
 
             try {
-                const boostResult = await itemShop.getUserActiveBoosts(userAddress);
+                // V14 getActiveBoosts returns 9 values (not 11)
+                const boostResult = await itemShop.getActiveBoosts(userAddress);
                 boosts = {
-                    ak47Expires: boostResult.ak47Expires.toNumber(),
-                    rpgExpires: boostResult.rpgExpires.toNumber(),
-                    attackBoostExpires: boostResult.attackBoostExpires.toNumber(),
-                    nukeExpires: boostResult.nukeExpires.toNumber(),
-                    shieldExpires: boostResult.shieldExpires.toNumber(),
+                    ak47Expires: Number(boostResult[1]),      // ak47Expires
+                    rpgExpires: Number(boostResult[3]),       // rpgExpires  
+                    attackBoostExpires: Number(boostResult[5]), // attackBoostExpires
+                    nukeExpires: Number(boostResult[7]),      // nukeExpires
+                    shieldExpires: Number(boostResult[8]),    // shieldExpires
                 };
-            } catch {}
+            } catch (e) { console.log("[Inventory] getActiveBoosts failed:", e); }
 
             // V11 item IDs: 1=AK47, 2=RPG, 3=Nuke, 4=HealthPack, 5=Shield, 6=AttackBoost
             setInventoryAK47(inv.ak47);
@@ -1089,14 +1106,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setNukeExpiry(boosts.nukeExpires);
             setShieldExpiry(boosts.shieldExpires);
 
-            // Get daily supply for each item
+            // Get daily supply for each item - V14 uses getRemainingSupply + itemConfigs
             const supplyData: Record<number, {remaining: number, total: number}> = {};
             const itemIds = [1, 2, 3, 4, 5, 6];
             for (const id of itemIds) {
                 try {
-                    const [remaining, total] = await itemShop.getDailyStock(id);
-                    const remainingNum = remaining.gt(ethers.BigNumber.from(1000000)) ? 999 : remaining.toNumber();
-                    supplyData[id] = { remaining: remainingNum, total: total.toNumber() > 1000000 ? 999 : total.toNumber() };
+                    const remaining = await itemShop.getRemainingSupply(id);
+                    const config = await itemShop.itemConfigs(id);
+                    const remainingNum = Number(remaining) > 1000000 ? 999 : Number(remaining);
+                    const totalNum = Number(config.dailySupply) > 1000000 ? 999 : Number(config.dailySupply);
+                    supplyData[id] = { remaining: remainingNum, total: totalNum };
                 } catch { supplyData[id] = { remaining: 999, total: 999 }; }
             }
             setShopSupply(supplyData);
@@ -1108,31 +1127,31 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function refreshShopSupply() {
         if (!readProvider) return;
         try {
+            // V14 ItemShop ABI
             const itemShopAbi = [
-                "function getDailyStock(uint256 itemId) view returns (uint256 remaining, uint256 total)",
-                "function getTimeUntilReset() view returns (uint256)",
+                "function getRemainingSupply(uint256 itemId) view returns (uint256)",
+                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active)",
+                "function getCurrentDay() view returns (uint256)",
             ];
             const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
             const supplyData: Record<number, {remaining: number, total: number}> = {};
             const itemIds = [1, 2, 3, 4, 5, 6];
             
-            // Debug: Get time until reset from contract
+            // V14 uses getCurrentDay instead of getTimeUntilReset
             try {
-                const timeUntilReset = await itemShop.getTimeUntilReset();
-                const hours = Math.floor(timeUntilReset.toNumber() / 3600);
-                const minutes = Math.floor((timeUntilReset.toNumber() % 3600) / 60);
-                console.log(`[Shop] Contract says time until UTC reset: ${hours}h ${minutes}m`);
+                const currentDay = await itemShop.getCurrentDay();
+                console.log(`[Shop] Current day (UTC): ${currentDay.toString()}`);
             } catch (e) {
-                console.log("[Shop] Could not get time until reset from contract");
+                console.log("[Shop] Could not get current day");
             }
             
             // Fetch all in parallel for speed
             const promises = itemIds.map(async (id) => {
                 try {
-                    const [remaining, total] = await itemShop.getDailyStock(id);
-                    // getDailyStock returns max uint256 for remaining if dailySupply is 0 (unlimited)
-                    const remainingNum = remaining.gt(ethers.BigNumber.from(1000000)) ? 999 : remaining.toNumber();
-                    const totalNum = total.toNumber();
+                    const remaining = await itemShop.getRemainingSupply(id);
+                    const config = await itemShop.itemConfigs(id);
+                    const remainingNum = Number(remaining) > 1000000 ? 999 : Number(remaining);
+                    const totalNum = Number(config.dailySupply);
                     console.log(`[Shop] Item ${id}: remaining=${remainingNum}, total=${totalNum}`);
                     return { id, remaining: totalNum > 0 ? remainingNum : 999, total: totalNum > 0 ? totalNum : 999 };
                 } catch (err) {
@@ -1226,8 +1245,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setInventoryLoading(true);
         setInventoryStatus("Activating AK-47...");
         try {
-            const iface = new ethers.utils.Interface(["function activateAK47() external"]);
-            const data = iface.encodeFunctionData("activateAK47", []);
+            // V14 uses activateWeapon(itemId) instead of activateAK47()
+            const iface = new ethers.utils.Interface(["function activateWeapon(uint256 itemId) external"]);
+            const data = iface.encodeFunctionData("activateWeapon", [1]); // 1 = AK47_ID
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
@@ -1249,12 +1269,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setInventoryLoading(true);
         setInventoryStatus("Activating RPG...");
         try {
-            const iface = new ethers.utils.Interface(["function activateRPG() external"]);
-            const data = iface.encodeFunctionData("activateRPG", []);
+            // V14 uses activateWeapon(itemId) instead of activateRPG()
+            const iface = new ethers.utils.Interface(["function activateWeapon(uint256 itemId) external"]);
+            const data = iface.encodeFunctionData("activateWeapon", [2]); // 2 = RPG_ID
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
-                setInventoryStatus("RPG activated! +500% combat power for 3h");
+                setInventoryStatus("RPG activated! +500% combat power for 6h");
                 fetchInventory();
                 refreshAllData();
             } else {
@@ -1273,8 +1294,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setInventoryLoading(true);
         setInventoryStatus("Launching Tactical Nuke...");
         try {
-            const iface = new ethers.utils.Interface(["function activateNuke() external"]);
-            const data = iface.encodeFunctionData("activateNuke", []);
+            // V14 uses activateWeapon(itemId) instead of activateNuke()
+            const iface = new ethers.utils.Interface(["function activateWeapon(uint256 itemId) external"]);
+            const data = iface.encodeFunctionData("activateWeapon", [3]); // 3 = NUKE_ID
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
@@ -1324,10 +1346,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setShopLoading(true);
         setShopStatus(`Buying item...`);
         try {
-            // V12 ItemShop uses separate functions for each payment method
+            // V14 ItemShop uses buyItem(itemId, payWithDust)
             const itemShopAbi = [
-                "function purchaseWithFcweed(uint256 itemId) external",
-                "function purchaseWithDust(uint256 itemId) external",
+                "function buyItem(uint256 itemId, bool payWithDust) external",
                 "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active)",
                 "function shopEnabled() view returns (bool)",
             ];
@@ -1352,7 +1373,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 }
                 
                 setShopStatus("Confirming purchase...");
-                const data = itemShopInterface.encodeFunctionData("purchaseWithFcweed", [itemId]);
+                // V14: buyItem(itemId, false) for FCWEED payment
+                const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, false]);
                 const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
                 if (!tx) {
                     setShopStatus("Transaction canceled");
@@ -1390,7 +1412,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 }
                 
                 setShopStatus("Confirming purchase...");
-                const data = itemShopInterface.encodeFunctionData("purchaseWithDust", [itemId]);
+                // V14: buyItem(itemId, true) for Dust payment
+                const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, true]);
                 const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
                 if (!tx) {
                     setShopStatus("Transaction canceled");
@@ -4289,25 +4312,21 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 await new Promise(resolve => setTimeout(resolve, 1500));
             }
 
-            const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, V5_ITEMSHOP_ABI, readProvider);
-            const shieldInfo = await itemShopContract.hasActiveShield(effectiveAttacker);
-            
-            if (shieldInfo[0]) {
-                setWarsStatus("Removing your shield...");
-                const removeShieldTx = await sendContractTx(
-                    V5_ITEMSHOP_ADDRESS, 
-                    v5ItemShopInterface.encodeFunctionData("removeShieldSelf", []), 
-                    "0x4C4B40",
-                    effectiveAttacker
-                );
-                if (!removeShieldTx) {
-                    setWarsStatus("Shield removal rejected");
-                    setWarsSearching(false);
-                    warsTransactionInProgress.current = false;
-                    return;
+            // V14: Check shield but don't manually remove - Battles V4 removes it automatically in cartelAttack()
+            try {
+                const itemShopAbiForShield = [
+                    "function hasActiveShield(address) view returns (bool active, uint256 expiresAt)",
+                ];
+                const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbiForShield, readProvider);
+                const shieldInfo = await itemShopContract.hasActiveShield(effectiveAttacker);
+                
+                if (shieldInfo[0]) {
+                    // Just warn - Battles V4 automatically removes attacker's shield via _rmShield(msg.sender)
+                    setWarsStatus("⚠️ Your shield will be removed when you attack...");
+                    await new Promise(resolve => setTimeout(resolve, 1500));
                 }
-                await waitForTx(removeShieldTx, readProvider);
-                setWarsStatus("Shield removed! Attacking...");
+            } catch (e) {
+                console.log("[Wars] Shield check failed (non-critical):", e);
             }
 
             setWarsStatus("Attacking (50K fee - confirm in wallet)...");
