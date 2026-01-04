@@ -180,16 +180,8 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
         setStatus("Enabling notifications...");
         
         try {
-            // Try to add frame if in Farcaster context (but don't fail if not)
-            if (inFarcasterContext) {
-                try {
-                    await sdk.actions.addFrame();
-                } catch (e) {
-                    console.log("[Notifications] addFrame not available, continuing anyway");
-                }
-            }
-            
             // Register with backend - this is what actually matters
+            // No SDK calls needed - the backend will send notifications via Neynar API
             if (backendUrl && userAddress) {
                 const response = await fetch(`${backendUrl}/api/notifications/register`, {
                     method: "POST",

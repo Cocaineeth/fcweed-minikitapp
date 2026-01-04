@@ -561,6 +561,79 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         const interval = setInterval(updateTimer, 60000);
         return () => clearInterval(interval);
     }, [getTimeUntilShopReset]);
+
+    // Auto-register for notifications when user connects in Farcaster
+    const notificationRegistered = useRef(false);
+    useEffect(() => {
+        if (!userAddress || notificationRegistered.current) return;
+        
+        const autoRegisterNotifications = async () => {
+            try {
+                // Get Farcaster context
+                const context = await sdk.context;
+                const fid = context?.user?.fid;
+                
+                if (!fid) {
+                    console.log("[Notifications] Not in Farcaster context, skipping auto-register");
+                    return;
+                }
+
+                // Check if already registered
+                try {
+                    const statusRes = await fetch(`${WARS_BACKEND_URL}/api/notifications/status/${userAddress}`);
+                    const status = await statusRes.json();
+                    if (status.registered) {
+                        console.log("[Notifications] Already registered");
+                        notificationRegistered.current = true;
+                        return;
+                    }
+                } catch (e) {
+                    // Backend might not be available, continue anyway
+                }
+
+                // Auto-register with default preferences
+                console.log(`[Notifications] Auto-registering ${userAddress.slice(0,10)}... with FID ${fid}`);
+                
+                const res = await fetch(`${WARS_BACKEND_URL}/api/notifications/register`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        address: userAddress,
+                        fid: fid,
+                        preferences: {
+                            shopRestock: true,
+                            purgeStarted: true,
+                            attacked: true,
+                            battleResult: true,
+                            cartelCooldown: true,
+                            purgeCooldown: true,
+                            deaCooldown: true,
+                            shieldExpiring: true,
+                            nukeExpiring: true,
+                            plantHealthCritical: true,
+                            referralUsed: true,
+                            deaListFlagged: true,
+                            crateJackpot: true,
+                        },
+                    }),
+                });
+
+                if (res.ok) {
+                    console.log("[Notifications] Auto-registered successfully!");
+                    notificationRegistered.current = true;
+                    localStorage.setItem("fcweed_notifications_enabled", "true");
+                    localStorage.setItem("fcweed_fid", String(fid));
+                }
+            } catch (e) {
+                console.error("[Notifications] Auto-register failed:", e);
+            }
+        };
+
+        // Small delay to let app initialize
+        const timer = setTimeout(autoRegisterNotifications, 3000);
+        return () => clearTimeout(timer);
+    }, [userAddress]);
+
     const [shopSupply, setShopSupply] = useState<Record<number, {remaining: number, total: number}>>({
         1: { remaining: 20, total: 20 },
         2: { remaining: 25, total: 25 },
