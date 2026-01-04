@@ -486,6 +486,28 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
         }
 
         try {
+            // Check 0: CRITICAL - Verify user has staked plants (prevents !p error)
+            setStatus("Checking staked plants...");
+            const stakingContract = new ethers.Contract(
+                V5_STAKING_ADDRESS,
+                ["function getUserBattleStats(address) view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards)"],
+                readProvider
+            );
+            
+            try {
+                const battleStats = await stakingContract.getUserBattleStats(userAddress);
+                const plantCount = Number(battleStats[0]);
+                console.log("[Purge] Plant check:", plantCount, "plants for", userAddress);
+                
+                if (plantCount === 0) {
+                    setStatus("❌ You need staked plants to attack!");
+                    setAttacking(false);
+                    return;
+                }
+            } catch (e) {
+                console.error("[Purge] Plant check failed:", e);
+            }
+            
             // Check balance first
             setStatus("Checking FCWEED balance...");
             const fcweedContract = new ethers.Contract(

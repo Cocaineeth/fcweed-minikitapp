@@ -19,6 +19,7 @@ import { ReferralsPanel } from "./components/ReferralsPanel";
 import { ThePurge } from "./components/ThePurge";
 import { DEARaidsLeaderboard } from "./components/DEARaidsLeaderboard";
 import { BattleEventToast } from "./components/BattleEventToast";
+import { NotificationSettings } from "./components/NotificationSettings";
 import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS } from "./lib/constants";
 
 import {
@@ -54,6 +55,7 @@ import {
     CRATE_REWARDS,
     CRATE_PROBS,
     RewardCategory,
+    WARS_BACKEND_URL,
 } from "./lib/constants";
 
 import {
@@ -816,6 +818,19 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         // Handle Farcaster MiniApp transactions FIRST
         if (usingMiniApp && miniAppEthProvider && effectiveUserAddress) {
             try {
+                // DEBUG: Check what accounts the MiniApp provider actually has
+                try {
+                    const accounts = await miniAppEthProvider.request({ method: "eth_accounts" });
+                    console.log("[TX] MiniApp eth_accounts:", accounts);
+                    if (accounts && accounts[0] && accounts[0].toLowerCase() !== effectiveUserAddress.toLowerCase()) {
+                        console.error("[TX] WARNING: MiniApp wallet address mismatch!");
+                        console.error("[TX] Expected:", effectiveUserAddress);
+                        console.error("[TX] MiniApp has:", accounts[0]);
+                    }
+                } catch (accErr) {
+                    console.warn("[TX] Could not fetch MiniApp accounts:", accErr);
+                }
+                
                 console.log("[TX] Using MiniApp eth_sendTransaction for:", effectiveUserAddress);
                 
                 const txParams: any = {
@@ -4250,6 +4265,27 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             setWarsStatus("Checking authorization...");
             
+            // Check 0: CRITICAL - Verify user has staked plants (prevents !p error)
+            const stakingAbi = [
+                "function getUserBattleStats(address) view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards)"
+            ];
+            const stakingContract = new ethers.Contract(V5_STAKING_ADDRESS, stakingAbi, readProvider);
+            try {
+                const battleStats = await stakingContract.getUserBattleStats(effectiveAttacker);
+                const plantCount = Number(battleStats[0]);
+                console.log("[Wars] Pre-flight plant check:", plantCount, "plants for", effectiveAttacker);
+                
+                if (plantCount === 0) {
+                    setWarsStatus("❌ You need staked plants to attack! Stake plants first.");
+                    setWarsSearching(false);
+                    warsTransactionInProgress.current = false;
+                    return;
+                }
+            } catch (e) {
+                console.error("[Wars] Plant check failed:", e);
+                // Continue anyway - let contract handle it
+            }
+            
             const canAttack = await battlesContract.canCartel(effectiveAttacker);
             console.log("[Wars] Pre-flight canCartel:", canAttack, "for", effectiveAttacker);
             
@@ -4335,6 +4371,17 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             }
 
             setWarsStatus("Attacking (50K fee - confirm in wallet)...");
+
+            // DEBUG: Log exactly what address is attacking
+            console.log("=".repeat(50));
+            console.log("[Wars] ATTACK DEBUG INFO:");
+            console.log("[Wars] effectiveAttacker:", effectiveAttacker);
+            console.log("[Wars] ctx.userAddress:", ctx.userAddress);
+            console.log("[Wars] attacker from signature:", attacker);
+            console.log("[Wars] userAddress (state):", userAddress);
+            console.log("[Wars] wagmiAddress:", wagmiAddress);
+            console.log("[Wars] usingMiniApp:", usingMiniApp);
+            console.log("=".repeat(50));
 
             const tx = await sendContractTx(
                 V5_BATTLES_ADDRESS,
@@ -6037,29 +6084,38 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 flexDirection: "column",
                 gap: 6
             }}>
-                {/* Row 1: Brand + Theme */}
+                {/* Row 1: Brand + Notifications + Theme */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <span style={{ color: theme === "light" ? "#1e293b" : "#fff", fontSize: 16, fontWeight: 700 }}>FCWEED</span>
-                    <button 
-                        type="button" 
-                        onClick={toggleTheme}
-                        style={{ 
-                            width: 32,
-                            height: 32,
-                            borderRadius: 8,
-                            border: `1px solid ${theme === "light" ? "#cbd5e1" : "rgba(255,255,255,0.2)"}`,
-                            background: theme === "light" ? "#f1f5f9" : "rgba(255,255,255,0.1)",
-                            color: theme === "light" ? "#1e293b" : "#fff",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            cursor: "pointer",
-                            fontSize: 14
-                        }}
-                        title={theme === "dark" ? "Light Mode" : "Dark Mode"}
-                    >
-                        {theme === "dark" ? "☀️" : "🌙"}
-                    </button>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {/* Notification Bell */}
+                        <NotificationSettings 
+                            theme={theme} 
+                            userAddress={userAddress} 
+                            backendUrl={WARS_BACKEND_URL}
+                        />
+                        {/* Theme Toggle */}
+                        <button 
+                            type="button" 
+                            onClick={toggleTheme}
+                            style={{ 
+                                width: 32,
+                                height: 32,
+                                borderRadius: 8,
+                                border: `1px solid ${theme === "light" ? "#cbd5e1" : "rgba(255,255,255,0.2)"}`,
+                                background: theme === "light" ? "#f1f5f9" : "rgba(255,255,255,0.1)",
+                                color: theme === "light" ? "#1e293b" : "#fff",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                cursor: "pointer",
+                                fontSize: 14
+                            }}
+                            title={theme === "dark" ? "Light Mode" : "Dark Mode"}
+                        >
+                            {theme === "dark" ? "☀️" : "🌙"}
+                        </button>
+                    </div>
                 </div>
                 
                 {/* Row 2: Wallet + Radio */}

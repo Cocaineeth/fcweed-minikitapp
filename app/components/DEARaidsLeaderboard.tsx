@@ -805,6 +805,26 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             console.warn("[DEA] Network check error (non-fatal):", networkErr);
         }
         
+        // Check 0: CRITICAL - Verify user has staked plants (prevents !p error)
+        try {
+            const stakingContract = new ethers.Contract(
+                V5_STAKING_ADDRESS,
+                ["function getUserBattleStats(address) view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards)"],
+                readProvider
+            );
+            const battleStats = await stakingContract.getUserBattleStats(userAddress);
+            const plantCount = Number(battleStats[0]);
+            console.log("[DEA] Plant check:", plantCount, "plants for", userAddress);
+            
+            if (plantCount === 0) {
+                setStatus("❌ You need staked plants to raid!");
+                setRaiding(false);
+                return;
+            }
+        } catch (e) {
+            console.error("[DEA] Plant check failed:", e);
+        }
+        
         await registerTargeting(selectedJeet.address, selectedTarget.address, true);
         
         try {
