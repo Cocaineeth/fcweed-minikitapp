@@ -19,7 +19,7 @@ import { ReferralsPanel } from "./components/ReferralsPanel";
 import { ThePurge } from "./components/ThePurge";
 import { DEARaidsLeaderboard } from "./components/DEARaidsLeaderboard";
 import { BattleEventToast } from "./components/BattleEventToast";
-import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS, WARS_BACKEND_URL } from "./lib/constants";
+import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS } from "./lib/constants";
 
 import {
     CHAIN_ID,
@@ -3817,8 +3817,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const v4PlantsNeedingWater = useMemo(() => v4StakedPlants.filter(id => (v4WaterNeeded[id] || 0) > 0 || (v4PlantHealths[id] !== undefined && v4PlantHealths[id] < 100)), [v4StakedPlants, v4PlantHealths, v4WaterNeeded]);
     const v4TotalWaterNeededForSelected = useMemo(() => selectedV4PlantsToWater.reduce((sum, id) => sum + Math.max(1, v4WaterNeeded[id] || 0), 0), [selectedV4PlantsToWater, v4WaterNeeded]);
 
-    // Use environment variable or default to production URL
-    const BACKEND_API_URL = WARS_BACKEND_URL || process.env.NEXT_PUBLIC_WARS_API_URL || "https://wars.x420ponzi.com";
+    // HARDCODED to avoid constants.ts issues
+    const BACKEND_API_URL = "https://wars.x420ponzi.com";
     const [warsBackendStatus, setWarsBackendStatus] = useState<"unknown" | "online" | "offline">("unknown");
 
     // Check backend health when wars tab opens
@@ -6736,7 +6736,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     <p style={{ fontSize: 11, color: theme === "light" ? "#475569" : "#c0c9f4", margin: "0 0 12px" }}>Search for an opponent to raid their pending rewards!</p>
                                     <button
                                         type="button"
-                                        onClick={handleWarsSearch}
+                                        onClick={() => handleWarsSearch()}
                                         disabled={warsSearching || !connected || warsCooldown > 0}
                                         className={styles.btnPrimary}
                                         style={{ padding: "10px 24px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}
