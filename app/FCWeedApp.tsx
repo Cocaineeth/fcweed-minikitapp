@@ -781,7 +781,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
     }
 
-    async function sendContractTx(to: string, data: string, gasLimit?: string): Promise<ethers.providers.TransactionResponse | null> {
+    async function sendContractTx(to: string, data: string, gasLimit?: string, fromAddress?: string): Promise<ethers.providers.TransactionResponse | null> {
+        // Use explicit fromAddress if provided, otherwise use global state
+        const effectiveUserAddress = fromAddress || userAddress;
+        const effectiveWagmiAddress = fromAddress || wagmiAddress;
+        
         // Helper to get the correct provider
         const getProvider = () => {
             const anyWindow = window as any;
@@ -810,12 +814,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         };
 
         // Handle Farcaster MiniApp transactions FIRST
-        if (usingMiniApp && miniAppEthProvider && userAddress) {
+        if (usingMiniApp && miniAppEthProvider && effectiveUserAddress) {
             try {
-                console.log("[TX] Using MiniApp eth_sendTransaction for:", userAddress);
+                console.log("[TX] Using MiniApp eth_sendTransaction for:", effectiveUserAddress);
                 
                 const txParams: any = {
-                    from: userAddress,
+                    from: effectiveUserAddress,
                     to: to,
                     data: data,
                     value: "0x0",
@@ -873,9 +877,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
 
         // NEW: Handle RainbowKit/desktop connections using walletClient
-        if (wagmiConnected && wagmiAddress && !usingMiniApp && walletClient) {
+        if (wagmiConnected && effectiveWagmiAddress && !usingMiniApp && walletClient) {
             try {
-                console.log("[TX] Attempting walletClient.sendTransaction for:", wagmiAddress);
+                console.log("[TX] Attempting walletClient.sendTransaction for:", effectiveWagmiAddress);
                 
                 // Build transaction params
                 const txParams: any = {
@@ -944,15 +948,15 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
         
         // Fallback to raw eth_sendTransaction for better Phantom/Base App compatibility
-        if (wagmiConnected && wagmiAddress && !usingMiniApp) {
+        if (wagmiConnected && effectiveWagmiAddress && !usingMiniApp) {
             const ethProvider = getProvider();
             if (ethProvider) {
                 try {
-                    console.log("[TX] Using raw eth_sendTransaction for:", wagmiAddress,
+                    console.log("[TX] Using raw eth_sendTransaction for:", effectiveWagmiAddress,
                         "Provider:", ethProvider.isPhantom ? "Phantom" : ethProvider.isRabby ? "Rabby" : ethProvider.isMetaMask ? "MetaMask" : "Unknown");
                     
                     const txParams: any = {
-                        from: wagmiAddress,
+                        from: effectiveWagmiAddress,
                         to: to,
                         data: data,
                         value: "0x0",
@@ -4011,13 +4015,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
                 const { target, nonce, deadline, signature, stats } = data;
 
-                // V4 SIMPLIFIED: Store target data and show plants + pending immediately
-                setWarsPreviewData({ target, nonce, deadline, signature, stats });
+                setWarsPreviewData({ target, nonce, deadline, signature, stats, attacker: ctx.userAddress });
                 setWarsTarget(target);
-                setWarsTargetRevealed(true); // Show stats immediately (plants + pending only in UI)
+                setWarsTargetRevealed(true);
                 setWarsTargetLocked(false);
                 
-                // Set basic target stats for pre-attack display
                 let pendingBN = ethers.BigNumber.from(0);
                 const rawPending = stats?.pendingRewards;
                 if (rawPending !== null && rawPending !== undefined && rawPending !== "" && rawPending !== "0") {
@@ -4092,7 +4094,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
             if (allowance.lt(revealFee)) {
                 setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120"); // 500k gas
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120", ctx.userAddress); // 500k gas
                 if (!approveTx) {
                     setWarsStatus("Approval rejected");
                     setWarsSearching(false);
@@ -4110,7 +4112,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const transferTx = await sendContractTx(
                 FCWEED_ADDRESS,
                 erc20Interface.encodeFunctionData("transfer", [treasuryAddress, revealFee]),
-                "0x30D40" // 200k gas
+                "0x30D40", // 200k gas
+                ctx.userAddress
             );
 
             if (!transferTx) {
@@ -4186,23 +4189,28 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 return;
             }
 
-            const { target, nonce, deadline, signature, stats } = warsPreviewData;
+            const { target, nonce, deadline, signature, stats, attacker } = warsPreviewData;
             
-            // Create contracts for checks
+            const effectiveAttacker = attacker || ctx.userAddress;
+            if (attacker && ctx.userAddress.toLowerCase() !== attacker.toLowerCase()) {
+                console.error("[Wars] Address mismatch! Signature for:", attacker, "Connected:", ctx.userAddress);
+                setWarsStatus("Wallet changed since search. Please search again.");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+            
             const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
             
-            // ==================== PRE-FLIGHT AUTHORIZATION CHECKS ====================
             setWarsStatus("Checking authorization...");
             
-            // Check 1: Can user perform Cartel attacks?
-            const canAttack = await battlesContract.canCartel(ctx.userAddress);
-            console.log("[Wars] Pre-flight canCartel:", canAttack);
+            const canAttack = await battlesContract.canCartel(effectiveAttacker);
+            console.log("[Wars] Pre-flight canCartel:", canAttack, "for", effectiveAttacker);
             
             if (!canAttack) {
-                // Determine why - cooldown or no battle power?
                 const [lastAttack, userPower] = await Promise.all([
-                    battlesContract.lastCartel(ctx.userAddress),
-                    battlesContract.getPower(ctx.userAddress)
+                    battlesContract.lastCartel(effectiveAttacker),
+                    battlesContract.getPower(effectiveAttacker)
                 ]);
                 
                 const cartelCD = 21600; // 6 hour cooldown
@@ -4245,16 +4253,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 }
             } catch {}
             
-            // ==================== PROCEED WITH ATTACK ====================
-            
-            // Check and request approval for attack fee
             const attackFee = await battlesContract.cartelFee();
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            let allowance = await tokenContract.allowance(ctx.userAddress, V5_BATTLES_ADDRESS);
+            let allowance = await tokenContract.allowance(effectiveAttacker, V5_BATTLES_ADDRESS);
 
             if (allowance.lt(attackFee)) {
                 setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120"); // 500k gas
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120", effectiveAttacker);
                 if (!approveTx) {
                     setWarsStatus("Approval rejected");
                     setWarsSearching(false);
@@ -4266,16 +4271,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 await new Promise(resolve => setTimeout(resolve, 1500));
             }
 
-            // Check if we have an active shield - if so, remove it first
             const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, V5_ITEMSHOP_ABI, readProvider);
-            const shieldInfo = await itemShopContract.hasActiveShield(ctx.userAddress);
+            const shieldInfo = await itemShopContract.hasActiveShield(effectiveAttacker);
             
             if (shieldInfo[0]) {
                 setWarsStatus("Removing your shield...");
                 const removeShieldTx = await sendContractTx(
                     V5_ITEMSHOP_ADDRESS, 
                     v5ItemShopInterface.encodeFunctionData("removeShieldSelf", []), 
-                    "0x4C4B40" // 5M gas
+                    "0x4C4B40",
+                    effectiveAttacker
                 );
                 if (!removeShieldTx) {
                     setWarsStatus("Shield removal rejected");
@@ -4289,11 +4294,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
             setWarsStatus("Attacking (50K fee - confirm in wallet)...");
 
-            // Execute cartelAttack - this pays 50K AND executes the battle
             const tx = await sendContractTx(
                 V5_BATTLES_ADDRESS,
                 v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]),
-                "0x1E8480" // 2M gas - battles do multiple cross-contract calls
+                "0x1E8480",
+                effectiveAttacker
             );
 
             if (!tx) {

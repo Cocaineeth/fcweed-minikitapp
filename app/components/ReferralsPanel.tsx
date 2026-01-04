@@ -20,10 +20,12 @@ type ReferralSummary = {
     referredBy?: string | null;
     totalReferrals: number;
     totalRewards?: string | null;
+    plantsStaked?: number;
+    pendingRedeem?: number;
+    canReferMore?: boolean;
 };
 
-export function ReferralsPanel(props: Props)
-{
+export function ReferralsPanel(props: Props) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string>("");
     const [summary, setSummary] = useState<ReferralSummary | null>(null);
@@ -33,23 +35,19 @@ export function ReferralsPanel(props: Props)
     const canAuth = props.connected && !!props.userAddress && !!props.signer;
     const rewardPerReferral = 0.5;
 
-    const referralBaseUrl = useMemo(() =>
-        {
-            if (typeof window === "undefined")
-            {
-                return "";
-            }
-            return window.location.origin;
-        }, []);
+    const referralBaseUrl = useMemo(() => {
+        if (typeof window === "undefined") {
+            return "";
+        }
+        return window.location.origin;
+    }, []);
 
     const loadSummary = useCallback(async () => {
         if (!canAuth || !props.userAddress || !props.signer) return;
         setLoading(true);
         setError("");
 
-        try
-        {
-            // 1) get/create code
+        try {
             const codeRes = await authedFetch({
                 url: `${props.backendBaseUrl}/v1/referrals/code`,
                 backendBaseUrl: props.backendBaseUrl,
@@ -64,7 +62,6 @@ export function ReferralsPanel(props: Props)
             const codeJson = JSON.parse(codeText);
             const myCode = (codeJson?.code || "").toString();
 
-            // 2) stats
             const statsRes = await authedFetch({
                 url: `${props.backendBaseUrl}/v1/referrals/stats`,
                 backendBaseUrl: props.backendBaseUrl,
@@ -76,63 +73,51 @@ export function ReferralsPanel(props: Props)
             const j = await statsRes.json();
             const st = j?.stats;
 
-            console.log(j)
+            console.log(j);
 
             setSummary({
                 address: props.userAddress,
                 myCode: myCode,
+                referralUrl: "",
                 referredBy: st?.referredBy ?? null,
+                plantsStaked: st?.plantsStaked,
                 totalReferrals: Number(st?.numberReferred ?? 0),
-                totalRewards: null, // only when you implement rewards
+                totalRewards: null,
                 pendingRedeem: st?.pendingRedeem,
                 canReferMore: st?.canReferMore
             });
-        }
-        catch (e: any)
-        {
+        } catch (e: any) {
             setError(e?.message || String(e));
             setSummary(null);
-        }
-        finally
-        {
+        } finally {
             setLoading(false);
         }
     }, [canAuth, props.backendBaseUrl, props.chainId, props.signer, props.userAddress, referralBaseUrl]);
 
-    // Lazy auth: only fetch when the tab is opened (component mounted)
     useEffect(() => {
-        if (!canAuth)
-        {
+        if (!canAuth) {
             setSummary(null);
             return;
         }
-
         loadSummary();
     }, [canAuth, loadSummary]);
 
-    const onCopy = async (text: string) =>
-    {
-        try
-        {
+    const onCopy = async (text: string) => {
+        try {
             await navigator.clipboard.writeText(text);
             alert("✅ Copied");
-        }
-        catch
-        {
+        } catch {
             prompt("Copy:", text);
         }
     };
 
-    const onApplyReferrer = useCallback(async () =>
-    {
-        if (!canAuth || !props.userAddress || !props.signer)
-        {
+    const onApplyReferrer = useCallback(async () => {
+        if (!canAuth || !props.userAddress || !props.signer) {
             return;
         }
 
         const code = referrerCode.trim();
-        if (!code)
-        {
+        if (!code) {
             setError("Enter a referral code first.");
             return;
         }
@@ -140,8 +125,7 @@ export function ReferralsPanel(props: Props)
         setLoading(true);
         setError("");
 
-        try
-        {
+        try {
             const res = await authedFetch({
                 url: `${props.backendBaseUrl}/v1/referrals/claim`,
                 backendBaseUrl: props.backendBaseUrl,
@@ -155,21 +139,16 @@ export function ReferralsPanel(props: Props)
                 },
             });
 
-            if (!res.ok)
-            {
+            if (!res.ok) {
                 const t = await res.text().catch(() => "");
                 throw new Error(`Apply failed (${res.status}): ${t.slice(0, 160)}`);
             }
 
             setReferrerCode("");
             await loadSummary();
-        }
-        catch (e: any)
-        {
+        } catch (e: any) {
             setError(e?.message || String(e));
-        }
-        finally
-        {
+        } finally {
             setLoading(false);
         }
     }, [canAuth, loadSummary, props.backendBaseUrl, props.chainId, props.signer, props.userAddress, referrerCode]);
@@ -181,8 +160,7 @@ export function ReferralsPanel(props: Props)
         setError("");
         setClaimTx("");
 
-        try
-        {
+        try {
             const res = await authedFetch({
                 url: `${props.backendBaseUrl}/v1/referral/redeem`,
                 backendBaseUrl: props.backendBaseUrl,
@@ -201,127 +179,162 @@ export function ReferralsPanel(props: Props)
             const j = JSON.parse(t);
             setClaimTx(j?.txHash || "");
 
-            await loadSummary(); // refresh UI, claimable should be 0 now
-            
-        }
-        catch(e: any)
-        {
+            await loadSummary();
+        } catch (e: any) {
             setError(e?.message || String(e));
-        }
-        finally
-        {
+        } finally {
             setLoading(false);
         }
-    }, [canAuth, loadSummary, props.backendBaseUrl, props.chainId, props.signer, props.userAddress])
-
+    }, [canAuth, loadSummary, props.backendBaseUrl, props.chainId, props.signer, props.userAddress]);
 
     return (
-        <section className={styles.infoCard} style={{ textAlign: "left", padding: 16 }}>
-            <h2 style={{ fontSize: 18, margin: "0 0 10px", color: "#fbbf24" }}>📜 Quests & Referrals</h2>
+        <section className={styles.infoCard} style={{ textAlign: "left", padding: 16, background: "linear-gradient(135deg, rgba(251,191,36,0.08), rgba(245,158,11,0.04))", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 16 }}>
+            <h2 style={{ fontSize: 20, margin: "0 0 12px", color: "#fbbf24", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>📜</span> Quests & Referrals
+            </h2>
 
             {!props.connected && (
-                <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>
-                    Connect a wallet to unlock referrals.
-                </p>
+                <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 12, padding: 16, border: "1px solid rgba(107,114,128,0.3)" }}>
+                    <p style={{ fontSize: 13, color: "#9ca3af", margin: 0, textAlign: "center" }}>
+                        🔗 Connect a wallet to unlock referrals
+                    </p>
+                </div>
             )}
 
             {props.connected && !canAuth && (
-                <p style={{ fontSize: 12, color: "#9ca3af", margin: 0 }}>
-                    Wallet connected, but signing is not available yet.
-                </p>
+                <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 12, padding: 16, border: "1px solid rgba(107,114,128,0.3)" }}>
+                    <p style={{ fontSize: 13, color: "#9ca3af", margin: 0, textAlign: "center" }}>
+                        ⏳ Wallet connected, signing not available yet...
+                    </p>
+                </div>
             )}
 
             {canAuth && (
-                <div style={{ display: "grid", gap: 12 }}>
-                    <div style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: 12, padding: 12 }}>
-                        <div style={{ fontSize: 10, color: "#fbbf24", fontWeight: 700, marginBottom: 6 }}>YOUR REFERRAL</div>
+                <div style={{ display: "grid", gap: 14 }}>
+                    <div style={{ background: "rgba(5,8,20,0.5)", borderRadius: 12, padding: 14, border: "1px solid rgba(107,114,128,0.2)" }}>
+                        <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 6 }}>
+                            🌱 Stake More Plants To Increase Rewards
+                        </div>
+                        <div style={{ fontSize: 11, color: "#6b7280" }}>
+                            💧 Rewards = 0.5 Ltr × Plants Staked × Referrals
+                        </div>
+                    </div>
+
+                    <div style={{ background: "linear-gradient(135deg, rgba(251,191,36,0.12), rgba(245,158,11,0.06))", border: "1px solid rgba(251,191,36,0.35)", borderRadius: 12, padding: 14 }}>
+                        <div style={{ fontSize: 11, color: "#fbbf24", fontWeight: 700, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>🎟️ Your Referral Code</div>
 
                         {loading && !summary && (
-                            <div style={{ fontSize: 12, color: "#9ca3af" }}>Loading…</div>
+                            <div style={{ fontSize: 13, color: "#9ca3af", textAlign: "center", padding: 12 }}>Loading...</div>
                         )}
 
                         {summary && (
                             <>
-                                { summary.canReferMore ? (<div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                                    <div style={{ fontSize: 13, fontWeight: 800, color: "#e5e7eb" }}>
-                                        Code: <span style={{ color: "#fbbf24" }}>{summary.myCode || "—"}</span>
+                                {summary.canReferMore ? (
+                                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+                                        <div style={{ background: "rgba(5,8,20,0.6)", borderRadius: 8, padding: "10px 14px", border: "1px solid rgba(251,191,36,0.3)" }}>
+                                            <span style={{ fontSize: 11, color: "#9ca3af" }}>Code: </span>
+                                            <span style={{ fontSize: 15, fontWeight: 800, color: "#fbbf24", letterSpacing: 1 }}>{summary.myCode || "—"}</span>
+                                        </div>
+                                        <button type="button" className={styles.btnPrimary} onClick={() => onCopy(summary.myCode)} disabled={!summary.myCode} style={{ padding: "10px 16px", fontSize: 12, background: "linear-gradient(135deg, #fbbf24, #f59e0b)", color: "#000", fontWeight: 700, borderRadius: 8, border: "none", cursor: summary.myCode ? "pointer" : "not-allowed" }}>
+                                            📋 Copy
+                                        </button>
                                     </div>
-                                    <button type="button" className={styles.btnPrimary} onClick={() => onCopy(summary.myCode)} disabled={!summary.myCode} style={{ padding: "8px 10px", fontSize: 11, background: "rgba(251,191,36,0.15)" }}>
-                                        Copy Code
-                                    </button>
-                                </div>) : (
-                                    <div style={{ fontSize: 11, color: "#9ca3af" }}>
-                                        Referral limit reached
-                                    </div>
-                                ) }
-
-                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
-                                <div style={{ fontSize: 11, color: "#9ca3af" }}>
-                                    Referrals: <span style={{ color: "#10b981", fontWeight: 800 }}>{summary.totalReferrals}</span>
-                                </div>
-
-                                {summary && (
-                                    <div style={{ fontSize: 11, color: "#9ca3af" }}>
-                                        Rewards: <span style={{ color: "#fbbf24", fontWeight: 800 }}>{summary.pendingRedeem * rewardPerReferral}</span>Ltrs
+                                ) : (
+                                    <div style={{ fontSize: 12, color: "#ef4444", background: "rgba(239,68,68,0.1)", borderRadius: 8, padding: 10, border: "1px solid rgba(239,68,68,0.3)", marginBottom: 12 }}>
+                                        ⚠️ Referral limit reached
                                     </div>
                                 )}
-                                
-                                <div style={{ fontSize: 11, color: "#9ca3af" }}>
-                                    Referred by: <span style={{ color: "#c0c9f4" }}>{summary.referredBy || "—"}</span>
+
+                                <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                                    <div style={{ background: "rgba(16,185,129,0.1)", borderRadius: 8, padding: "8px 12px", border: "1px solid rgba(16,185,129,0.3)" }}>
+                                        <span style={{ fontSize: 10, color: "#6b7280" }}>Referrals</span>
+                                        <div style={{ fontSize: 16, fontWeight: 800, color: "#10b981" }}>{summary.totalReferrals}</div>
+                                    </div>
+
+                                    {summary.pendingRedeem !== undefined && summary.pendingRedeem > 0 && (
+                                        <div style={{ background: "rgba(251,191,36,0.1)", borderRadius: 8, padding: "8px 12px", border: "1px solid rgba(251,191,36,0.3)" }}>
+                                            <span style={{ fontSize: 10, color: "#6b7280" }}>Rewards</span>
+                                            {summary.plantsStaked && summary.plantsStaked > 0 ? (
+                                                <div style={{ fontSize: 16, fontWeight: 800, color: "#fbbf24" }}>{summary.pendingRedeem * rewardPerReferral * summary.plantsStaked} Ltrs</div>
+                                            ) : (
+                                                <div style={{ fontSize: 11, fontWeight: 600, color: "#f59e0b" }}>Stake plants to claim</div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    <div style={{ background: "rgba(139,92,246,0.1)", borderRadius: 8, padding: "8px 12px", border: "1px solid rgba(139,92,246,0.3)" }}>
+                                        <span style={{ fontSize: 10, color: "#6b7280" }}>Referred By</span>
+                                        <div style={{ fontSize: 13, fontWeight: 600, color: "#a78bfa" }}>{summary.referredBy || "—"}</div>
+                                    </div>
                                 </div>
-                            </div>
                             </>
                         )}
-                </div>
+                    </div>
 
-                {summary && (summary.referredBy == null ? (<div style={{ background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 12, padding: 12 }}>
-                    <div style={{ fontSize: 10, color: "#10b981", fontWeight: 700, marginBottom: 8 }}>ENTER A REFERRAL CODE</div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                        <input
-                            value={referrerCode}
-                            onChange={(e) => setReferrerCode(e.target.value)}
-                            placeholder="e.g. X420-ABCD"
-                            style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(148,163,184,0.25)", background: "rgba(5,8,20,0.5)", color: "#e5e7eb", fontSize: 12, outline: "none" }}
-                        />
-                        <button
-                            type="button"
-                            className={styles.btnPrimary}
-                            onClick={onApplyReferrer}
-                            disabled={loading}
-                            style={{ padding: "10px 14px", fontSize: 12, background: loading ? "#374151" : "linear-gradient(135deg, #10b981, #22c55e)" }}
-                        >
-                            {loading ? "…" : "Apply"}
+                    {summary && summary.referredBy == null && (
+                        <div style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.1), rgba(34,197,94,0.05))", border: "1px solid rgba(16,185,129,0.35)", borderRadius: 12, padding: 14 }}>
+                            <div style={{ fontSize: 11, color: "#10b981", fontWeight: 700, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>🎁 Enter a Referral Code</div>
+                            <div style={{ display: "flex", gap: 10 }}>
+                                <input
+                                    value={referrerCode}
+                                    onChange={(e) => setReferrerCode(e.target.value)}
+                                    placeholder="e.g. X420-ABCD"
+                                    style={{ flex: 1, padding: "12px 14px", borderRadius: 10, border: "1px solid rgba(16,185,129,0.3)", background: "rgba(5,8,20,0.6)", color: "#e5e7eb", fontSize: 13, outline: "none" }}
+                                />
+                                <button
+                                    type="button"
+                                    className={styles.btnPrimary}
+                                    onClick={onApplyReferrer}
+                                    disabled={loading}
+                                    style={{ padding: "12px 20px", fontSize: 13, background: loading ? "#374151" : "linear-gradient(135deg, #10b981, #22c55e)", color: "#fff", fontWeight: 700, borderRadius: 10, border: "none", cursor: loading ? "not-allowed" : "pointer" }}
+                                >
+                                    {loading ? "..." : "Apply"}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        <button type="button" className={styles.btnPrimary} onClick={loadSummary} disabled={loading} style={{ padding: "10px 16px", fontSize: 12, background: "linear-gradient(135deg, rgba(59,130,246,0.3), rgba(99,102,241,0.2))", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 8, color: "#93c5fd", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer" }}>
+                            🔄 Refresh
                         </button>
+
+                        {summary && summary.pendingRedeem !== undefined && summary.pendingRedeem > 0 && (
+                            summary.plantsStaked && summary.plantsStaked > 0 ? (
+                                <button
+                                    type="button"
+                                    className={styles.btnPrimary}
+                                    onClick={onRedeemRewards}
+                                    disabled={loading}
+                                    style={{ padding: "10px 16px", fontSize: 12, background: "linear-gradient(135deg, #fbbf24, #f59e0b)", color: "#000", fontWeight: 700, borderRadius: 8, border: "none", cursor: loading ? "not-allowed" : "pointer" }}
+                                >
+                                    {loading ? "..." : "💰 Claim Rewards"}
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className={styles.btnPrimary}
+                                    disabled={true}
+                                    style={{ padding: "10px 16px", fontSize: 12, background: "#374151", color: "#6b7280", fontWeight: 600, borderRadius: 8, border: "1px solid #4b5563", cursor: "not-allowed" }}
+                                >
+                                    🌱 Stake Plants To Claim
+                                </button>
+                            )
+                        )}
                     </div>
-                </div>) : (<div> </div>))}
 
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <button type="button" className={styles.btnPrimary} onClick={loadSummary} disabled={loading} style={{ padding: "10px 14px", fontSize: 12, background: "rgba(59,130,246,0.18)" }}>
-                        Refresh
-                    </button>
-                </div>
+                    {claimTx && (
+                        <div style={{ background: "rgba(16,185,129,0.1)", borderRadius: 10, padding: 12, border: "1px solid rgba(16,185,129,0.3)" }}>
+                            <span style={{ fontSize: 11, color: "#10b981" }}>✅ Tx Sent: </span>
+                            <span style={{ fontSize: 11, color: "#a78bfa", wordBreak: "break-all" }}>{claimTx}</span>
+                        </div>
+                    )}
 
-                {(summary && (summary.pendingRedeem > 0 ) && (<button
-                                                                   type="button"
-                                                                   className={styles.btnPrimary}
-                                                                   onClick={onRedeemRewards}
-                                                                   disabled={loading}
-                                                                   style={{ padding: "10px 14px", fontSize: 12, background: "rgba(251,191,36,0.18)" }}
-                                                               >
-                    {loading ? "…" : "Claim Rewards"}
-                </button>))}
-
-                {claimTx && (
-                    <div style={{ fontSize: 11, color: "#9ca3af" }}>
-                        Sent: <span style={{ color: "#c0c9f4" }}>{claimTx}</span>
-                    </div>
-                )}
-
-                {error && (
-                    <div style={{ fontSize: 11, color: "#fbbf24", background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: 10, padding: 10 }}>
-                        {error}
-                    </div>
-                )}
+                    {error && (
+                        <div style={{ fontSize: 12, color: "#fbbf24", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 10, padding: 12 }}>
+                            ⚠️ {error}
+                        </div>
+                    )}
                 </div>
             )}
         </section>
