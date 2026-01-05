@@ -21,6 +21,7 @@ import { DEARaidsLeaderboard } from "./components/DEARaidsLeaderboard";
 import { BattleEventToast } from "./components/BattleEventToast";
 import { NotificationSettings } from "./components/NotificationSettings";
 import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS } from "./lib/constants";
+import IsometricFarm from "./components/GrowRoomV3";
 
 import {
     CHAIN_ID,
@@ -7211,150 +7212,51 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 ))}
             </nav>
 
-            
-            {v5StakingOpen && (
-                <div className={styles.modalBackdrop} style={{ background: theme === "light" ? "rgba(0,0,0,0.4)" : undefined }}>
-                    <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto", background: theme === "light" ? "#ffffff" : undefined, color: theme === "light" ? "#1e293b" : undefined }}>
-                        <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle} style={{ color: theme === "light" ? "#1e293b" : undefined }}>🚀 Staking V5</h2>
-                            <button type="button" className={styles.modalClose} onClick={() => setV5StakingOpen(false)} style={{ background: theme === "light" ? "#f1f5f9" : undefined, color: theme === "light" ? "#64748b" : undefined }}>✕</button>
-                        </header>
-
-                        {v5ClaimCooldown > 0 && (
-                            <div style={{ padding: "8px 12px", background: theme === "light" ? "rgba(251,191,36,0.08)" : "rgba(251,191,36,0.1)", borderRadius: 8, border: `1px solid ${theme === "light" ? "rgba(217,119,6,0.3)" : "rgba(251,191,36,0.3)"}`, marginBottom: 10, textAlign: "center" }}>
-                                <span style={{ fontSize: 12, color: theme === "light" ? "#d97706" : "#fbbf24", fontWeight: 600 }}>
-                                    ⏳ Claim Cooldown: {Math.floor(v5ClaimCooldown / 3600)}h {Math.floor((v5ClaimCooldown % 3600) / 60)}m {v5ClaimCooldown % 60}s
-                                </span>
-                            </div>
-                        )}
-
-                        <div style={{ padding: "8px 12px", background: theme === "light" ? "rgba(16,185,129,0.08)" : "rgba(16,185,129,0.1)", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>🚀 V5 is LIVE! Stake your NFTs and claim your $FCWEED rewards!</p>
-                        </div>
-
-                        {!V5_STAKING_ADDRESS ? (
-                            <div style={{ padding: 20, textAlign: "center" }}>
-                                <p style={{ fontSize: 14, color: theme === "light" ? "#d97706" : "#fbbf24" }}>⏳ V5 Contract Not Yet Deployed</p>
-                            </div>
-                        ) : (
-                            <>
-                                <div id="v5-stats-card" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Plants</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats?.plants || 0}</span></div>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Lands</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats?.lands || 0}</span></div>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Super Lands</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats?.superLands || 0}</span></div>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Capacity</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats ? `${v5StakingStats.plants}/${v5StakingStats.capacity}` : "0/1"}</span></div>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Boost</span><span className={styles.statValue} style={{ color: "#10b981" }}>+{v5StakingStats?.boostPct?.toFixed(1) || 0}%</span></div>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Daily (Live)</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) < 100 ? (theme === "light" ? "#d97706" : "#fbbf24") : "#10b981" }}>{v5StakingStats?.dailyRewards || "0"}</span></div>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Avg Health</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? (theme === "light" ? "#d97706" : "#fbbf24") : "#ef4444" }}>{v5StakingStats?.avgHealth || 100}%</span></div>
-                                    <div className={styles.statCard} style={{ gridColumn: "span 2", background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Water</span><span className={styles.statValue} style={{ color: "#3b82f6" }}>{v5StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18))).toFixed(1) : "0"}L</span></div>
-                                    <div className={styles.statCard} style={{ gridColumn: "span 2", background: "linear-gradient(135deg, #065f46, #10b981)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#a7f3d0", fontSize: 16 }}>{v5RealTimePending}</span></div>
-                                    <button 
-                                        type="button"
-                                        onClick={() => {
-                                            const plants = v5StakingStats?.plants || 0;
-                                            const lands = v5StakingStats?.lands || 0;
-                                            const superLands = v5StakingStats?.superLands || 0;
-                                            const boost = v5StakingStats?.boostPct?.toFixed(1) || 0;
-                                            const daily = v5StakingStats?.dailyRewards || "0";
-                                            const text = `🌿 My FCWEED Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://x420ponzi.com`;
-                                            captureAndShare('v5-stats-card', text, composeCast);
-                                        }}
-                                        style={{ gridColumn: "span 1", padding: 8, borderRadius: 8, border: "1px solid rgba(29,161,242,0.4)", background: "rgba(29,161,242,0.15)", color: "#1da1f2", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}
-                                    >
-                                        📸 Share
-                                    </button>
-                                </div>
-
-                                <p style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 5-10 seconds to ensure NFTs load properly</p>
-
-                                {loadingV5Staking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12, color: theme === "light" ? "#475569" : undefined }}>Loading NFTs…</p> : (
-                                    <>
-                                        <div style={{ marginBottom: 10 }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                                <span style={{ fontSize: 11, fontWeight: 600, color: theme === "light" ? "#1e293b" : undefined }}>Available ({v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length})</span>
-                                                <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length) > 0 && selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === (v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length)} onChange={() => { if (selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === (v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length)) { setSelectedV5AvailPlants([]); setSelectedV5AvailLands([]); setSelectedV5AvailSuperLands([]); } else { setSelectedV5AvailPlants(v5AvailablePlants); setSelectedV5AvailLands(v5AvailableLands); setSelectedV5AvailSuperLands(v5AvailableSuperLands); } }} />All</label>
-                                            </div>
-                                            <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                                {(v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length) === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No NFTs available to stake</span> : (
-                                                    <>{v5AvailableSuperLands.map((id) => <NftCard key={"v5asl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedV5AvailSuperLands.includes(id)} onChange={() => toggleId(id, selectedV5AvailSuperLands, setSelectedV5AvailSuperLands)} />)}{v5AvailableLands.map((id) => <NftCard key={"v5al-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedV5AvailLands.includes(id)} onChange={() => toggleId(id, selectedV5AvailLands, setSelectedV5AvailLands)} />)}{v5AvailablePlants.map((id) => <NftCard key={"v5ap-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV5AvailPlants.includes(id)} onChange={() => toggleId(id, selectedV5AvailPlants, setSelectedV5AvailPlants)} />)}</>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div style={{ marginBottom: 10 }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                                <span style={{ fontSize: 11, fontWeight: 600 }}>Staked ({v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length})</span>
-                                                <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length) > 0 && selectedV5StakedPlants.length + selectedV5StakedLands.length + selectedV5StakedSuperLands.length === (v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length)} onChange={() => { if (selectedV5StakedPlants.length + selectedV5StakedLands.length + selectedV5StakedSuperLands.length === (v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length)) { setSelectedV5StakedPlants([]); setSelectedV5StakedLands([]); setSelectedV5StakedSuperLands([]); } else { setSelectedV5StakedPlants(v5StakedPlants); setSelectedV5StakedLands(v5StakedLands); setSelectedV5StakedSuperLands(v5StakedSuperLands); } }} />All</label>
-                                            </div>
-                                            <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                                {(v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length) === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No staked NFTs</span> : (
-                                                    <>{v5StakedSuperLands.map((id) => <NftCard key={"v5ssl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedV5StakedSuperLands.includes(id)} onChange={() => toggleId(id, selectedV5StakedSuperLands, setSelectedV5StakedSuperLands)} />)}{v5StakedLands.map((id) => <NftCard key={"v5sl-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedV5StakedLands.includes(id)} onChange={() => toggleId(id, selectedV5StakedLands, setSelectedV5StakedLands)} />)}{v5StakedPlants.map((id) => <NftCard key={"v5sp-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV5StakedPlants.includes(id)} onChange={() => toggleId(id, selectedV5StakedPlants, setSelectedV5StakedPlants)} health={v5PlantHealths[id]} />)}</>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {v5StakedPlants.length > 0 && (
-                                            <div style={{ marginBottom: 10, padding: 8, background: "rgba(16,185,129,0.1)", borderRadius: 8 }}>
-                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                                    <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981" }}>💧 Water Plants</span>
-                                                    <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}>
-                                                        <input type="checkbox" checked={selectedV5PlantsToWater.length === v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100).length && selectedV5PlantsToWater.length > 0} onChange={() => { const needsWater = v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100); if (selectedV5PlantsToWater.length === needsWater.length) { setSelectedV5PlantsToWater([]); setV5CustomWaterAmounts({}); } else { setSelectedV5PlantsToWater(needsWater); const newAmounts: Record<number, number> = {}; needsWater.forEach(id => { newAmounts[id] = Math.max(0.1, Math.ceil((v5WaterNeeded[id] || 0.1) * 10) / 10); }); setV5CustomWaterAmounts(newAmounts); } }} />All needing water
-                                                    </label>
-                                                </div>
-                                                <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0" }}>
-                                                    {v5StakedPlants.map((id) => {
-                                                        const health = v5PlantHealths[id] ?? 100;
-                                                        const waterNeeded = v5WaterNeeded[id] ?? 0;
-                                                        const isSelected = selectedV5PlantsToWater.includes(id);
-                                                        // Use actual water needed (rounded up to 0.1L), minimum 0.1L
-                                                        const defaultWater = Math.max(0.1, Math.ceil((waterNeeded || 0.1) * 10) / 10);
-                                                        const customAmount = v5CustomWaterAmounts[id] ?? defaultWater;
-                                                        return (
-                                                            <div key={"v5w-" + id} style={{ minWidth: 70, padding: 6, borderRadius: 8, background: isSelected ? "rgba(16,185,129,0.3)" : "rgba(0,0,0,0.2)", border: isSelected ? "2px solid #10b981" : "1px solid #374151", opacity: health >= 100 ? 0.5 : 1, textAlign: "center" }}>
-                                                                <div onClick={() => { if (health < 100) { toggleId(id, selectedV5PlantsToWater, setSelectedV5PlantsToWater); if (!isSelected) { setV5CustomWaterAmounts(prev => ({ ...prev, [id]: defaultWater })); } } }} style={{ cursor: health < 100 ? "pointer" : "default" }}>
-                                                                    <div style={{ fontSize: 10, fontWeight: 600 }}>#{id}</div>
-                                                                    <div style={{ width: "100%", height: 4, background: "#1f2937", borderRadius: 2, margin: "3px 0", overflow: "hidden" }}>
-                                                                        <div style={{ height: "100%", width: `${health}%`, background: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444", transition: "width 0.3s" }} />
-                                                                    </div>
-                                                                    <div style={{ fontSize: 9, color: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444", fontWeight: 600 }}>{health}%</div>
-                                                                    {health < 100 && <div style={{ fontSize: 8, color: "#60a5fa" }}>Need: {waterNeeded.toFixed(1)}L</div>}
-                                                                </div>
-                                                                {isSelected && health < 100 && (
-                                                                    <div style={{ marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
-                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: Math.max(0.1, Math.round(((prev[id] ?? defaultWater) - 0.5) * 10) / 10) })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>-</button>
-                                                                        <input type="number" value={customAmount} onChange={(e) => { const val = Math.max(0.1, parseFloat(e.target.value) || 0.1); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: Math.round(val * 10) / 10 })); }} onClick={(e) => e.stopPropagation()} style={{ width: 32, height: 18, textAlign: "center", fontSize: 9, background: "#1f2937", border: "1px solid #374151", borderRadius: 4, color: "#fff" }} min="0.1" step="0.1" />
-                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: Math.round(((prev[id] ?? defaultWater) + 0.5) * 10) / 10 })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 9, color: "#9ca3af", marginTop: 6 }}>
-                                                    <span>Your Water: {v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18)).toFixed(2) : "0"}L</span>
-                                                    {selectedV5PlantsToWater.length > 0 && <span style={{ color: "#60a5fa" }}>Using: {selectedV5PlantsToWater.reduce((sum, id) => sum + (v5CustomWaterAmounts[id] ?? Math.max(0.1, Math.ceil((v5WaterNeeded[id] || 0.1) * 10) / 10)), 0).toFixed(1)}L</span>}
-                                                </div>
-                                                {selectedV5PlantsToWater.length > 0 && (
-                                                    <button type="button" className={styles.btnPrimary} disabled={actionLoading} onClick={handleV5WaterPlants} style={{ width: "100%", marginTop: 6, padding: 8, fontSize: 11, background: "linear-gradient(to right, #0ea5e9, #38bdf8)" }}>
-                                                        {actionLoading ? "Watering..." : `💧 Water ${selectedV5PlantsToWater.length} Plant${selectedV5PlantsToWater.length > 1 ? "s" : ""} (${selectedV5PlantsToWater.reduce((sum, id) => sum + (v5CustomWaterAmounts[id] ?? Math.max(0.1, Math.ceil((v5WaterNeeded[id] || 0.1) * 10) / 10)), 0).toFixed(1)}L)`}
-                                                    </button>
-                                                )}
-                                                {v5ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v5ActionStatus}</p>}
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V5_STAKING_ADDRESS || (selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === 0)} onClick={async () => { if (selectedV5AvailPlants.length > 0) await handleV5StakePlants(); if (selectedV5AvailLands.length > 0) await handleV5StakeLands(); if (selectedV5AvailSuperLands.length > 0) await handleV5StakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12, background: "linear-gradient(to right, #10b981, #34d399)" }}>{actionLoading ? "Staking..." : "Stake"}</button>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V5_STAKING_ADDRESS || (selectedV5StakedPlants.length + selectedV5StakedLands.length + selectedV5StakedSuperLands.length === 0)} onClick={async () => { if (selectedV5StakedPlants.length > 0) await handleV5UnstakePlants(); if (selectedV5StakedLands.length > 0) await handleV5UnstakeLands(); if (selectedV5StakedSuperLands.length > 0) await handleV5UnstakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Unstaking..." : "Unstake"}</button>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V5_STAKING_ADDRESS || !v5StakingStats || v5StakingStats.pendingFormatted <= 0} onClick={handleV5Claim} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Claiming..." : "Claim"}</button>
-                                </div>
-                                <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 6, textAlign: "center" }}>⚠️ Plants must have 100% health to unstake. Water them first!</p>
-                                {v5ActionStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v5ActionStatus}</p>}
-                            </>
-                        )}
-                    </div>
-                </div>
-            )}
+            {/* V5 Isometric Farm View */}
+            <IsometricFarm
+                isOpen={v5StakingOpen}
+                onClose={() => setV5StakingOpen(false)}
+                stats={v5StakingStats}
+                stakedPlants={v5StakedPlants}
+                stakedLands={v5StakedLands}
+                stakedSuperLands={v5StakedSuperLands}
+                availablePlants={v5AvailablePlants}
+                availableLands={v5AvailableLands}
+                availableSuperLands={v5AvailableSuperLands}
+                plantHealths={v5PlantHealths}
+                waterNeeded={v5WaterNeeded}
+                realTimePending={v5RealTimePending}
+                claimCooldown={v5ClaimCooldown}
+                actionStatus={v5ActionStatus}
+                loading={loadingV5Staking}
+                actionLoading={actionLoading}
+                onStakePlants={async (ids) => { setSelectedV5AvailPlants(ids); await handleV5StakePlants(); }}
+                onUnstakePlants={async (ids) => { setSelectedV5StakedPlants(ids); await handleV5UnstakePlants(); }}
+                onStakeLands={async (ids) => { setSelectedV5AvailLands(ids); await handleV5StakeLands(); }}
+                onUnstakeLands={async (ids) => { setSelectedV5StakedLands(ids); await handleV5UnstakeLands(); }}
+                onStakeSuperLands={async (ids) => { setSelectedV5AvailSuperLands(ids); await handleV5StakeSuperLands(); }}
+                onUnstakeSuperLands={async (ids) => { setSelectedV5StakedSuperLands(ids); await handleV5UnstakeSuperLands(); }}
+                onClaim={handleV5Claim}
+                onWaterPlants={async (ids) => { 
+                    setSelectedV5PlantsToWater(ids);
+                    const newAmounts: Record<number, number> = {};
+                    ids.forEach(id => {
+                        newAmounts[id] = Math.max(0.1, Math.ceil((v5WaterNeeded[id] || 0.1) * 10) / 10);
+                    });
+                    setV5CustomWaterAmounts(newAmounts);
+                    await handleV5WaterPlants();
+                }}
+                onShare={() => {
+                    const plants = v5StakingStats?.plants || 0;
+                    const lands = v5StakingStats?.lands || 0;
+                    const superLands = v5StakingStats?.superLands || 0;
+                    const boost = v5StakingStats?.boostPct?.toFixed(1) || 0;
+                    const daily = v5StakingStats?.dailyRewards || "0";
+                    const text = `🌿 My FCWEED Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://x420ponzi.com`;
+                    captureAndShare('v5-stats-card', text, composeCast);
+                }}
+                theme={theme}
+            />
 
             {v4StakingOpen && (
                 <div className={styles.modalBackdrop}>
