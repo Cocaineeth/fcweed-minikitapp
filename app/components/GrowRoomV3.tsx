@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { ethers } from "ethers";
 
 // NFT Image paths
@@ -53,7 +53,7 @@ interface IsometricFarmProps {
     onStakeSuperLands: (ids: number[]) => void;
     onUnstakeSuperLands: (ids: number[]) => void;
     onClaim: () => void;
-    onWaterPlants: (ids: number[]) => void;
+    onWaterPlants: (ids: number[], amounts: Record<number, number>) => void;
     onShare: () => void;
 }
 
@@ -359,63 +359,71 @@ export default function IsometricFarm({
     
     // State for inline water error with auto-dismiss
     const [waterError, setWaterError] = useState("");
-    const waterErrorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     
-    // Show water error with auto-dismiss
+    // Show water error with auto-dismiss - using useEffect for cleanup
     const showWaterError = (msg: string) => {
-        // Clear any existing timeout
-        if (waterErrorTimeoutRef.current) {
-            clearTimeout(waterErrorTimeoutRef.current);
-        }
         setWaterError(msg);
-        waterErrorTimeoutRef.current = setTimeout(() => {
-            setWaterError("");
-            waterErrorTimeoutRef.current = null;
-        }, 4000);
     };
     
-    // Toggle plant selection with water amount init
+    // Auto-dismiss water error after 4 seconds
+    useEffect(() => {
+        if (waterError) {
+            const timer = setTimeout(() => setWaterError(""), 4000);
+            return () => clearTimeout(timer);
+        }
+    }, [waterError]);
+    
+    // Toggle plant selection - NOT nested, separate state updates
     const toggleStakedPlant = (id: number) => {
-        setSelectedStakedPlants(prev => {
-            if (prev.includes(id)) {
-                // Deselecting - remove water amount
-                setWaterAmounts(wa => { 
-                    const n = { ...wa }; 
-                    delete n[id]; 
-                    return n; 
-                });
-                return prev.filter(p => p !== id);
-            } else {
-                // Selecting - set default water amount
-                const plant = allPlantData.find(p => p.id === id);
-                const maxNeeded = plant ? Math.max(0, (100 - plant.health) / 10) : 0;
-                // Use min of what's needed OR what user has available
-                const defaultAmount = Math.min(maxNeeded, waterBalanceRaw);
-                // Round to avoid floating point issues
-                setWaterAmounts(wa => ({ ...wa, [id]: Math.round(Math.max(0, defaultAmount) * 100) / 100 }));
-                return [...prev, id];
-            }
-        });
+        if (selectedStakedPlants.includes(id)) {
+            // Deselecting
+            setSelectedStakedPlants(prev => prev.filter(p => p !== id));
+            setWaterAmounts(wa => { 
+                const n = { ...wa }; 
+                delete n[id]; 
+                return n; 
+            });
+        } else {
+            // Selecting - calculate water amount
+            const plant = allPlantData.find(p => p.id === id);
+            const maxNeeded = plant ? Math.max(0, (100 - plant.health) / 10) : 0;
+            // Cap to user's available water balance
+            const cappedAmount = Math.min(maxNeeded, waterBalanceRaw);
+            const roundedAmount = Math.round(cappedAmount * 100) / 100;
+            
+            setSelectedStakedPlants(prev => [...prev, id]);
+            setWaterAmounts(wa => ({ ...wa, [id]: roundedAmount }));
+        }
     };
     
+    // Change water amount for a specific plant
     const handleWaterAmountChange = (plantId: number, delta: number) => {
         const plant = allPlantData.find(p => p.id === plantId);
-        const maxNeeded = plant ? Math.max(0, (100 - plant.health) / 10) : 0;
+        if (!plant) return;
+        
+        const maxNeeded = Math.max(0, (100 - plant.health) / 10);
+        
         setWaterAmounts(prev => {
             const current = prev[plantId] || 0;
-            // Allow any amount from 0 to max needed (user can set partial amounts)
+            // Allow 0 to maxNeeded - user can manually set any amount
             const newAmount = Math.max(0, Math.min(maxNeeded, current + delta));
-            // Round to 2 decimal places to avoid floating point issues
             return { ...prev, [plantId]: Math.round(newAmount * 100) / 100 };
         });
     };
     
-    // IMPORTANT: Only sum water amounts for CURRENTLY SELECTED plants
-    const totalWaterToUse = Math.round(
-        selectedStakedPlants.reduce((sum, id) => sum + (waterAmounts[id] || 0), 0) * 100
-    ) / 100;
-    // Use small epsilon for floating point comparison
-    const hasEnoughWater = totalWaterToUse <= (Math.round(waterBalanceRaw * 100) / 100) + 0.001;
+    // Calculate total water - MUST use useMemo to stay in sync
+    const totalWaterToUse = useMemo(() => {
+        const total = selectedStakedPlants.reduce((sum, id) => {
+            return sum + (waterAmounts[id] || 0);
+        }, 0);
+        return Math.round(total * 100) / 100;
+    }, [selectedStakedPlants, waterAmounts]);
+    
+    // Check if user has enough water
+    const hasEnoughWater = useMemo(() => {
+        const balance = Math.round(waterBalanceRaw * 100) / 100;
+        return totalWaterToUse <= balance + 0.001; // Small epsilon for float comparison
+    }, [totalWaterToUse, waterBalanceRaw]);
     
     const toggleAvailablePlant = (id: number) => setSelectedAvailablePlants(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
     const toggleAvailableLand = (id: number) => setSelectedAvailableLands(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
@@ -477,16 +485,34 @@ export default function IsometricFarm({
     
     const handleWaterSelected = async () => {
         // Validate we have plants selected
-        if (selectedStakedPlants.length === 0) return;
+        if (selectedStakedPlants.length === 0) {
+            console.log("No plants selected");
+            return;
+        }
+        
+        // Calculate what we're actually using
+        const actualWaterAmounts: Record<number, number> = {};
+        selectedStakedPlants.forEach(id => {
+            actualWaterAmounts[id] = waterAmounts[id] || 0;
+        });
+        
+        const actualTotal = Object.values(actualWaterAmounts).reduce((sum, amt) => sum + amt, 0);
+        
+        console.log("Water attempt:", {
+            plants: selectedStakedPlants,
+            amounts: actualWaterAmounts,
+            total: actualTotal,
+            balance: waterBalanceRaw
+        });
         
         // Check water balance
-        if (!hasEnoughWater) {
-            showWaterError(`Not enough water! Have ${waterBalance}L, need ${totalWaterToUse.toFixed(2)}L`);
+        if (actualTotal > waterBalanceRaw + 0.001) {
+            showWaterError(`Not enough water! Have ${waterBalance}L, need ${actualTotal.toFixed(2)}L`);
             return;
         }
         
         // Check minimum water amount
-        if (totalWaterToUse <= 0) {
+        if (actualTotal <= 0) {
             showWaterError("Select water amount first!");
             return;
         }
@@ -495,11 +521,16 @@ export default function IsometricFarm({
         setWaterError("");
         setWateringPlants([...selectedStakedPlants]);
         
-        // Call the actual water function
+        // Store the plants and amounts before clearing state
+        const plantsToWater = [...selectedStakedPlants];
+        const amountsToUse = { ...actualWaterAmounts };
+        
+        // Call the actual water function with IDs AND amounts
         try {
-            await onWaterPlants(selectedStakedPlants);
+            await onWaterPlants(plantsToWater, amountsToUse);
         } catch (err) {
             console.error("Water error:", err);
+            showWaterError("Failed to water plants. Please try again.");
         }
         
         // Clear after animation
