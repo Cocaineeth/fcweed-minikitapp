@@ -55,6 +55,7 @@ interface IsometricFarmProps {
     onClaim: () => void;
     onWaterPlants: (ids: number[], amounts: Record<number, number>) => void;
     onShare: () => void;
+    theme?: string;
 }
 
 // Plant slot with water amount controls
@@ -321,6 +322,7 @@ export default function IsometricFarm({
     actionStatus, loading, actionLoading,
     onStakePlants, onUnstakePlants, onStakeLands, onUnstakeLands,
     onStakeSuperLands, onUnstakeSuperLands, onClaim, onWaterPlants, onShare,
+    theme,
 }: IsometricFarmProps) {
     const [selectedStakedPlants, setSelectedStakedPlants] = useState<number[]>([]);
     const [selectedStakedLands, setSelectedStakedLands] = useState<number[]>([]);
