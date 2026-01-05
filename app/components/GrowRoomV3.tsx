@@ -574,14 +574,28 @@ export default function IsometricFarm({
     
     return (
         <div style={{
-            position: "fixed", inset: 0, background: "#050810", zIndex: 1000,
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 1000,
             overflow: "hidden", fontFamily: "system-ui, -apple-system, sans-serif",
-            display: "flex", flexDirection: "column", height: "100%"
+            display: "flex", alignItems: "center", justifyContent: "center"
         }}>
+            {/* Inner container with max width for desktop */}
+            <div style={{
+                width: "100%", maxWidth: 600, height: "100%", maxHeight: "100vh",
+                background: "#050810", display: "flex", flexDirection: "column",
+                position: "relative", overflow: "hidden",
+                // On desktop, add some margin and border radius
+                ...(typeof window !== 'undefined' && window.innerWidth > 768 ? {
+                    maxHeight: "90vh", borderRadius: 16, border: "2px solid #22c55e40",
+                    boxShadow: "0 0 60px rgba(34,197,94,0.2)"
+                } : {})
+            }}>
             <style>{`
                 @keyframes plantBounce { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
                 @keyframes dropFall { 0% { transform: translateY(-5px); opacity: 1; } 100% { transform: translateY(25px); opacity: 0; } }
                 @keyframes waterShimmer { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.6; } }
+                @media (min-width: 768px) {
+                    .grow-room-container { max-height: 90vh !important; border-radius: 16px !important; }
+                }
             `}</style>
             
             {/* HEADER - Fixed height */}
@@ -694,23 +708,23 @@ export default function IsometricFarm({
                 {/* PLANT GRID - Fixed size, scrollable, no shrink */}
                 <div style={{
                     position: "absolute", 
-                    top: showStats ? "32%" : "24%", 
+                    top: showStats ? "32%" : "22%", 
                     left: "50%", 
                     transform: "translateX(-50%)",
-                    width: "85%", 
-                    maxWidth: 480, 
+                    width: "92%", 
+                    maxWidth: 540, 
                     display: "grid", 
                     gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
-                    gap: 8, 
-                    padding: 12, 
-                    background: "rgba(10,15,20,0.6)", 
+                    gap: 10, 
+                    padding: 14, 
+                    background: "rgba(10,15,20,0.85)", 
                     borderRadius: 12,
-                    border: "1px solid rgba(34,197,94,0.3)", 
+                    border: "1px solid rgba(34,197,94,0.4)", 
                     transition: "top 0.3s ease",
                     height: "48%",
                     maxHeight: "48%",
                     overflowY: "auto",
-                    boxShadow: "inset 0 0 20px rgba(0,0,0,0.3)",
+                    boxShadow: "0 4px 30px rgba(0,0,0,0.5), inset 0 0 20px rgba(0,0,0,0.3)",
                     zIndex: 50
                 }}>
                     {displayPlants.map(plant => (
@@ -943,6 +957,7 @@ export default function IsometricFarm({
                     </div>
                 </div>
             )}
+            </div>{/* Close inner container */}
         </div>
     );
 }

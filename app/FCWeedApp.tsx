@@ -3498,15 +3498,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         return () => clearInterval(healthInterval);
     }, [v5StakingOpen, v5StakedPlants]);
 
-    async function handleV5StakePlants() {
-        if (selectedV5AvailPlants.length === 0) return;
+    async function handleV5StakePlants(ids?: number[]) {
+        const plantIds = ids ?? selectedV5AvailPlants;
+        if (plantIds.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Approving...");
             const ctx = await ensureWallet();
             if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(PLANT_ADDRESS, V5_STAKING_ADDRESS, ctx);
             
-            const data = v4StakingInterface.encodeFunctionData("stakePlants", [selectedV5AvailPlants]);
+            const data = v4StakingInterface.encodeFunctionData("stakePlants", [plantIds]);
             
             // Try sponsored transaction first
             if (supportsSponsorship) {
@@ -3530,19 +3531,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setSelectedV5AvailPlants([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); setTimeout(() => setV5ActionStatus(""), 3000); }
         finally { setActionLoading(false); }
     }
 
-    async function handleV5StakeLands() {
-        if (selectedV5AvailLands.length === 0) return;
+    async function handleV5StakeLands(ids?: number[]) {
+        const landIds = ids ?? selectedV5AvailLands;
+        if (landIds.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Approving...");
             const ctx = await ensureWallet();
             if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
             
-            const data = v4StakingInterface.encodeFunctionData("stakeLands", [selectedV5AvailLands]);
+            const data = v4StakingInterface.encodeFunctionData("stakeLands", [landIds]);
             
             // Try sponsored transaction first
             if (supportsSponsorship) {
@@ -3566,19 +3568,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setSelectedV5AvailLands([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); setTimeout(() => setV5ActionStatus(""), 3000); }
         finally { setActionLoading(false); }
     }
 
-    async function handleV5StakeSuperLands() {
-        if (selectedV5AvailSuperLands.length === 0) return;
+    async function handleV5StakeSuperLands(ids?: number[]) {
+        const superLandIds = ids ?? selectedV5AvailSuperLands;
+        if (superLandIds.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Approving...");
             const ctx = await ensureWallet();
             if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(SUPER_LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
             
-            const data = v4StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV5AvailSuperLands]);
+            const data = v4StakingInterface.encodeFunctionData("stakeSuperLands", [superLandIds]);
             
             // Try sponsored transaction first
             if (supportsSponsorship) {
@@ -3602,20 +3605,22 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setSelectedV5AvailSuperLands([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); setTimeout(() => setV5ActionStatus(""), 3000); }
         finally { setActionLoading(false); }
     }
 
-    async function handleV5UnstakePlants() {
-        if (selectedV5StakedPlants.length === 0) return;
-        const unhealthy = selectedV5StakedPlants.filter(id => (v5PlantHealths[id] ?? 0) < 100);
+    async function handleV5UnstakePlants(ids?: number[]) {
+        const plantIds = ids ?? selectedV5StakedPlants;
+        if (plantIds.length === 0) return;
+        const unhealthy = plantIds.filter(id => (v5PlantHealths[id] ?? 0) < 100);
         if (unhealthy.length > 0) {
             setV5ActionStatus(`Water plants first! ${unhealthy.map(id => `#${id}: ${v5PlantHealths[id] ?? 0}%`).join(", ")}`);
+            setTimeout(() => setV5ActionStatus(""), 3000);
             return;
         }
         try {
             setActionLoading(true); setV5ActionStatus("Unstaking plants...");
-            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakePlants", [selectedV5StakedPlants]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakePlants", [plantIds]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Unstaked!");
@@ -3626,37 +3631,40 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             if (err.message?.includes("!healthy") || err.reason?.includes("!healthy")) {
                 setV5ActionStatus("Plants need 100% health! Water them first.");
             } else { setV5ActionStatus("Error: " + (err.reason || err.message || err)); }
+            setTimeout(() => setV5ActionStatus(""), 3000);
         }
         finally { setActionLoading(false); }
     }
 
-    async function handleV5UnstakeLands() {
-        if (selectedV5StakedLands.length === 0) return;
+    async function handleV5UnstakeLands(ids?: number[]) {
+        const landIds = ids ?? selectedV5StakedLands;
+        if (landIds.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Unstaking lands...");
-            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeLands", [selectedV5StakedLands]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeLands", [landIds]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Unstaked!");
             setSelectedV5StakedLands([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); setTimeout(() => setV5ActionStatus(""), 3000); }
         finally { setActionLoading(false); }
     }
 
-    async function handleV5UnstakeSuperLands() {
-        if (selectedV5StakedSuperLands.length === 0) return;
+    async function handleV5UnstakeSuperLands(ids?: number[]) {
+        const superLandIds = ids ?? selectedV5StakedSuperLands;
+        if (superLandIds.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Unstaking super lands...");
-            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeSuperLands", [selectedV5StakedSuperLands]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeSuperLands", [superLandIds]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setV5ActionStatus("Unstaked!");
             setSelectedV5StakedSuperLands([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); setTimeout(() => setV5ActionStatus(""), 3000); }
         finally { setActionLoading(false); }
     }
 
@@ -7276,12 +7284,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 actionStatus={v5ActionStatus}
                 loading={loadingV5Staking}
                 actionLoading={actionLoading}
-                onStakePlants={async (ids) => { setSelectedV5AvailPlants(ids); await handleV5StakePlants(); }}
-                onUnstakePlants={async (ids) => { setSelectedV5StakedPlants(ids); await handleV5UnstakePlants(); }}
-                onStakeLands={async (ids) => { setSelectedV5AvailLands(ids); await handleV5StakeLands(); }}
-                onUnstakeLands={async (ids) => { setSelectedV5StakedLands(ids); await handleV5UnstakeLands(); }}
-                onStakeSuperLands={async (ids) => { setSelectedV5AvailSuperLands(ids); await handleV5StakeSuperLands(); }}
-                onUnstakeSuperLands={async (ids) => { setSelectedV5StakedSuperLands(ids); await handleV5UnstakeSuperLands(); }}
+                onStakePlants={async (ids) => { await handleV5StakePlants(ids); }}
+                onUnstakePlants={async (ids) => { await handleV5UnstakePlants(ids); }}
+                onStakeLands={async (ids) => { await handleV5StakeLands(ids); }}
+                onUnstakeLands={async (ids) => { await handleV5UnstakeLands(ids); }}
+                onStakeSuperLands={async (ids) => { await handleV5StakeSuperLands(ids); }}
+                onUnstakeSuperLands={async (ids) => { await handleV5UnstakeSuperLands(ids); }}
                 onClaim={handleV5Claim}
                 onWaterPlants={async (ids, amounts) => { 
                     // Pass IDs and amounts directly from UI to handler
