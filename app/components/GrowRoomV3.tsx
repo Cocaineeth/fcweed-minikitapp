@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { ethers } from "ethers";
 
 // NFT Image paths
@@ -359,20 +359,34 @@ export default function IsometricFarm({
     
     // State for inline water error with auto-dismiss
     const [waterError, setWaterError] = useState("");
+    const waterErrorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     
     // Show water error with auto-dismiss
     const showWaterError = (msg: string) => {
+        // Clear any existing timeout
+        if (waterErrorTimeoutRef.current) {
+            clearTimeout(waterErrorTimeoutRef.current);
+        }
         setWaterError(msg);
-        setTimeout(() => setWaterError(""), 4000);
+        waterErrorTimeoutRef.current = setTimeout(() => {
+            setWaterError("");
+            waterErrorTimeoutRef.current = null;
+        }, 4000);
     };
     
     // Toggle plant selection with water amount init
     const toggleStakedPlant = (id: number) => {
         setSelectedStakedPlants(prev => {
             if (prev.includes(id)) {
-                setWaterAmounts(wa => { const n = { ...wa }; delete n[id]; return n; });
+                // Deselecting - remove water amount
+                setWaterAmounts(wa => { 
+                    const n = { ...wa }; 
+                    delete n[id]; 
+                    return n; 
+                });
                 return prev.filter(p => p !== id);
             } else {
+                // Selecting - set default water amount
                 const plant = allPlantData.find(p => p.id === id);
                 const maxNeeded = plant ? Math.max(0, (100 - plant.health) / 10) : 0;
                 // Use min of what's needed OR what user has available
@@ -396,8 +410,10 @@ export default function IsometricFarm({
         });
     };
     
-    // Round total to avoid floating point comparison issues
-    const totalWaterToUse = Math.round(Object.values(waterAmounts).reduce((sum, amt) => sum + amt, 0) * 100) / 100;
+    // IMPORTANT: Only sum water amounts for CURRENTLY SELECTED plants
+    const totalWaterToUse = Math.round(
+        selectedStakedPlants.reduce((sum, id) => sum + (waterAmounts[id] || 0), 0) * 100
+    ) / 100;
     // Use small epsilon for floating point comparison
     const hasEnoughWater = totalWaterToUse <= (Math.round(waterBalanceRaw * 100) / 100) + 0.001;
     
@@ -460,38 +476,42 @@ export default function IsometricFarm({
     const stakeCapacity = calculateStakeCapacity();
     
     const handleWaterSelected = async () => {
-        if (selectedStakedPlants.length > 0 && !showInventory) {
-            if (!hasEnoughWater) {
-                showWaterError(`Not enough water! Have ${waterBalance}L, need ${totalWaterToUse.toFixed(2)}L`);
-                return;
-            }
-            setWaterError(""); // Clear any existing error
-            setWateringPlants(selectedStakedPlants);
-            await onWaterPlants(selectedStakedPlants);
-            setTimeout(() => {
-                setWateringPlants([]);
-                setSelectedStakedPlants([]);
-                setWaterAmounts({});
-            }, 2000);
+        // Validate we have plants selected
+        if (selectedStakedPlants.length === 0) return;
+        
+        // Check water balance
+        if (!hasEnoughWater) {
+            showWaterError(`Not enough water! Have ${waterBalance}L, need ${totalWaterToUse.toFixed(2)}L`);
+            return;
         }
+        
+        // Check minimum water amount
+        if (totalWaterToUse <= 0) {
+            showWaterError("Select water amount first!");
+            return;
+        }
+        
+        // Clear error and start animation
+        setWaterError("");
+        setWateringPlants([...selectedStakedPlants]);
+        
+        // Call the actual water function
+        try {
+            await onWaterPlants(selectedStakedPlants);
+        } catch (err) {
+            console.error("Water error:", err);
+        }
+        
+        // Clear after animation
+        setTimeout(() => {
+            setWateringPlants([]);
+            setSelectedStakedPlants([]);
+            setWaterAmounts({});
+        }, 2000);
     };
     
-    const handleWaterSelectedFromInventory = async () => {
-        if (selectedStakedPlants.length > 0) {
-            if (!hasEnoughWater) {
-                showWaterError(`Not enough water! Have ${waterBalance}L, need ${totalWaterToUse.toFixed(2)}L`);
-                return;
-            }
-            setWaterError(""); // Clear any existing error
-            setWateringPlants(selectedStakedPlants);
-            await onWaterPlants(selectedStakedPlants);
-            setTimeout(() => {
-                setWateringPlants([]);
-                setSelectedStakedPlants([]);
-                setWaterAmounts({});
-            }, 2000);
-        }
-    };
+    // Same handler works for both main view and inventory
+    const handleWaterSelectedFromInventory = handleWaterSelected;
     
     const handleStakeSelected = () => {
         // Check capacity before staking
@@ -541,7 +561,7 @@ export default function IsometricFarm({
                     <img src={PLANT_IMAGE} alt="FCWEED" style={{ width: 32, height: 32, borderRadius: 6 }} />
                     <div>
                         <h1 style={{ color: "#22c55e", fontSize: 16, margin: 0, fontWeight: 800 }}>FCWEED FARM</h1>
-                        <span style={{ fontSize: 10, color: "#4ade80" }}>GROW ROOM</span>
+                        <span style={{ fontSize: 10, color: "#4ade80" }}>GROW ROOM V5</span>
                     </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -755,13 +775,7 @@ export default function IsometricFarm({
                                         <>
                                             <span style={{ fontSize: 10, color: hasEnoughWater ? "#3b82f6" : "#ef4444", fontWeight: 600 }}>• {totalWaterToUse.toFixed(2)}L</span>
                                             <button 
-                                                onClick={() => {
-                                                    if (!hasEnoughWater) {
-                                                        showWaterError(`Not enough water! Have ${waterBalance}L, need ${totalWaterToUse.toFixed(2)}L`);
-                                                        return;
-                                                    }
-                                                    handleWaterSelectedFromInventory();
-                                                }} 
+                                                onClick={handleWaterSelected}
                                                 disabled={actionLoading || totalWaterToUse <= 0} 
                                                 style={{ 
                                                     padding: "8px 16px", 
@@ -841,13 +855,7 @@ export default function IsometricFarm({
                                 {selectedStakedPlants.length} selected • {totalWaterToUse.toFixed(2)}L total
                             </span>
                             <button 
-                                onClick={() => {
-                                    if (!hasEnoughWater) {
-                                        showWaterError(`Not enough water! Have ${waterBalance}L, need ${totalWaterToUse.toFixed(2)}L`);
-                                        return;
-                                    }
-                                    handleWaterSelected();
-                                }} 
+                                onClick={handleWaterSelected}
                                 disabled={actionLoading || totalWaterToUse <= 0} 
                                 style={{ 
                                     padding: "8px 20px", 
