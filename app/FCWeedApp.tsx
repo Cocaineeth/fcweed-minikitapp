@@ -3796,9 +3796,19 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             let tx;
             setV5ActionStatus("Watering plants...");
             
-            // Always use waterPlantWithAmount for precise control from UI
+            // Check if ALL plants are being watered to full (100% health)
+            // This is what "Select All Thirsty" does - we can use batch waterPlants() for this
+            const allWateringToFull = plantsNeedingWater.every(pid => {
+                const actualNeeded = v5WaterNeeded[pid] ?? 0;
+                const amountFromUI = amountsToUse[pid] ?? 0;
+                // Consider "full" if amount >= needed (with small epsilon for float comparison)
+                return amountFromUI >= actualNeeded - 0.001;
+            });
+            
+            console.log("[Water] All watering to full?", allWateringToFull, "Plants:", plantsNeedingWater.length);
+            
             if (plantsNeedingWater.length === 1) {
-                // Single plant
+                // Single plant - use waterPlantWithAmount for precise control
                 const plantId = plantsNeedingWater[0];
                 const actualNeeded = v5WaterNeeded[plantId] ?? 0;
                 const amountFromUI = amountsToUse[plantId] ?? 0;
@@ -3835,8 +3845,19 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     V5_STAKING_ADDRESS, 
                     waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei])
                 );
+            } else if (allWateringToFull) {
+                // BATCH WATER: All plants being watered to 100% - use single waterPlants() call
+                // This is the optimal path for "Select All Thirsty" button
+                console.log("[Water] Using BATCH waterPlants() for", plantsNeedingWater.length, "plants");
+                setV5ActionStatus(`Watering ${plantsNeedingWater.length} plants in one transaction...`);
+                
+                tx = await txAction().sendContractTx(
+                    V5_STAKING_ADDRESS, 
+                    waterInterface.encodeFunctionData("waterPlants", [plantsNeedingWater])
+                );
             } else {
-                // Multiple plants - water each with their specific amount
+                // PARTIAL WATER: Multiple plants with custom amounts - must water individually
+                // This happens when user manually adjusts water amounts below max
                 setV5ActionStatus(`Watering ${plantsNeedingWater.length} plants...`);
                 
                 // Track remaining balance as we water each plant
