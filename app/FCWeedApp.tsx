@@ -3748,7 +3748,24 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
                 const userData = await v5Contract.users(userAddress);
                 actualOnChainBalance = parseFloat(ethers.utils.formatUnits(userData.waterBalance, 18));
-                console.log("[Water] Fresh on-chain balance:", actualOnChainBalance, "L (cached was:", userWaterBalance, "L)");
+                
+                console.log("[Water] ========== BALANCE CHECK ==========");
+                console.log("[Water] Cached balance (from stats):", userWaterBalance, "L");
+                console.log("[Water] Fresh on-chain balance:", actualOnChainBalance, "L");
+                console.log("[Water] Total water to use:", totalWaterToUse, "L");
+                console.log("[Water] Raw on-chain wei:", userData.waterBalance.toString());
+                console.log("[Water] =====================================");
+                
+                // CRITICAL: If on-chain balance is less than what user wants to use, STOP
+                if (actualOnChainBalance < 0.01) {
+                    setV5ActionStatus(`No water! Balance: ${actualOnChainBalance.toFixed(4)}L. Buy more water first.`);
+                    setTimeout(() => setV5ActionStatus(""), 3000);
+                    setActionLoading(false);
+                    // Refresh stats to update UI with real value
+                    refreshV5StakingRef.current = false;
+                    refreshV5Staking();
+                    return;
+                }
                 
                 if (actualOnChainBalance < totalWaterToUse - 0.001) {
                     setV5ActionStatus(`Not enough water! Have ${actualOnChainBalance.toFixed(2)}L, need ${totalWaterToUse.toFixed(2)}L`);
@@ -3760,7 +3777,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     return;
                 }
             } catch (e) {
-                console.warn("[Water] Could not verify on-chain balance, proceeding with cached value");
+                console.warn("[Water] Could not verify on-chain balance:", e);
+                // If we can't check, be cautious
+                setV5ActionStatus("Could not verify water balance. Please try again.");
+                setTimeout(() => setV5ActionStatus(""), 3000);
+                setActionLoading(false);
+                return;
             }
             
             let tx;
@@ -3774,16 +3796,19 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 const amountFromUI = amountsToUse[plantId] ?? 0;
                 
                 // Cap to what's actually needed AND actual on-chain balance
-                const cappedAmount = Math.min(amountFromUI, actualNeeded, actualOnChainBalance);
+                // Use 99.9% of balance as safety margin for any rounding
+                const safeBalance = actualOnChainBalance * 0.999;
+                const cappedAmount = Math.min(amountFromUI, actualNeeded, safeBalance);
                 
-                if (cappedAmount <= 0) {
-                    setV5ActionStatus("Plant doesn't need water!");
+                if (cappedAmount <= 0.001) {
+                    setV5ActionStatus("Not enough water or plant is full!");
+                    setTimeout(() => setV5ActionStatus(""), 2000);
                     setActionLoading(false);
                     return;
                 }
                 
-                // Proper precision - round to 6 decimals
-                const roundedAmount = Math.round(cappedAmount * 1e6) / 1e6;
+                // Proper precision - round DOWN to 6 decimals to avoid exceeding balance
+                const roundedAmount = Math.floor(cappedAmount * 1e6) / 1e6;
                 const amountWei = ethers.utils.parseUnits(roundedAmount.toFixed(6), 18);
                 
                 // Detailed debug logging
@@ -3791,11 +3816,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 console.log("[Water Debug] Plant ID:", plantId);
                 console.log("[Water Debug] Amount from UI:", amountFromUI, "L");
                 console.log("[Water Debug] Actual needed:", actualNeeded, "L");
-                console.log("[Water Debug] User balance (from stats):", userWaterBalance, "L");
+                console.log("[Water Debug] On-chain balance:", actualOnChainBalance, "L");
+                console.log("[Water Debug] Safe balance (99.9%):", safeBalance, "L");
                 console.log("[Water Debug] Capped amount:", cappedAmount, "L");
-                console.log("[Water Debug] Rounded amount:", roundedAmount, "L");
+                console.log("[Water Debug] Rounded amount (floor):", roundedAmount, "L");
                 console.log("[Water Debug] Amount in wei:", amountWei.toString());
-                console.log("[Water Debug] Stats water raw:", v5StakingStats?.water?.toString());
                 console.log("[Water Debug] =================================");
                 
                 tx = await txAction().sendContractTx(
@@ -3805,6 +3830,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             } else {
                 // Multiple plants - water each with their specific amount
                 setV5ActionStatus(`Watering ${plantsNeedingWater.length} plants...`);
+                
+                // Track remaining balance as we water each plant
+                let remainingBalance = actualOnChainBalance;
                 
                 for (let i = 0; i < plantsNeedingWater.length; i++) {
                     const pid = plantsNeedingWater[i];
@@ -3816,17 +3844,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     }
                     
                     const amountFromUI = amountsToUse[pid] ?? 0;
-                    const cappedAmount = Math.min(amountFromUI, actualNeeded, actualOnChainBalance);
+                    // Use 99.9% of remaining balance as safety
+                    const safeRemaining = remainingBalance * 0.999;
+                    const cappedAmount = Math.min(amountFromUI, actualNeeded, safeRemaining);
                     
-                    if (cappedAmount <= 0) {
-                        console.log(`[Water] Skipping plant ${pid} - no water amount`);
+                    if (cappedAmount <= 0.001) {
+                        console.log(`[Water] Skipping plant ${pid} - no water amount or balance`);
                         continue;
                     }
                     
-                    const roundedAmount = Math.round(cappedAmount * 1e6) / 1e6;
+                    // Round DOWN to avoid exceeding balance
+                    const roundedAmount = Math.floor(cappedAmount * 1e6) / 1e6;
                     const amountWei = ethers.utils.parseUnits(roundedAmount.toFixed(6), 18);
                     
-                    console.log(`[Water] Plant ${i+1}/${plantsNeedingWater.length}:`, pid, "amount:", roundedAmount, "L");
+                    console.log(`[Water] Plant ${i+1}/${plantsNeedingWater.length}:`, pid, "amount:", roundedAmount, "L, remaining:", remainingBalance, "L");
                     setV5ActionStatus(`Watering plant ${i+1}/${plantsNeedingWater.length}...`);
                     
                     tx = await txAction().sendContractTx(
@@ -3836,6 +3867,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     
                     if (!tx) throw new Error("Transaction rejected");
                     await waitForTx(tx);
+                    
+                    // Deduct from remaining balance
+                    remainingBalance -= roundedAmount;
                 }
                 
                 setV5ActionStatus("All plants watered!");
