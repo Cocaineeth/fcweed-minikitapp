@@ -39,7 +39,6 @@ import {
     LAND_PRICE_USDC,
     SUPER_LAND_FCWEED_COST,
     ERC721_TRANSFER_TOPIC,
-    GIFS,
     PLAYLIST,
     SUPER_PLANT_IDS,
     SUPER_LAND_IDS,
@@ -706,13 +705,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [isPlaying, setIsPlaying] = useState(true);
     const [manualPause, setManualPause] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
-    const [gifIndex, setGifIndex] = useState(0);
     const [imagesLoaded, setImagesLoaded] = useState(false);
+    
+    // Video refs for persistent playback across tabs
+    const infoVideoRef = useRef<HTMLVideoElement | null>(null);
+    const mintVideoRef = useRef<HTMLVideoElement | null>(null);
+    const stakeVideoRef = useRef<HTMLVideoElement | null>(null);
 
     // Preload all images on mount to prevent flickering
     useEffect(() => {
         const imagesToPreload = [
-            ...GIFS,
             '/images/items/ak47.gif',
             '/images/items/nuke.gif',
             '/images/items/rpg.gif',
@@ -742,6 +744,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         // Fallback - mark as loaded after 2 seconds regardless
         const timeout = setTimeout(() => setImagesLoaded(true), 2000);
         return () => clearTimeout(timeout);
+    }, []);
+
+    // Ensure all videos keep playing (some browsers pause hidden videos)
+    useEffect(() => {
+        const keepVideosPlaying = () => {
+            [infoVideoRef, mintVideoRef, stakeVideoRef].forEach(ref => {
+                if (ref.current && ref.current.paused) {
+                    ref.current.play().catch(() => {});
+                }
+            });
+        };
+        
+        const interval = setInterval(keepVideosPlaying, 1000);
+        return () => clearInterval(interval);
     }, []);
 
     const [ladderRows, setLadderRows] = useState<FarmerRow[]>([]);
@@ -1573,13 +1589,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             audioRef.current.pause();
         }
     }, [isPlaying, currentTrack]);
-
-    useEffect(() => {
-        const id = setInterval(() => {
-            setGifIndex((prev) => (prev + 1) % GIFS.length);
-        }, 5000);
-        return () => clearInterval(id);
-    }, []);
 
     const resetSelections = useCallback(() =>
         {
@@ -3152,100 +3161,41 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18))
                 : 0;
             
-            // Helper function to calculate default water amount (rounded up to 0.1L)
-            const getDefaultWater = (needed: number) => Math.max(0.1, Math.ceil((needed || 0.1) * 10) / 10);
-            
-            // Check if user has ANY custom amounts set (via +/- buttons)
-            const hasCustomAmounts = selectedV4PlantsToWater.some(id => 
-                v4CustomWaterAmounts[id] !== undefined && 
-                Math.abs(v4CustomWaterAmounts[id] - getDefaultWater(v4WaterNeeded[id])) > 0.01
-            );
-            
-            // Calculate total water user wants to use
-            const totalWaterToUse = selectedV4PlantsToWater.reduce((sum, id) => {
-                const customAmt = v4CustomWaterAmounts[id];
-                const neededAmt = getDefaultWater(v4WaterNeeded[id]);
-                return sum + (customAmt !== undefined ? customAmt : neededAmt);
+            // Calculate total water needed for selected plants
+            const totalWaterNeeded = selectedV4PlantsToWater.reduce((sum, id) => {
+                return sum + (v4WaterNeeded[id] || 0);
             }, 0);
             
-            console.log("[V4 Water] Total to use:", totalWaterToUse, "User balance:", userWaterBalance);
+            console.log("[V4 Water] Total needed:", totalWaterNeeded, "User balance:", userWaterBalance);
             
             // VALIDATION: User must have enough water
-            if (userWaterBalance < totalWaterToUse) {
-                setV4ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterToUse.toFixed(2)}L`);
+            if (userWaterBalance < totalWaterNeeded) {
+                setV4ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterNeeded.toFixed(2)}L`);
                 setActionLoading(false);
                 return;
             }
             
-            // Create interface for water functions
+            // Create interface for water functions - V4 contract only has waterPlant and waterPlants
             const waterInterface = new ethers.utils.Interface([
-                "function waterPlants(uint256[] calldata ids)",
-                "function waterPlantWithAmount(uint256 id, uint256 amount)",
-                "function waterPlantsWithBalance(uint256[] calldata ids)"
+                "function waterPlant(uint256 id)",
+                "function waterPlants(uint256[] calldata ids)"
             ]);
             
             let tx;
             
-            if (hasCustomAmounts || selectedV4PlantsToWater.length === 1) {
-                // Use waterPlantWithAmount for precise control
+            if (selectedV4PlantsToWater.length === 1) {
+                // Single plant - use waterPlant
                 const plantId = selectedV4PlantsToWater[0];
-                
-                if (selectedV4PlantsToWater.length === 1) {
-                    const amountToUse = v4CustomWaterAmounts[plantId] !== undefined 
-                        ? v4CustomWaterAmounts[plantId] 
-                        : getDefaultWater(v4WaterNeeded[plantId]);
-                    const finalAmount = Math.min(amountToUse, userWaterBalance);
-                    const amountWei = ethers.utils.parseUnits(finalAmount.toFixed(18), 18);
-                    
-                    tx = await txAction().sendContractTx(
-                        V4_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei])
-                    );
-                } else {
-                    // Multiple plants with custom amounts - water one by one
-                    for (let i = 0; i < selectedV4PlantsToWater.length; i++) {
-                        const pid = selectedV4PlantsToWater[i];
-                        const amountToUse = v4CustomWaterAmounts[pid] !== undefined 
-                            ? v4CustomWaterAmounts[pid] 
-                            : getDefaultWater(v4WaterNeeded[pid]);
-                        
-                        if (amountToUse <= 0) continue;
-                        
-                        const amountWei = ethers.utils.parseUnits(amountToUse.toFixed(18), 18);
-                        setV4ActionStatus(`Watering plant ${i+1}/${selectedV4PlantsToWater.length}...`);
-                        
-                        tx = await txAction().sendContractTx(
-                            V4_STAKING_ADDRESS, 
-                            waterInterface.encodeFunctionData("waterPlantWithAmount", [pid, amountWei])
-                        );
-                        
-                        if (!tx) throw new Error("Transaction rejected");
-                        await waitForTx(tx);
-                    }
-                    
-                    setV4ActionStatus("All plants watered!");
-                    setSelectedV4PlantsToWater([]);
-                    setV4CustomWaterAmounts({});
-                    setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
-                    return;
-                }
-            } else {
-                // No custom amounts, multiple plants
-                const totalNeededFor100 = selectedV4PlantsToWater.reduce((sum, id) => 
-                    sum + getDefaultWater(v4WaterNeeded[id]), 0
+                tx = await txAction().sendContractTx(
+                    V4_STAKING_ADDRESS, 
+                    waterInterface.encodeFunctionData("waterPlant", [plantId])
                 );
-                
-                if (userWaterBalance >= totalNeededFor100) {
-                    tx = await txAction().sendContractTx(
-                        V4_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater])
-                    );
-                } else {
-                    tx = await txAction().sendContractTx(
-                        V4_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlantsWithBalance", [selectedV4PlantsToWater])
-                    );
-                }
+            } else {
+                // Multiple plants - use waterPlants
+                tx = await txAction().sendContractTx(
+                    V4_STAKING_ADDRESS, 
+                    waterInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater])
+                );
             }
             
             if (!tx) throw new Error("Transaction rejected");
@@ -6235,23 +6185,85 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             </header>
 
             <main className={styles.main}>
+                {/* Persistent video container - all videos play continuously, stacked with absolute positioning */}
+                {(activeTab === "info" || activeTab === "mint" || activeTab === "stake") && (
+                    <section style={{ 
+                        position: "relative",
+                        width: "100%",
+                        height: 120,
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        padding: "10px 0"
+                    }}>
+                        {/* Info page video */}
+                        <video 
+                            ref={infoVideoRef}
+                            src="/videos/info-page.mp4"
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            onError={(e) => console.log("Info video error:", e)}
+                            style={{ 
+                                position: "absolute",
+                                width: 280,
+                                height: 100,
+                                borderRadius: 14, 
+                                objectFit: "cover",
+                                background: "linear-gradient(135deg, rgba(16,185,129,0.3), rgba(59,130,246,0.3))",
+                                opacity: activeTab === "info" ? 1 : 0,
+                                pointerEvents: activeTab === "info" ? "auto" : "none",
+                                transition: "opacity 0.2s ease"
+                            }} 
+                        />
+                        {/* Mint page video */}
+                        <video 
+                            ref={mintVideoRef}
+                            src="/videos/mint-page.mp4"
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            onError={(e) => console.log("Mint video error:", e)}
+                            style={{ 
+                                position: "absolute",
+                                width: 260,
+                                height: 95,
+                                borderRadius: 12, 
+                                objectFit: "cover",
+                                background: "linear-gradient(135deg, rgba(16,185,129,0.3), rgba(59,130,246,0.3))",
+                                opacity: activeTab === "mint" ? 1 : 0,
+                                pointerEvents: activeTab === "mint" ? "auto" : "none",
+                                transition: "opacity 0.2s ease"
+                            }} 
+                        />
+                        {/* Stake page video */}
+                        <video 
+                            ref={stakeVideoRef}
+                            src="/videos/staking-page.mp4"
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            onError={(e) => console.log("Stake video error:", e)}
+                            style={{ 
+                                position: "absolute",
+                                width: 260,
+                                height: 95,
+                                borderRadius: 12, 
+                                objectFit: "cover",
+                                background: "linear-gradient(135deg, rgba(16,185,129,0.3), rgba(59,130,246,0.3))",
+                                opacity: activeTab === "stake" ? 1 : 0,
+                                pointerEvents: activeTab === "stake" ? "auto" : "none",
+                                transition: "opacity 0.2s ease"
+                            }} 
+                        />
+                    </section>
+                )}
+                
                 {activeTab === "info" && (
                     <>
-                        <section style={{ textAlign: "center", padding: "10px 0", display: "flex", justifyContent: "center", minHeight: 100 }}>
-                            <Image 
-                                src={GIFS[gifIndex]} 
-                                alt="FCWEED" 
-                                width={280} 
-                                height={100} 
-                                style={{ 
-                                    borderRadius: 14, 
-                                    objectFit: "cover",
-                                    opacity: imagesLoaded ? 1 : 0,
-                                    transition: "opacity 0.3s ease"
-                                }} 
-                                priority
-                            />
-                        </section>
 
                         
                         <section style={{ display: "flex", justifyContent: "center", padding: "8px 0" }}>
@@ -6357,21 +6369,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         {activeTab === "mint" && (
             <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 20 })}>
                 <h2 style={{ fontSize: 18, margin: "0 0 12px", color: theme === "light" ? "#2563eb" : "#7cb3ff" }}>Mint NFTs</h2>
-                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, minHeight: 95 }}>
-                    <Image 
-                        src={GIFS[gifIndex]} 
-                        alt="FCWEED" 
-                        width={260} 
-                        height={95} 
-                        style={{ 
-                            borderRadius: 12, 
-                            objectFit: "cover",
-                            opacity: imagesLoaded ? 1 : 0,
-                            transition: "opacity 0.3s ease"
-                        }} 
-                    />
-                </div>
-
                 
                 <div style={{
                     display: "flex",
@@ -6435,20 +6432,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 {activeTab === "stake" && (
                     <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 20 })}>
                         <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#7cb3ff" }}>Staking</h2>
-                        <div style={{ display: "flex", justifyContent: "center", marginBottom: 16, minHeight: 95 }}>
-                            <Image 
-                                src={GIFS[gifIndex]} 
-                                alt="FCWEED" 
-                                width={260} 
-                                height={95} 
-                                style={{ 
-                                    borderRadius: 12, 
-                                    objectFit: "cover",
-                                    opacity: imagesLoaded ? 1 : 0,
-                                    transition: "opacity 0.3s ease"
-                                }} 
-                            />
-                        </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                             <button type="button" className={styles.btnPrimary} onClick={() => setV5StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #10b981, #34d399)" }}>🚀 Staking V5</button>
                             <button type="button" className={styles.btnPrimary} onClick={() => setV4StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>⬅️ Staking V4 (UNSTAKE ONLY)</button>
