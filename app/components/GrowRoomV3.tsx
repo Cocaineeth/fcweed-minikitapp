@@ -367,10 +367,10 @@ export default function IsometricFarm({
         setWaterError(msg);
     };
     
-    // Auto-dismiss water error after 4 seconds
+    // Auto-dismiss water error after 2 seconds
     useEffect(() => {
         if (waterError) {
-            const timer = setTimeout(() => setWaterError(""), 4000);
+            const timer = setTimeout(() => setWaterError(""), 2000);
             return () => clearTimeout(timer);
         }
     }, [waterError]);
@@ -916,9 +916,22 @@ export default function IsometricFarm({
                 </div>
             </div>
             
-            {/* Status toast */}
+            {/* Status toast - positioned to not block buttons */}
             {actionStatus && (
-                <div style={{ position: "absolute", bottom: 100, left: "50%", transform: "translateX(-50%)", background: actionStatus.includes("✅") ? "rgba(34,197,94,0.95)" : "rgba(251,191,36,0.95)", padding: "10px 20px", borderRadius: 8, color: "#fff", fontSize: 11, fontWeight: 600, zIndex: 300 }}>{actionStatus}</div>
+                <div style={{ 
+                    position: "absolute", 
+                    top: 80, 
+                    left: "50%", 
+                    transform: "translateX(-50%)", 
+                    background: actionStatus.includes("✅") ? "rgba(34,197,94,0.95)" : actionStatus.toLowerCase().includes("cancel") || actionStatus.toLowerCase().includes("error") ? "rgba(239,68,68,0.95)" : "rgba(251,191,36,0.95)", 
+                    padding: "10px 20px", 
+                    borderRadius: 8, 
+                    color: "#fff", 
+                    fontSize: 11, 
+                    fontWeight: 600, 
+                    zIndex: 300,
+                    pointerEvents: "none"
+                }}>{actionStatus}</div>
             )}
             
             {/* Loading */}
