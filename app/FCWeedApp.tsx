@@ -970,13 +970,22 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         hash: txHash,
                         wait: async () => {
                             // Poll for receipt with longer timeout for mobile
+                            console.log("[TX] MiniApp waiting for receipt:", txHash);
                             for (let i = 0; i < 60; i++) {
                                 await new Promise(r => setTimeout(r, 2000));
                                 try {
                                     const receipt = await readProvider.getTransactionReceipt(txHash);
-                                    if (receipt && receipt.confirmations > 0) return receipt;
-                                } catch {}
+                                    if (receipt) {
+                                        console.log("[TX] MiniApp receipt found, status:", receipt.status, "confirmations:", receipt.confirmations);
+                                        if (receipt.confirmations > 0) {
+                                            return receipt;
+                                        }
+                                    }
+                                } catch (pollErr) {
+                                    console.warn("[TX] MiniApp poll error (will retry):", pollErr);
+                                }
                             }
+                            console.warn("[TX] MiniApp polling timed out for:", txHash);
                             return null;
                         }
                     } as any;
@@ -1042,13 +1051,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 return { 
                     hash,
                     wait: async () => {
+                        console.log("[TX] WalletClient waiting for receipt:", hash);
                         for (let i = 0; i < 30; i++) {
                             await new Promise(r => setTimeout(r, 2000));
                             try {
                                 const receipt = await readProvider.getTransactionReceipt(hash);
-                                if (receipt && receipt.confirmations > 0) return receipt;
-                            } catch {}
+                                if (receipt) {
+                                    console.log("[TX] WalletClient receipt found, status:", receipt.status);
+                                    if (receipt.confirmations > 0) return receipt;
+                                }
+                            } catch (pollErr) {
+                                console.warn("[TX] WalletClient poll error:", pollErr);
+                            }
                         }
+                        console.warn("[TX] WalletClient polling timed out");
                         return null;
                     }
                 } as any;
@@ -1109,13 +1125,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             hash: txHash,
                             wait: async () => {
                                 // Poll for receipt
+                                console.log("[TX] Raw provider waiting for receipt:", txHash);
                                 for (let i = 0; i < 30; i++) {
                                     await new Promise(r => setTimeout(r, 2000));
                                     try {
                                         const receipt = await readProvider.getTransactionReceipt(txHash);
-                                        if (receipt && receipt.confirmations > 0) return receipt;
-                                    } catch {}
+                                        if (receipt) {
+                                            console.log("[TX] Raw provider receipt found, status:", receipt.status);
+                                            if (receipt.confirmations > 0) return receipt;
+                                        }
+                                    } catch (pollErr) {
+                                        console.warn("[TX] Raw provider poll error:", pollErr);
+                                    }
                                 }
+                                console.warn("[TX] Raw provider polling timed out");
                                 return null;
                             }
                         } as any;
@@ -3861,18 +3884,54 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 
                 tx = await txAction().sendContractTx(
                     V5_STAKING_ADDRESS, 
-                    waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei])
+                    waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei]),
+                    "0x7A120" // 500k gas for single plant water
                 );
             } else if (allWateringToFull) {
-                // BATCH WATER: All plants being watered to 100% - use single waterPlants() call
+                // BATCH WATER: All plants being watered to 100% - use single waterPlantsWithBalance() call
                 // This is the optimal path for "Select All Thirsty" button
-                console.log("[Water] Using BATCH waterPlants() for", plantsNeedingWater.length, "plants");
-                setV5ActionStatus(`Watering ${plantsNeedingWater.length} plants in one transaction...`);
+                // Using waterPlantsWithBalance is SAFER than waterPlants because it uses user's actual balance
+                console.log("[Water] Using BATCH waterPlantsWithBalance() for", plantsNeedingWater.length, "plants");
                 
+                // CRITICAL: Calculate total water needed for ALL plants
+                const totalWaterNeededForBatch = plantsNeedingWater.reduce((sum, pid) => {
+                    return sum + (v5WaterNeeded[pid] ?? 0);
+                }, 0);
+                
+                console.log("[Water] BATCH CHECK: Need", totalWaterNeededForBatch.toFixed(2), "L, Have", actualOnChainBalance.toFixed(2), "L");
+                
+                // CRITICAL: Verify user has enough water for ALL plants BEFORE sending tx
+                if (actualOnChainBalance < totalWaterNeededForBatch - 0.01) {
+                    console.error("[Water] BATCH ABORT: Not enough water for all plants!");
+                    setV5ActionStatus(`❌ Need ${totalWaterNeededForBatch.toFixed(1)}L but only have ${actualOnChainBalance.toFixed(1)}L. Buy more water!`);
+                    setTimeout(() => setV5ActionStatus(""), 4000);
+                    setActionLoading(false);
+                    return;
+                }
+                
+                setV5ActionStatus(`Watering ${plantsNeedingWater.length} plants...`);
+                
+                // Calculate gas based on number of plants (100k per plant + 200k base)
+                const gasNeeded = 200000 + (plantsNeedingWater.length * 100000);
+                const gasHex = "0x" + Math.min(gasNeeded, 3000000).toString(16); // Cap at 3M
+                
+                console.log("[Water] ========== BATCH WATER TX ==========");
+                console.log("[Water] Function: waterPlants");
+                console.log("[Water] Plant IDs:", plantsNeedingWater);
+                console.log("[Water] Total plants:", plantsNeedingWater.length);
+                console.log("[Water] Total water needed:", totalWaterNeededForBatch.toFixed(2), "L");
+                console.log("[Water] User balance:", actualOnChainBalance.toFixed(2), "L");
+                console.log("[Water] Gas limit:", gasHex, "(", Math.min(gasNeeded, 3000000), ")");
+                console.log("[Water] ======================================");
+                
+                // Use waterPlants batch function - waters all plants to 100% using user's balance
                 tx = await txAction().sendContractTx(
                     V5_STAKING_ADDRESS, 
-                    waterInterface.encodeFunctionData("waterPlants", [plantsNeedingWater])
+                    waterInterface.encodeFunctionData("waterPlants", [plantsNeedingWater]),
+                    gasHex
                 );
+                
+                console.log("[Water] TX submitted:", tx?.hash || "no hash");
             } else {
                 // PARTIAL WATER: Multiple plants with custom amounts - must water individually
                 // This happens when user manually adjusts water amounts below max
@@ -3909,51 +3968,141 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     
                     tx = await txAction().sendContractTx(
                         V5_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlantWithAmount", [pid, amountWei])
+                        waterInterface.encodeFunctionData("waterPlantWithAmount", [pid, amountWei]),
+                        "0x7A120" // 500k gas for single plant water
                     );
                     
                     if (!tx) throw new Error("Transaction rejected");
-                    await waitForTx(tx);
+                    
+                    // Wait and verify transaction
+                    const receipt = await waitForTx(tx, readProvider);
+                    if (receipt && receipt.status === 0) {
+                        console.error(`[Water] Plant ${pid} watering reverted!`);
+                        setV5ActionStatus(`❌ Watering plant ${pid} failed!`);
+                        // Continue with remaining plants or stop? Stop to be safe.
+                        throw new Error(`Watering plant ${pid} failed - transaction reverted`);
+                    }
                     
                     // Deduct from remaining balance
                     remainingBalance -= roundedAmount;
                 }
                 
-                setV5ActionStatus("All plants watered!");
+                setV5ActionStatus("✅ All plants watered!");
                 setSelectedV5PlantsToWater([]);
                 setV5CustomWaterAmounts({});
-                setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+                // Immediate refresh
+                refreshV5StakingRef.current = false;
+                refreshV5Staking();
+                setTimeout(() => setV5ActionStatus(""), 2000);
                 setActionLoading(false);
                 return;
             }
             
             if (!tx) throw new Error("Transaction rejected");
-            await waitForTx(tx);
-            setV5ActionStatus("Plants watered!");
+            
+            // Wait for transaction and VERIFY it succeeded
+            const receipt = await waitForTx(tx, readProvider);
+            
+            // Check if transaction actually succeeded
+            if (receipt && receipt.status === 0) {
+                console.error("[Water] Transaction reverted! Receipt:", receipt);
+                setV5ActionStatus("❌ Watering failed - transaction reverted. Try again.");
+                setTimeout(() => setV5ActionStatus(""), 3000);
+                // Force refresh to show current state
+                refreshV5StakingRef.current = false;
+                refreshV5Staking();
+                setActionLoading(false);
+                return;
+            }
+            
+            if (!receipt) {
+                console.warn("[Water] No receipt returned - checking on-chain state...");
+                // Transaction might have succeeded, force refresh to verify
+            }
+            
+            // VERIFICATION: Check on-chain that plants were actually watered
+            try {
+                const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
+                // Wait a moment for state to propagate
+                await new Promise(r => setTimeout(r, 1500));
+                
+                // Check health of first plant we tried to water
+                const checkPlantId = plantsNeedingWater[0];
+                const plantInfo = await v5Contract.getPlantInfo(checkPlantId);
+                const newHealth = plantInfo.health?.toNumber?.() ?? plantInfo[3]?.toNumber?.() ?? 100;
+                const oldHealth = v5PlantHealths[checkPlantId] ?? 0;
+                
+                // Also check water balance was deducted
+                const userData = await v5Contract.users(userAddress);
+                const newWaterBalance = parseFloat(ethers.utils.formatUnits(userData.waterBalance, 18));
+                
+                console.log(`[Water] Verification:`);
+                console.log(`  Plant ${checkPlantId} health: ${oldHealth}% -> ${newHealth}%`);
+                console.log(`  Water balance: ${actualOnChainBalance.toFixed(2)}L -> ${newWaterBalance.toFixed(2)}L`);
+                
+                const waterUsed = actualOnChainBalance - newWaterBalance;
+                const healthIncreased = newHealth > oldHealth;
+                
+                if (waterUsed > 0.01 && healthIncreased) {
+                    // SUCCESS: Water was used AND health increased
+                    setV5ActionStatus("✅ Plants watered!");
+                } else if (waterUsed > 0.01 && !healthIncreased && oldHealth >= 99) {
+                    // Plant was already nearly full
+                    setV5ActionStatus("✅ Plants watered!");
+                } else if (waterUsed < 0.01 && !healthIncreased) {
+                    // FAILURE: Neither water used nor health increased
+                    console.error("[Water] VERIFICATION FAILED: Water not used and health not increased!");
+                    setV5ActionStatus("⚠️ Watering may have failed! Please check your plants.");
+                } else if (waterUsed < 0.01) {
+                    // Water not deducted but health changed? Weird state
+                    console.warn("[Water] Unusual: Health changed but water not deducted");
+                    setV5ActionStatus("⚠️ Please verify your plants were watered");
+                } else {
+                    setV5ActionStatus("✅ Plants watered!");
+                }
+            } catch (verifyErr) {
+                console.warn("[Water] Could not verify on-chain state:", verifyErr);
+                setV5ActionStatus("✅ Plants watered!");
+            }
+            
             setSelectedV5PlantsToWater([]);
             setV5CustomWaterAmounts({});
-            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+            
+            // Immediate refresh to show updated health
+            refreshV5StakingRef.current = false;
+            refreshV5Staking();
+            setTimeout(() => setV5ActionStatus(""), 2000);
             
         } catch (err: any) {
             const msg = err.message || String(err);
-            console.error("[Water] Error:", msg);
+            console.error("[Water] Error:", msg, err);
             
-            if (msg.includes("Already Full") || msg.includes("full")) {
-                setV5ActionStatus("Error: Plant is already at 100% health!");
-            } else if (msg.includes("!water") || msg.includes("Not enough water")) {
-                setV5ActionStatus("Error: Not enough water! Buy more from the shop.");
-            } else if (msg.includes("!yours")) {
-                setV5ActionStatus("Error: You don't own this plant!");
+            // Force refresh to show current state
+            refreshV5StakingRef.current = false;
+            refreshV5Staking();
+            
+            if (msg.includes("Already Full") || msg.includes("full") || msg.includes("!full")) {
+                setV5ActionStatus("❌ Plant is already at 100% health!");
+            } else if (msg.includes("!water") || msg.includes("Not enough water") || msg.includes("!bal")) {
+                setV5ActionStatus("❌ Not enough water! Buy more from the shop.");
+            } else if (msg.includes("!yours") || msg.includes("not staked") || msg.includes("!own")) {
+                setV5ActionStatus("❌ You don't own this plant!");
             } else if (msg.includes("rejected") || msg.includes("canceled") || msg.includes("denied") || (err as any)?.code === 4001) {
                 setV5ActionStatus("Transaction canceled");
             } else if (msg.includes("insufficient funds") || msg.includes("gas")) {
-                setV5ActionStatus("Error: Insufficient ETH for gas");
+                setV5ActionStatus("❌ Insufficient ETH for gas");
+            } else if (msg.includes("reverted") || msg.includes("revert")) {
+                setV5ActionStatus("❌ Transaction reverted - please try again");
+            } else if (msg.includes("nonce")) {
+                setV5ActionStatus("❌ Nonce error - try refreshing the page");
+            } else if (msg.includes("timeout") || msg.includes("network")) {
+                setV5ActionStatus("❌ Network error - please try again");
             } else {
-                setV5ActionStatus("Error: " + msg.slice(0, 60));
+                setV5ActionStatus("❌ Error: " + msg.slice(0, 50));
             }
             
-            // Auto-clear error status after 2 seconds
-            setTimeout(() => setV5ActionStatus(""), 2000);
+            // Auto-clear error status after 3 seconds
+            setTimeout(() => setV5ActionStatus(""), 3000);
         } finally {
             setActionLoading(false);
         }
