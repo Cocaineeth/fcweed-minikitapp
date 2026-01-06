@@ -481,6 +481,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [v4CustomWaterAmounts, setV4CustomWaterAmounts] = useState<Record<number, number>>({});
     const [v5ActionStatus, setV5ActionStatus] = useState("");
     const [v5AverageHealth, setV5AverageHealth] = useState<number>(100);
+    const [isPurgeActive, setIsPurgeActive] = useState(false);
 
     const [waterShopInfo, setWaterShopInfo] = useState<any>(null);
     const [waterBuyAmount, setWaterBuyAmount] = useState(1);
@@ -3419,16 +3420,22 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, [
                     "function getPower(address) view returns (uint256 base, uint256 atk, uint256 def)",
                     "function canCartel(address) view returns (bool)",
-                    "function lastCartel(address) view returns (uint256)"
+                    "function lastCartel(address) view returns (uint256)",
+                    "function isPurgeActive() view returns (bool)"
                 ], readProvider);
                 const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, [
                     "function canBypassShield(address) view returns (bool)"
                 ], readProvider);
                 
-                const [powerResult, hasNuke] = await Promise.all([
+                const [powerResult, hasNuke, purgeActive] = await Promise.all([
                     battlesContract.getPower(userAddress),
-                    itemShopContract.canBypassShield(userAddress).catch(() => false)
+                    itemShopContract.canBypassShield(userAddress).catch(() => false),
+                    battlesContract.isPurgeActive().catch(() => false)
                 ]);
+                
+                // Update purge state
+                setIsPurgeActive(purgeActive);
+                console.log("[V5] Purge active:", purgeActive);
                 
                 let atkPower = powerResult[1].toNumber();
                 const defPower = powerResult[2].toNumber();
@@ -3651,6 +3658,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
 
     async function handleV5UnstakePlants(ids?: number[]) {
+        // Block unstaking during The Purge
+        if (isPurgeActive) {
+            setV5ActionStatus("🔒 Unstaking is disabled during The Purge!");
+            setTimeout(() => setV5ActionStatus(""), 3000);
+            return;
+        }
         const plantIds = ids ?? selectedV5StakedPlants;
         if (plantIds.length === 0) return;
         const unhealthy = plantIds.filter(id => (v5PlantHealths[id] ?? 0) < 100);
@@ -3661,14 +3674,21 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
         try {
             setActionLoading(true); setV5ActionStatus("Unstaking plants...");
+            console.log("[V5Unstake] Unstaking plants:", plantIds);
             const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakePlants", [plantIds]));
-            if (!tx) throw new Error("Tx rejected");
+            if (!tx) {
+                console.log("[V5Unstake] Transaction rejected");
+                throw new Error("Transaction rejected");
+            }
+            console.log("[V5Unstake] Tx submitted:", tx.hash);
             await waitForTx(tx);
-            setV5ActionStatus("Unstaked!");
+            console.log("[V5Unstake] Tx confirmed");
+            setV5ActionStatus("✅ Unstaked!");
             setSelectedV5StakedPlants([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
         } catch (err: any) {
+            console.error("[V5Unstake] Error:", err);
             if (err.message?.includes("!healthy") || err.reason?.includes("!healthy")) {
                 setV5ActionStatus("Plants need 100% health! Water them first.");
             } else { setV5ActionStatus("Error: " + (err.reason || err.message || err)); }
@@ -3678,6 +3698,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
 
     async function handleV5UnstakeLands(ids?: number[]) {
+        // Block unstaking during The Purge
+        if (isPurgeActive) {
+            setV5ActionStatus("🔒 Unstaking is disabled during The Purge!");
+            setTimeout(() => setV5ActionStatus(""), 3000);
+            return;
+        }
         const landIds = ids ?? selectedV5StakedLands;
         if (landIds.length === 0) return;
         try {
@@ -3685,7 +3711,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeLands", [landIds]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
-            setV5ActionStatus("Unstaked!");
+            setV5ActionStatus("✅ Unstaked!");
             setSelectedV5StakedLands([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
@@ -3694,6 +3720,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
 
     async function handleV5UnstakeSuperLands(ids?: number[]) {
+        // Block unstaking during The Purge
+        if (isPurgeActive) {
+            setV5ActionStatus("🔒 Unstaking is disabled during The Purge!");
+            setTimeout(() => setV5ActionStatus(""), 3000);
+            return;
+        }
         const superLandIds = ids ?? selectedV5StakedSuperLands;
         if (superLandIds.length === 0) return;
         try {
@@ -3701,7 +3733,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeSuperLands", [superLandIds]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
-            setV5ActionStatus("Unstaked!");
+            setV5ActionStatus("✅ Unstaked!");
             setSelectedV5StakedSuperLands([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
@@ -3710,18 +3742,42 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
 
     async function handleV5Claim() {
-        if (!v5StakingStats || v5StakingStats.pendingFormatted <= 0) { setV5ActionStatus("No rewards."); return; }
+        if (!v5StakingStats || v5StakingStats.pendingFormatted <= 0) { 
+            setV5ActionStatus("No rewards to claim."); 
+            setTimeout(() => setV5ActionStatus(""), 3000);
+            return; 
+        }
         try {
-            setActionLoading(true); setV5ActionStatus("Claiming...");
+            setActionLoading(true); 
+            setV5ActionStatus("Claiming rewards...");
+            console.log("[V5Claim] Starting claim, pending:", v5StakingStats.pendingFormatted);
             const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("claim", []));
-            if (!tx) throw new Error("Tx rejected");
+            if (!tx) {
+                console.log("[V5Claim] Transaction rejected or failed");
+                throw new Error("Transaction rejected");
+            }
+            console.log("[V5Claim] Tx submitted:", tx.hash);
             await waitForTx(tx);
-            setV5ActionStatus("Claimed!");
+            console.log("[V5Claim] Tx confirmed");
+            setV5ActionStatus("✅ Claimed!");
             setV5RealTimePending("0.00");
             // Refresh all balances after claim
             refreshAllData();
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        } catch (err: any) { 
+            console.error("[V5Claim] Error:", err);
+            const reason = err.reason || err.message || String(err);
+            if (reason.includes("cd")) {
+                setV5ActionStatus("⏳ Claim cooldown not ready yet");
+            } else if (reason.includes("off")) {
+                setV5ActionStatus("❌ Claiming is currently disabled");
+            } else if (reason.includes("0")) {
+                setV5ActionStatus("No rewards accrued");
+            } else {
+                setV5ActionStatus("Error: " + reason);
+            }
+            setTimeout(() => setV5ActionStatus(""), 4000);
+        }
         finally { setActionLoading(false); }
     }
 
@@ -7518,6 +7574,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 actionStatus={v5ActionStatus}
                 loading={loadingV5Staking}
                 actionLoading={actionLoading}
+                isPurgeActive={isPurgeActive}
                 onStakePlants={async (ids) => { await handleV5StakePlants(ids); }}
                 onUnstakePlants={async (ids) => { await handleV5UnstakePlants(ids); }}
                 onStakeLands={async (ids) => { await handleV5StakeLands(ids); }}

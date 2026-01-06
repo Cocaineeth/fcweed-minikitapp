@@ -56,6 +56,7 @@ interface IsometricFarmProps {
     onWaterPlants: (ids: number[], amounts: Record<number, number>) => void;
     onShare: () => void;
     theme?: string;
+    isPurgeActive?: boolean;
 }
 
 // Plant slot with water amount controls
@@ -322,7 +323,7 @@ export default function IsometricFarm({
     actionStatus, loading, actionLoading,
     onStakePlants, onUnstakePlants, onStakeLands, onUnstakeLands,
     onStakeSuperLands, onUnstakeSuperLands, onClaim, onWaterPlants, onShare,
-    theme,
+    theme, isPurgeActive,
 }: IsometricFarmProps) {
     const [selectedStakedPlants, setSelectedStakedPlants] = useState<number[]>([]);
     const [selectedStakedLands, setSelectedStakedLands] = useState<number[]>([]);
@@ -387,8 +388,10 @@ export default function IsometricFarm({
             });
         } else {
             // Selecting - calculate water amount
+            // Contract formula: waterNeeded = (decay * decay) / 500 where decay = 100 - health
             const plant = allPlantData.find(p => p.id === id);
-            const maxNeeded = plant ? Math.max(0, (100 - plant.health) / 10) : 0;
+            const decay = plant ? Math.max(0, 100 - plant.health) : 0;
+            const maxNeeded = (decay * decay) / 500;
             // Cap to user's available water balance
             const cappedAmount = Math.min(maxNeeded, waterBalanceRaw);
             const roundedAmount = Math.round(cappedAmount * 100) / 100;
@@ -403,7 +406,9 @@ export default function IsometricFarm({
         const plant = allPlantData.find(p => p.id === plantId);
         if (!plant) return;
         
-        const maxNeeded = Math.max(0, (100 - plant.health) / 10);
+        // Contract formula: waterNeeded = (decay * decay) / 500
+        const decay = Math.max(0, 100 - plant.health);
+        const maxNeeded = (decay * decay) / 500;
         
         setWaterAmounts(prev => {
             const current = prev[plantId] || 0;
@@ -447,9 +452,11 @@ export default function IsometricFarm({
     const currentPlantsCount = stakedPlants.length;
     
     // Calculate total water needed for ALL thirsty plants
+    // Contract formula: waterNeeded = (decay * decay) / 500 where decay = 100 - health
     const totalWaterNeededForAll = useMemo(() => {
         return plantsNeedingWater.reduce((sum, plant) => {
-            const waterNeeded = Math.max(0, (100 - plant.health) / 10);
+            const decay = Math.max(0, 100 - plant.health);
+            const waterNeeded = (decay * decay) / 500;
             return sum + waterNeeded;
         }, 0);
     }, [plantsNeedingWater]);
@@ -461,7 +468,8 @@ export default function IsometricFarm({
         const thirstyIds = plantsNeedingWater.map(p => p.id);
         const newWaterAmounts: Record<number, number> = {};
         plantsNeedingWater.forEach(plant => {
-            newWaterAmounts[plant.id] = Math.max(0, (100 - plant.health) / 10);
+            const decay = Math.max(0, 100 - plant.health);
+            newWaterAmounts[plant.id] = (decay * decay) / 500;
         });
         setSelectedStakedPlants(thirstyIds);
         setWaterAmounts(newWaterAmounts);
@@ -562,6 +570,12 @@ export default function IsometricFarm({
     };
     
     const handleUnstakeSelected = () => {
+        // Block unstaking during The Purge
+        if (isPurgeActive) {
+            setErrorMessage("Unstaking is disabled during The Purge!");
+            setTimeout(() => setErrorMessage(""), 3000);
+            return;
+        }
         if (selectedStakedPlants.length > 0) { onUnstakePlants(selectedStakedPlants); setSelectedStakedPlants([]); setWaterAmounts({}); }
         if (selectedStakedLands.length > 0) { onUnstakeLands(selectedStakedLands); setSelectedStakedLands([]); }
         if (selectedStakedSuperLands.length > 0) { onUnstakeSuperLands(selectedStakedSuperLands); setSelectedStakedSuperLands([]); }
@@ -616,6 +630,24 @@ export default function IsometricFarm({
                     <button onClick={onClose} style={{ width: 34, height: 34, background: "rgba(239,68,68,0.15)", border: "1px solid #ef4444", borderRadius: 6, color: "#ef4444", fontSize: 14, cursor: "pointer" }}>✕</button>
                 </div>
             </div>
+            
+            {/* PURGE WARNING BANNER */}
+            {isPurgeActive && (
+                <div style={{
+                    background: "linear-gradient(90deg, rgba(220,38,38,0.3), rgba(239,68,68,0.2), rgba(220,38,38,0.3))",
+                    padding: "8px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    borderBottom: "1px solid rgba(239,68,68,0.5)",
+                    flexShrink: 0
+                }}>
+                    <span style={{ fontSize: 14 }}>🔪</span>
+                    <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 700 }}>THE PURGE IS ACTIVE</span>
+                    <span style={{ fontSize: 10, color: "#fca5a5" }}>— Unstaking disabled until event ends</span>
+                </div>
+            )}
             
             {/* MAIN CONTENT - Takes remaining space */}
             <div style={{ flex: 1, position: "relative", overflow: "hidden", minHeight: 0 }}>
@@ -833,7 +865,24 @@ export default function IsometricFarm({
                                             >💧 WATER</button>
                                         </>
                                     )}
-                                    <button onClick={handleUnstakeSelected} disabled={actionLoading} style={{ padding: "8px 16px", background: "linear-gradient(135deg, #ef4444, #dc2626)", border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>📤 UNSTAKE</button>
+                                    <button 
+                                        onClick={handleUnstakeSelected} 
+                                        disabled={actionLoading || isPurgeActive} 
+                                        title={isPurgeActive ? "Unstaking disabled during The Purge" : ""}
+                                        style={{ 
+                                            padding: "8px 16px", 
+                                            background: isPurgeActive ? "#374151" : "linear-gradient(135deg, #ef4444, #dc2626)", 
+                                            border: "none", 
+                                            borderRadius: 6, 
+                                            color: isPurgeActive ? "#6b7280" : "#fff", 
+                                            fontSize: 11, 
+                                            fontWeight: 700, 
+                                            cursor: isPurgeActive || actionLoading ? "not-allowed" : "pointer",
+                                            opacity: isPurgeActive ? 0.6 : 1
+                                        }}
+                                    >
+                                        {isPurgeActive ? "🔒 LOCKED" : "📤 UNSTAKE"}
+                                    </button>
                                     <button onClick={() => { setSelectedStakedPlants([]); setSelectedStakedLands([]); setSelectedStakedSuperLands([]); setWaterAmounts({}); setWaterError(""); }} style={{ padding: "8px 12px", background: "transparent", border: "1px solid #6b7280", borderRadius: 6, color: "#9ca3af", fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Clear</button>
                                 </div>
                             </div>
