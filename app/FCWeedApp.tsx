@@ -4519,7 +4519,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             // Check if transaction failed
             if (receipt && receipt.status === 0) {
-                setWarsStatus("Transaction failed - the attack was reverted");
+                // Transaction reverted - likely target has shield or immunity now
+                setWarsStatus("❌ Attack failed - target may have shield or immunity. Try a new target.");
                 setWarsSearching(false);
                 warsTransactionInProgress.current = false;
                 return;
@@ -4618,6 +4619,22 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 // On loss, no cooldown - can search again immediately
                 setWarsCooldown(0);
             }
+
+            // Record attack to backend for immunity tracking
+            // This grants target 2 hour immunity and removes attacker's immunity
+            try {
+                fetch(`${WARS_BACKEND_URL}/api/cartel/record-attack`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        attacker: effectiveAttacker,
+                        target: target,
+                        success: true,
+                        won: battleResult?.won || false,
+                        txHash: tx.hash
+                    })
+                }).catch(console.error);
+            } catch {}
 
             // Refresh data
             setTimeout(() => {

@@ -1296,11 +1296,17 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             }
             
             // Record raid to backend for immunity tracking (fire and forget)
+            // This grants the target 1 hour immunity and removes attacker's immunity
             try {
                 fetch(`${WARS_BACKEND_URL}/api/dea/record-raid`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ target: selectedTarget.address, txHash: tx.hash })
+                    body: JSON.stringify({ 
+                        target: selectedTarget.address, 
+                        attacker: userAddress,
+                        success: true,
+                        txHash: tx.hash 
+                    })
                 }).catch(console.error);
             } catch {}
             
