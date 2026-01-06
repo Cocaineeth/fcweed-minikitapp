@@ -4668,7 +4668,36 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             // Check if transaction failed
             if (receipt && receipt.status === 0) {
-                // Transaction reverted - likely target has shield or immunity now
+                // Transaction reverted - try to get the actual error reason
+                console.error("[Wars] Transaction reverted! TX hash:", tx.hash);
+                
+                // Try to get revert reason by simulating the failed tx
+                try {
+                    const battlesContractRead = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+                    // Try to call the function statically to get error reason
+                    await battlesContractRead.callStatic.cartelAttack(target, deadline, signature, { from: effectiveAttacker });
+                } catch (simErr: any) {
+                    const reason = simErr.reason || simErr.error?.message || simErr.message || "";
+                    console.error("[Wars] Revert reason:", reason);
+                    
+                    if (reason.includes("!shld")) {
+                        setWarsStatus("❌ Target has a shield. Search for a new target.");
+                    } else if (reason.includes("!sig") || reason.includes("!exp")) {
+                        setWarsStatus("❌ Signature expired or invalid. Please search again.");
+                    } else if (reason.includes("!cd")) {
+                        setWarsStatus("❌ You're on cooldown! Wait before attacking again.");
+                    } else if (reason.includes("!p")) {
+                        setWarsStatus("❌ You need staked NFTs to attack!");
+                    } else if (reason.includes("!tgt")) {
+                        setWarsStatus("❌ Invalid target - they may have unstaked.");
+                    } else {
+                        setWarsStatus("❌ Attack failed: " + reason.slice(0, 50) || "Transaction reverted");
+                    }
+                    setWarsSearching(false);
+                    warsTransactionInProgress.current = false;
+                    return;
+                }
+                
                 setWarsStatus("❌ Attack failed - target may have shield or immunity. Try a new target.");
                 setWarsSearching(false);
                 warsTransactionInProgress.current = false;
