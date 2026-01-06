@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import Image from "next/image";
-import { useAccount, useDisconnect, useWalletClient } from "wagmi";
+import { useAccount, useDisconnect, useWalletClient, useSwitchChain, useChainId } from "wagmi";
+import { base } from "wagmi/chains";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { ethers } from "ethers";
 import { sdk } from "@farcaster/miniapp-sdk";
@@ -240,6 +241,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const { data: walletClient } = useWalletClient();
     const { openConnectModal } = useConnectModal();
     const { disconnect: wagmiDisconnect } = useDisconnect();
+    const { switchChain } = useSwitchChain();
+    const currentChainId = useChainId();
 
     const [theme, setTheme] = useState<"dark" | "light">("dark");
     const [displayName, setDisplayName] = useState<string | null>(null);
@@ -905,6 +908,21 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             return anyWindow.ethereum;
         };
 
+        // CRITICAL: Ensure we're on Base chain before sending any transaction
+        if (currentChainId && currentChainId !== base.id && switchChain) {
+            console.log("[TX] Wrong chain detected:", currentChainId, "- switching to Base...");
+            try {
+                await switchChain({ chainId: base.id });
+                console.log("[TX] Successfully switched to Base");
+                // Small delay to let the switch propagate
+                await new Promise(r => setTimeout(r, 500));
+            } catch (switchErr: any) {
+                console.error("[TX] Failed to switch to Base:", switchErr);
+                setMintStatus("Please switch to Base network in your wallet");
+                return null;
+            }
+        }
+
         // Handle Farcaster MiniApp transactions FIRST
         if (usingMiniApp && miniAppEthProvider && effectiveUserAddress) {
             try {
@@ -986,11 +1004,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             try {
                 console.log("[TX] Attempting walletClient.sendTransaction for:", effectiveWagmiAddress);
                 
-                // Build transaction params
+                // Build transaction params - ALWAYS use Base chain
                 const txParams: any = {
                     to: to as `0x${string}`,
                     data: data as `0x${string}`,
-                    chain: walletClient.chain,
+                    chain: base, // Always use Base, not walletClient.chain
                     account: walletClient.account,
                 };
                 

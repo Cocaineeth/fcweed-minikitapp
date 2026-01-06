@@ -653,7 +653,7 @@ export default function IsometricFarm({
                 {/* STATS PANEL - TOP */}
                 {showStats && (
                     <div style={{
-                        position: "absolute", top: 5, left: 10, right: 10, height: 110,
+                        position: "absolute", top: 5, left: 10, right: 10, height: 125,
                         background: "rgba(10,15,25,0.98)", border: "2px solid #22c55e",
                         borderRadius: 12, zIndex: 200, display: "flex", flexDirection: "column"
                     }}>
@@ -675,7 +675,8 @@ export default function IsometricFarm({
                             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
                                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 8, color: "#9ca3af" }}>💧 Water</span><span style={{ fontSize: 9, color: "#3b82f6", fontWeight: 600 }}>{waterBalance}L</span></div>
                                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 8, color: "#9ca3af" }}>⚡ Boost</span><span style={{ fontSize: 9, color: "#10b981", fontWeight: 600 }}>+{stats?.boostPct?.toFixed(1) || 0}%</span></div>
-                                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 8, color: "#9ca3af" }}>❤️ Health</span><span style={{ fontSize: 9, color: "#22c55e", fontWeight: 600 }}>{stats?.avgHealth || 100}%</span></div>
+                                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 8, color: "#9ca3af" }}>❤️ Health</span><span style={{ fontSize: 9, color: (stats?.avgHealth || 100) < 80 ? "#ef4444" : (stats?.avgHealth || 100) < 100 ? "#eab308" : "#22c55e", fontWeight: 600 }}>{stats?.avgHealth || 100}%</span></div>
+                                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 8, color: "#9ca3af" }}>💰 Daily</span><span style={{ fontSize: 9, color: (stats?.avgHealth || 100) < 100 ? "#fbbf24" : "#a855f7", fontWeight: 600 }}>{stats?.dailyRewards || "0"}</span></div>
                             </div>
                             <div style={{ width: 1, height: "80%", background: "#22c55e30" }} />
                             <div style={{ flex: 1.2, display: "flex", flexDirection: "column", gap: 4, justifyContent: "center" }}>
@@ -691,7 +692,7 @@ export default function IsometricFarm({
                 
                 {/* Quick stats bar */}
                 <div style={{
-                    position: "absolute", top: showStats ? "25%" : "18%", left: "50%", transform: "translateX(-50%)",
+                    position: "absolute", top: showStats ? "27%" : "18%", left: "50%", transform: "translateX(-50%)",
                     display: "flex", gap: 16, padding: "8px 16px", background: "rgba(10,20,15,0.95)",
                     borderRadius: 20, border: "1px solid rgba(34,197,94,0.3)", boxShadow: "0 4px 20px rgba(0,0,0,0.5)", zIndex: 100,
                     transition: "top 0.3s ease"
@@ -708,7 +709,7 @@ export default function IsometricFarm({
                 {/* PLANT GRID - Fixed size, scrollable, no shrink */}
                 <div style={{
                     position: "absolute", 
-                    top: showStats ? "32%" : "22%", 
+                    top: showStats ? "35%" : "22%", 
                     left: "50%", 
                     transform: "translateX(-50%)",
                     width: "92%", 
