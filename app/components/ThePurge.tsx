@@ -552,7 +552,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             setStatus("Confirm in wallet...");
             
             const attackData = battlesInterface.encodeFunctionData("purgeAttack", [selectedFarm.address]);
-            const tx = await sendContractTx(V5_BATTLES_ADDRESS, attackData, "0x1E8480"); // 2M gas
+            const tx = await sendContractTx(V5_BATTLES_ADDRESS, attackData, "0x3D0900"); // 4M gas - matches DEA raids for cross-contract calls with weapons
 
             if (!tx) {
                 setStatus("Transaction rejected");

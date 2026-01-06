@@ -4734,7 +4734,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const tx = await sendContractTx(
                 V5_BATTLES_ADDRESS,
                 v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]),
-                "0x1E8480",
+                "0x3D0900", // 4M gas - matches DEA raids for cross-contract calls with weapons
                 effectiveAttacker
             );
 
