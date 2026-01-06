@@ -592,7 +592,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             // Check if transaction actually succeeded
             if (receipt.status === 0) {
                 console.error("[Purge] Transaction reverted on-chain");
-                setStatus("Transaction reverted - check balance & cooldown");
+                setStatus("Attack failed - ask admin to authorize Battles contract in ItemShop");
                 setAttacking(false);
                 return;
             }
@@ -660,14 +660,18 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
         } catch (err: any) {
             console.error("[Purge] Attack error:", err);
             const msg = err?.reason || err?.data?.message || err?.message || "Attack failed";
-            if (msg.includes("insufficient allowance") || msg.includes("ERC20")) {
+            if (msg.includes("Not authorized")) {
+                setStatus("Battles contract not authorized - contact admin");
+            } else if (msg.includes("insufficient allowance") || msg.includes("ERC20")) {
                 setStatus("FCWEED not approved. Please try again.");
             } else if (msg.includes("!cd")) {
                 setStatus("Still on cooldown!");
             } else if (msg.includes("!on")) {
                 setStatus("Purge is not active");
             } else if (msg.includes("!p")) {
-                setStatus("You need staked NFTs to purge");
+                setStatus("You or target need staked NFTs to purge");
+            } else if (msg.includes("!fee")) {
+                setStatus("Transfer failed - check FCWEED balance & approval");
             } else if (msg.includes("rejected") || msg.includes("denied") || err?.code === 4001) {
                 setStatus("Transaction rejected");
             } else if (msg.includes("insufficient funds") || msg.includes("gas")) {

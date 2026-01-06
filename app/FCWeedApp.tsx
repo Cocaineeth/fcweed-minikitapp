@@ -1342,6 +1342,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }, [readProvider]);
 
     async function handleActivateShield() {
+        // Block shield activation during The Purge - all shields are bypassed anyway
+        if (isPurgeActive) {
+            setInventoryStatus("🔪 Shields are useless during The Purge!");
+            setTimeout(() => setInventoryStatus(""), 3000);
+            return;
+        }
         if (!userAddress || inventoryShields === 0) return;
         setInventoryLoading(true);
         setInventoryStatus("Activating shield...");
@@ -1490,6 +1496,14 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
     async function handleBuyItem(itemId: number, currency: "dust" | "fcweed") {
         if (!userAddress) return;
+        
+        // Block shield purchases during The Purge - shields are useless
+        if (itemId === 5 && isPurgeActive) {
+            setShopStatus("🔪 Shields are useless during The Purge! All shields are bypassed.");
+            setTimeout(() => setShopStatus(""), 4000);
+            return;
+        }
+        
         setShopLoading(true);
         setShopStatus(`Buying item...`);
         try {
@@ -8207,14 +8221,22 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 )}
                                 </div>
                             </div>
-                            <div style={{ background: "linear-gradient(135deg, rgba(59,130,246,0.15), rgba(96,165,250,0.1))", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 170 }}>
+                            <div style={{ background: isPurgeActive ? "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1))" : "linear-gradient(135deg, rgba(59,130,246,0.15), rgba(96,165,250,0.1))", border: isPurgeActive ? "1px solid rgba(239,68,68,0.4)" : "1px solid rgba(59,130,246,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 170, opacity: isPurgeActive ? 0.6 : 1 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
-                                    <img src="/images/items/shield.gif" alt="Shield" style={{ width: 36, height: 36, objectFit: "contain" }} />
+                                    <img src="/images/items/shield.gif" alt="Shield" style={{ width: 36, height: 36, objectFit: "contain", filter: isPurgeActive ? "grayscale(100%)" : "none" }} />
                                 </div>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: "#3b82f6", marginBottom: 2 }}>RAID SHIELD</div>
-                                <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>24h Protection<br/>Purge Bypasses Shields</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: isPurgeActive ? "#ef4444" : "#3b82f6", marginBottom: 2 }}>RAID SHIELD</div>
+                                {isPurgeActive ? (
+                                    <div style={{ fontSize: 8, color: "#ef4444", lineHeight: 1.3, marginBottom: 4, fontWeight: 600 }}>🔪 USELESS<br/>DURING PURGE</div>
+                                ) : (
+                                    <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>24h Protection<br/>Purge Bypasses Shields</div>
+                                )}
                                 <div style={{ marginTop: "auto" }}>
-                                {(shopSupply[5]?.remaining ?? 25) > 0 ? (
+                                {isPurgeActive ? (
+                                    <div style={{ padding: "8px 0" }}>
+                                        <div style={{ fontSize: 9, color: "#ef4444", fontWeight: 600 }}>Disabled during Purge</div>
+                                    </div>
+                                ) : (shopSupply[5]?.remaining ?? 25) > 0 ? (
                                     <>
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#3b82f6", fontWeight: 600 }}>{shopSupply[5]?.remaining ?? 25}/{shopSupply[5]?.total ?? 25}</span></div>
                                         <button onClick={() => handleBuyItem(5, "dust")} disabled={shopLoading || crateUserStats.dust < 2500} style={{ width: "100%", padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2500 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2500 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2500 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />2.5K DUST</button>
