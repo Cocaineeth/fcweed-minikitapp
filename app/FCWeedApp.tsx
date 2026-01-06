@@ -1184,6 +1184,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function fetchInventory() {
         if (!userAddress || !readProvider) return;
         try {
+            // Check purge status first
+            try {
+                const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, [
+                    "function isPurgeActive() view returns (bool)"
+                ], readProvider);
+                const purgeActive = await battlesContract.isPurgeActive();
+                setIsPurgeActive(purgeActive);
+                console.log("[Inventory] Purge active:", purgeActive);
+            } catch (e) {
+                console.log("[Inventory] Failed to check purge status:", e);
+            }
+            
             // V14 ItemShop ABI
             const itemShopAbi = [
                 "function inventory(address user, uint256 itemId) view returns (uint256)",
@@ -7055,6 +7067,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         {connected && (
                             <div style={{ background: theme === "light" ? "rgba(99,102,241,0.05)" : "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 10, padding: 10, marginBottom: 10, maxWidth: "100%", overflow: "hidden" }}>
                                 <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 700, marginBottom: 8, textAlign: "center" }}>🎒 INVENTORY</div>
+                                {isPurgeActive && (
+                                    <div style={{ background: "rgba(239,68,68,0.2)", border: "1px solid rgba(239,68,68,0.5)", borderRadius: 6, padding: "6px 8px", marginBottom: 8, textAlign: "center" }}>
+                                        <span style={{ fontSize: 9, color: "#ef4444", fontWeight: 700 }}>🔪 THE PURGE IS ACTIVE — Shields are useless!</span>
+                                    </div>
+                                )}
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>
                                     {/* AK-47 */}
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95 }}>
@@ -7113,17 +7130,19 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         </div>
                                     </div>
                                     {/* Shields */}
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95 }}>
+                                    <div style={{ background: isPurgeActive ? "rgba(239,68,68,0.1)" : (theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)"), borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95, opacity: isPurgeActive ? 0.6 : 1, border: isPurgeActive ? "1px solid rgba(239,68,68,0.3)" : "none" }}>
                                         <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
-                                            <img src="/images/items/shield.gif" alt="Shield" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain" }} />
+                                            <img src="/images/items/shield.gif" alt="Shield" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain", filter: isPurgeActive ? "grayscale(100%)" : "none" }} />
                                         </div>
-                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>SHIELDS</div>
-                                        <div style={{ fontSize: 14, fontWeight: 700, color: "#3b82f6", marginBottom: 4 }}>{inventoryShields}</div>
+                                        <div style={{ fontSize: 7, color: isPurgeActive ? "#ef4444" : (theme === "light" ? "#64748b" : "#9ca3af"), fontWeight: 600, marginBottom: 2 }}>{isPurgeActive ? "🔪 USELESS" : "SHIELDS"}</div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: isPurgeActive ? "#6b7280" : "#3b82f6", marginBottom: 4 }}>{inventoryShields}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
-                                            {shieldExpiry > Math.floor(Date.now() / 1000) ? (
+                                            {isPurgeActive ? (
+                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "#374151", color: "#6b7280", fontWeight: 600, textAlign: "center" }}>Purge Active</div>
+                                            ) : shieldExpiry > Math.floor(Date.now() / 1000) ? (
                                                 <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((shieldExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((shieldExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
                                             ) : (
-                                                <button onClick={handleActivateShield} disabled={inventoryShields === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryShields > 0 ? "linear-gradient(135deg, #3b82f6, #60a5fa)" : "#374151", color: "#fff", cursor: inventoryShields > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
+                                                <button onClick={handleActivateShield} disabled={inventoryShields === 0 || inventoryLoading || isPurgeActive} title={isPurgeActive ? "Shields are useless during The Purge!" : ""} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: (inventoryShields > 0 && !isPurgeActive) ? "linear-gradient(135deg, #3b82f6, #60a5fa)" : "#374151", color: (inventoryShields > 0 && !isPurgeActive) ? "#fff" : "#6b7280", cursor: (inventoryShields > 0 && !isPurgeActive) ? "pointer" : "not-allowed", fontWeight: 600 }}>{isPurgeActive ? "🔪 Locked" : "Activate"}</button>
                                             )}
                                         </div>
                                     </div>
