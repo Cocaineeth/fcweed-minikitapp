@@ -202,7 +202,7 @@ function PlantSlot({
                             }}
                         >
                             <button
-                                onClick={(e) => { e.stopPropagation(); onWaterAmountChange(-0.5); }}
+                                onClick={(e) => { e.stopPropagation(); onWaterAmountChange(-0.1); }}
                                 style={{
                                     width: 16, height: 16,
                                     background: "#1e40af",
@@ -218,11 +218,11 @@ function PlantSlot({
                                     fontWeight: "bold"
                                 }}
                             >-</button>
-                            <span style={{ fontSize: 8, color: "#93c5fd", fontWeight: 700, minWidth: 26, textAlign: "center" }}>
-                                {(waterAmount || 0).toFixed(1)}L
+                            <span style={{ fontSize: 8, color: "#93c5fd", fontWeight: 700, minWidth: 30, textAlign: "center" }}>
+                                {(waterAmount || 0) < 0.1 ? (waterAmount || 0).toFixed(3) : (waterAmount || 0).toFixed(1)}L
                             </span>
                             <button
-                                onClick={(e) => { e.stopPropagation(); onWaterAmountChange(0.5); }}
+                                onClick={(e) => { e.stopPropagation(); onWaterAmountChange(0.1); }}
                                 style={{
                                     width: 16, height: 16,
                                     background: "#1e40af",
@@ -301,12 +301,12 @@ function NFTCard({ id, type, isSelected, health, waterAmount, onWaterAmountChang
                     }}
                 >
                     <button 
-                        onClick={(e) => { e.stopPropagation(); onWaterAmountChange!(-0.5); }}
+                        onClick={(e) => { e.stopPropagation(); onWaterAmountChange!(-0.1); }}
                         style={{ width: 18, height: 18, background: "#1e40af", border: "none", borderRadius: 4, color: "#fff", fontSize: 12, fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                     >-</button>
-                    <span style={{ fontSize: 9, color: "#93c5fd", fontWeight: 700, minWidth: 28, textAlign: "center" }}>{(waterAmount ?? 0).toFixed(1)}L</span>
+                    <span style={{ fontSize: 9, color: "#93c5fd", fontWeight: 700, minWidth: 32, textAlign: "center" }}>{(waterAmount ?? 0) < 0.1 ? (waterAmount ?? 0).toFixed(3) : (waterAmount ?? 0).toFixed(1)}L</span>
                     <button 
-                        onClick={(e) => { e.stopPropagation(); onWaterAmountChange!(0.5); }}
+                        onClick={(e) => { e.stopPropagation(); onWaterAmountChange!(0.1); }}
                         style={{ width: 18, height: 18, background: "#1e40af", border: "none", borderRadius: 4, color: "#fff", fontSize: 12, fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                     >+</button>
                 </div>
@@ -394,7 +394,8 @@ export default function IsometricFarm({
             const maxNeeded = (decay * decay) / 500;
             // Cap to user's available water balance
             const cappedAmount = Math.min(maxNeeded, waterBalanceRaw);
-            const roundedAmount = Math.round(cappedAmount * 100) / 100;
+            // Use 3 decimal places to allow tiny amounts (99% health = 0.002L)
+            const roundedAmount = Math.round(cappedAmount * 1000) / 1000;
             
             setSelectedStakedPlants(prev => [...prev, id]);
             setWaterAmounts(wa => ({ ...wa, [id]: roundedAmount }));
@@ -414,7 +415,8 @@ export default function IsometricFarm({
             const current = prev[plantId] || 0;
             // Allow 0 to maxNeeded - user can manually set any amount
             const newAmount = Math.max(0, Math.min(maxNeeded, current + delta));
-            return { ...prev, [plantId]: Math.round(newAmount * 100) / 100 };
+            // Use 3 decimal places to allow tiny amounts (99% health = 0.002L)
+            return { ...prev, [plantId]: Math.round(newAmount * 1000) / 1000 };
         });
     };
     
@@ -423,12 +425,13 @@ export default function IsometricFarm({
         const total = selectedStakedPlants.reduce((sum, id) => {
             return sum + (waterAmounts[id] || 0);
         }, 0);
-        return Math.round(total * 100) / 100;
+        // Use 3 decimal places for consistency
+        return Math.round(total * 1000) / 1000;
     }, [selectedStakedPlants, waterAmounts]);
     
     // Check if user has enough water
     const hasEnoughWater = useMemo(() => {
-        const balance = Math.round(waterBalanceRaw * 100) / 100;
+        const balance = Math.round(waterBalanceRaw * 1000) / 1000;
         return totalWaterToUse <= balance + 0.001; // Small epsilon for float comparison
     }, [totalWaterToUse, waterBalanceRaw]);
     
@@ -469,7 +472,8 @@ export default function IsometricFarm({
         const newWaterAmounts: Record<number, number> = {};
         plantsNeedingWater.forEach(plant => {
             const decay = Math.max(0, 100 - plant.health);
-            newWaterAmounts[plant.id] = (decay * decay) / 500;
+            // Use 3 decimal places for consistency with toggleStakedPlant
+            newWaterAmounts[plant.id] = Math.round(((decay * decay) / 500) * 1000) / 1000;
         });
         setSelectedStakedPlants(thirstyIds);
         setWaterAmounts(newWaterAmounts);
