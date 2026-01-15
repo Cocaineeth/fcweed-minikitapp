@@ -57,6 +57,7 @@ import {
     CRATE_PROBS,
     RewardCategory,
     WARS_BACKEND_URL,
+    USDC_ITEM_SHOP_ADDRESS,
 } from "./lib/constants";
 
 import {
@@ -85,6 +86,8 @@ import {
     v3BattlesInterface,
     v5ItemShopInterface,
     v11ItemShopInterface,
+    USDC_ITEM_SHOP_ABI,
+    usdcItemShopInterface,
 } from "./lib/abis";
 
 // Screenshot and share to Twitter/Farcaster/Base
@@ -516,6 +519,24 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [inventoryStatus, setInventoryStatus] = useState<string>("");
     const [waterModalOpen, setWaterModalOpen] = useState<boolean>(false);
     const [itemsModalOpen, setItemsModalOpen] = useState<boolean>(false);
+    
+    // USDC Item Shop state
+    const [usdcShopModalOpen, setUsdcShopModalOpen] = useState<boolean>(false);
+    const [usdcShopLoading, setUsdcShopLoading] = useState(false);
+    const [usdcShopStatus, setUsdcShopStatus] = useState("");
+    const [usdcShopItems, setUsdcShopItems] = useState<{
+        id: number;
+        name: string;
+        price: string;
+        remaining: number;
+        total: number;
+        mainShopId: number;
+        active: boolean;
+    }[]>([]);
+    const [usdcShopTimeUntilReset, setUsdcShopTimeUntilReset] = useState(0);
+    const [usdcBalance, setUsdcBalance] = useState("0");
+    const [usdcBalanceRaw, setUsdcBalanceRaw] = useState(ethers.BigNumber.from(0));
+    
     const [shopItems, setShopItems] = useState<any[]>([]);
     const [shopTimeUntilReset, setShopTimeUntilReset] = useState<number>(0);
     
@@ -1331,6 +1352,60 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
     }
 
+    // ===============================
+    // USDC ITEM SHOP FUNCTIONS
+    // ===============================
+    async function loadUsdcShopInfo() {
+        if (!readProvider || USDC_ITEM_SHOP_ADDRESS === "0x0000000000000000000000000000000000000000") return;
+        
+        try {
+            const usdcShop = new ethers.Contract(USDC_ITEM_SHOP_ADDRESS, USDC_ITEM_SHOP_ABI, readProvider);
+            
+            const [allItems, timeUntilReset] = await Promise.all([
+                usdcShop.getAllItems(),
+                usdcShop.getTimeUntilReset(),
+            ]);
+            
+            const items = [];
+            for (let i = 0; i < allItems.ids.length; i++) {
+                items.push({
+                    id: allItems.ids[i].toNumber(),
+                    name: allItems.names[i],
+                    price: ethers.utils.formatUnits(allItems.prices[i], 6),
+                    remaining: allItems.remaining[i].toNumber(),
+                    total: allItems.totals[i].toNumber(),
+                    mainShopId: allItems.mainShopIds[i].toNumber(),
+                    active: allItems.actives[i],
+                });
+            }
+            
+            setUsdcShopItems(items);
+            setUsdcShopTimeUntilReset(timeUntilReset.toNumber());
+        } catch (err) {
+            console.error("[USDC Shop] Failed to load:", err);
+        }
+    }
+
+    async function loadUsdcBalance() {
+        if (!userAddress || !readProvider) return;
+        try {
+            const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, readProvider);
+            const balance = await usdc.balanceOf(userAddress);
+            setUsdcBalanceRaw(balance);
+            setUsdcBalance(parseFloat(ethers.utils.formatUnits(balance, 6)).toFixed(2));
+        } catch (err) {
+            console.error("[USDC] Balance load failed:", err);
+        }
+    }
+
+    // Load USDC shop info when modal opens
+    useEffect(() => {
+        if (usdcShopModalOpen) {
+            loadUsdcShopInfo();
+            loadUsdcBalance();
+        }
+    }, [usdcShopModalOpen, readProvider, userAddress]);
+
     // Refresh shop supply when modal is open (faster refresh)
     useEffect(() => {
         if (itemsModalOpen || waterModalOpen) {
@@ -1623,6 +1698,109 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             }
         } finally {
             setShopLoading(false);
+        }
+    }
+
+    // ===============================
+    // USDC ITEM SHOP PURCHASE FUNCTIONS
+    // ===============================
+    async function ensureUsdcShopAllowance(required: ethers.BigNumber): Promise<boolean> {
+        if (!userAddress || USDC_ITEM_SHOP_ADDRESS === "0x0000000000000000000000000000000000000000") return false;
+        
+        const ctx = await ensureWallet();
+        if (!ctx) return false;
+        
+        const usdcRead = new ethers.Contract(USDC_ADDRESS, USDC_ABI, readProvider);
+        
+        let current = ethers.constants.Zero;
+        try {
+            current = await usdcRead.allowance(userAddress, USDC_ITEM_SHOP_ADDRESS);
+        } catch {}
+        
+        if (current.gte(required)) {
+            return true;
+        }
+        
+        setUsdcShopStatus("Requesting USDC approval...");
+        
+        try {
+            const approveData = usdcInterface.encodeFunctionData("approve", [USDC_ITEM_SHOP_ADDRESS, required]);
+            const tx = await sendContractTx(USDC_ADDRESS, approveData, "0x186A0");
+            if (!tx) {
+                setUsdcShopStatus("Approval canceled");
+                return false;
+            }
+            setUsdcShopStatus("Confirming approval...");
+            await tx.wait();
+            setUsdcShopStatus("Approval confirmed!");
+            return true;
+        } catch (err: any) {
+            const errMsg = err?.message || "";
+            if (errMsg.includes("rejected") || errMsg.includes("canceled")) {
+                setUsdcShopStatus("Approval canceled");
+            } else {
+                setUsdcShopStatus(errMsg.slice(0, 60) || "Approval failed");
+            }
+            return false;
+        }
+    }
+
+    async function handleBuyUsdcItem(itemId: number, quantity: number = 1) {
+        if (!userAddress || USDC_ITEM_SHOP_ADDRESS === "0x0000000000000000000000000000000000000000") {
+            setUsdcShopStatus("USDC Shop not deployed yet");
+            return;
+        }
+        
+        const item = usdcShopItems.find(i => i.id === itemId);
+        if (!item) {
+            setUsdcShopStatus("Item not found");
+            return;
+        }
+        
+        setUsdcShopLoading(true);
+        setUsdcShopStatus("Checking USDC balance...");
+        
+        try {
+            const pricePerItem = ethers.utils.parseUnits(item.price, 6);
+            const totalCost = pricePerItem.mul(quantity);
+            const totalCostFormatted = ethers.utils.formatUnits(totalCost, 6);
+            
+            if (usdcBalanceRaw.lt(totalCost)) {
+                setUsdcShopStatus(`Insufficient USDC! Need $${totalCostFormatted}, have $${usdcBalance}`);
+                setUsdcShopLoading(false);
+                return;
+            }
+            
+            const approved = await ensureUsdcShopAllowance(totalCost);
+            if (!approved) {
+                setUsdcShopLoading(false);
+                return;
+            }
+            
+            setUsdcShopStatus("Confirming purchase...");
+            
+            const data = usdcItemShopInterface.encodeFunctionData("buyItem", [itemId, quantity]);
+            const tx = await sendContractTx(USDC_ITEM_SHOP_ADDRESS, data, "0x1E8480");
+            
+            if (!tx) {
+                setUsdcShopStatus("Transaction canceled");
+                setUsdcShopLoading(false);
+                return;
+            }
+            
+            await tx.wait();
+            setUsdcShopStatus(`🎉 ${quantity}x ${item.name} purchased!`);
+            
+            loadUsdcShopInfo();
+            loadUsdcBalance();
+            fetchInventory();
+            
+        } catch (err: any) {
+            console.error("[USDC Shop] Buy error:", err);
+            setUsdcShopStatus(err?.message?.slice(0, 60) || "Purchase failed");
+        } finally {
+            setUsdcShopLoading(false);
+            setTimeout(() => setUsdcShopStatus(""), 5000);
         }
     }
 
@@ -7562,6 +7740,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <img src="/images/items/water.gif" alt="Water" style={{ width: 32, height: 32, objectFit: "contain" }} />
                                 <span>WATER</span>
                             </button>
+                            <button onClick={() => setUsdcShopModalOpen(true)} style={{ flex: 1, padding: "16px 12px", borderRadius: 12, border: "1px solid rgba(39,117,202,0.4)", background: "linear-gradient(135deg, rgba(39,117,202,0.15), rgba(45,156,219,0.1))", color: "#2775CA", cursor: "pointer", fontSize: 14, fontWeight: 700, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                                <span style={{ fontSize: 28 }}>💵</span>
+                                <span>USDC</span>
+                            </button>
                             <button onClick={() => setItemsModalOpen(true)} style={{ flex: 1, padding: "16px 12px", borderRadius: 12, border: "1px solid rgba(245,158,11,0.4)", background: "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.1))", color: "#f59e0b", cursor: "pointer", fontSize: 14, fontWeight: 700, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                                 <span style={{ fontSize: 28 }}>🏪</span>
                                 <span>ITEMS</span>
@@ -8287,6 +8469,121 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         <div style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: 8, padding: 10, marginTop: 12 }}>
                             <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600, marginBottom: 4 }}>🎁 More Items Coming Soon!</div>
                             <p style={{ fontSize: 9, color: "#9ca3af", margin: 0 }}>Fertilizers, Growth Serums, and more...</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* USDC Premium Shop Modal */}
+            {usdcShopModalOpen && (
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
+                    <div style={{ background: theme === "light" ? "#fff" : "linear-gradient(135deg, #0a1128, #1a2744)", borderRadius: 16, padding: 20, maxWidth: 420, width: "100%", maxHeight: "85vh", overflowY: "auto", border: "1px solid rgba(39,117,202,0.3)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                            <h3 style={{ margin: 0, fontSize: 18, color: "#2775CA" }}>💵 USDC Premium Shop</h3>
+                            <button onClick={() => setUsdcShopModalOpen(false)} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
+                        </div>
+                        
+                        <div style={{ background: "linear-gradient(135deg, rgba(39,117,202,0.15), rgba(45,156,219,0.1))", border: "1px solid rgba(39,117,202,0.3)", borderRadius: 10, padding: 12, marginBottom: 16, textAlign: "center" }}>
+                            <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 4 }}>YOUR USDC BALANCE</div>
+                            <div style={{ fontSize: 24, fontWeight: 700, color: "#2775CA" }}>${usdcBalance}</div>
+                        </div>
+                        
+                        <div style={{ background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 8, padding: 10, marginBottom: 16 }}>
+                            <div style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600, marginBottom: 4 }}>⏰ RESTOCK IN {Math.floor(usdcShopTimeUntilReset / 3600)}h {Math.floor((usdcShopTimeUntilReset % 3600) / 60)}m</div>
+                            <p style={{ fontSize: 9, color: "#9ca3af", margin: 0 }}>Daily reset at 7pm EST • Items credited to your inventory</p>
+                        </div>
+                        
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginBottom: 16 }}>
+                            {usdcShopItems.filter(item => item.active).map(item => {
+                                const canAfford = usdcBalanceRaw.gte(ethers.utils.parseUnits(item.price, 6));
+                                const itemColor = item.mainShopId === 3 ? "#ef4444" : item.mainShopId === 4 ? "#10b981" : "#a855f7";
+                                const itemIcon = item.mainShopId === 3 ? "☢️" : item.mainShopId === 4 ? "💚" : "⚡";
+                                const itemImg = item.mainShopId === 3 ? "/images/items/nuke.gif" : item.mainShopId === 4 ? "/images/items/healthpack.gif" : "/images/items/attackboost.gif";
+                                
+                                return (
+                                    <div key={item.id} style={{ background: `linear-gradient(135deg, ${itemColor}15, ${itemColor}10)`, border: `1px solid ${itemColor}66`, borderRadius: 12, padding: 12, textAlign: "center", display: "flex", flexDirection: "column" }}>
+                                        <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+                                            <img src={itemImg} alt={item.name} style={{ width: 48, height: 48, objectFit: "contain" }} />
+                                        </div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: itemColor, marginBottom: 4 }}>{itemIcon} {item.name.toUpperCase()}</div>
+                                        <div style={{ fontSize: 20, fontWeight: 700, color: "#2775CA", marginBottom: 4 }}>${item.price}</div>
+                                        {item.remaining > 0 ? (
+                                            <>
+                                                <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 6 }}>
+                                                    STOCK: <span style={{ color: itemColor, fontWeight: 600 }}>{item.remaining}/{item.total}</span>
+                                                </div>
+                                                <button 
+                                                    onClick={() => handleBuyUsdcItem(item.id, 1)} 
+                                                    disabled={usdcShopLoading || !canAfford}
+                                                    style={{ 
+                                                        padding: "10px", 
+                                                        borderRadius: 8, 
+                                                        border: "none", 
+                                                        background: canAfford ? "linear-gradient(135deg, #2775CA, #2d9cdb)" : "#374151", 
+                                                        color: canAfford ? "#fff" : "#9ca3af", 
+                                                        fontWeight: 700, 
+                                                        cursor: canAfford ? "pointer" : "not-allowed", 
+                                                        fontSize: 12 
+                                                    }}
+                                                >
+                                                    {usdcShopLoading ? "..." : "BUY WITH USDC"}
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <div style={{ padding: "10px 0" }}>
+                                                <div style={{ fontSize: 12, color: itemColor, fontWeight: 700 }}>SOLD OUT</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        
+                        {usdcShopItems.find(i => i.mainShopId === 4 && i.remaining >= 5) && (
+                            <div style={{ background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                                <div style={{ fontSize: 11, color: "#10b981", fontWeight: 600, marginBottom: 8, textAlign: "center" }}>🎁 BULK BUY HEALTH PACKS</div>
+                                <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                                    {[5, 10].map(qty => {
+                                        const hpItem = usdcShopItems.find(i => i.mainShopId === 4);
+                                        if (!hpItem || hpItem.remaining < qty) return null;
+                                        const totalPrice = parseFloat(hpItem.price) * qty;
+                                        const canAfford = usdcBalanceRaw.gte(ethers.utils.parseUnits(String(totalPrice), 6));
+                                        return (
+                                            <button 
+                                                key={qty}
+                                                onClick={() => handleBuyUsdcItem(hpItem.id, qty)} 
+                                                disabled={usdcShopLoading || !canAfford}
+                                                style={{ 
+                                                    padding: "8px 16px", 
+                                                    borderRadius: 6, 
+                                                    border: "none", 
+                                                    background: canAfford ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", 
+                                                    color: canAfford ? "#fff" : "#9ca3af", 
+                                                    fontWeight: 600, 
+                                                    cursor: canAfford ? "pointer" : "not-allowed", 
+                                                    fontSize: 11 
+                                                }}
+                                            >
+                                                {qty}x (${totalPrice})
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {usdcShopStatus && (
+                            <p style={{ fontSize: 11, color: "#2775CA", marginTop: 8, textAlign: "center", fontWeight: 600 }}>{usdcShopStatus}</p>
+                        )}
+                        
+                        <div style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 8, padding: 10, marginTop: 12 }}>
+                            <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600, marginBottom: 4 }}>ℹ️ How It Works</div>
+                            <p style={{ fontSize: 9, color: "#9ca3af", margin: 0, lineHeight: 1.4 }}>
+                                • Pay with USDC on Base network<br/>
+                                • Items delivered to your Item Shop inventory<br/>
+                                • Daily supply resets at 7pm EST<br/>
+                                • Limited supply - once sold out, wait for restock!
+                            </p>
                         </div>
                     </div>
                 </div>

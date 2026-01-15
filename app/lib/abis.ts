@@ -279,6 +279,25 @@ export const CRATE_VAULT_ABI = [
     "event CrateOpened(address indexed player, uint256 indexed rewardIndex, string rewardName, uint8 category, uint256 amount, uint256 nftTokenId, uint256 timestamp)",
 ];
 
+// ===============================
+// USDC ITEM SHOP ABI (NEW!)
+// ===============================
+export const USDC_ITEM_SHOP_ABI = [
+    "function buyItem(uint256 itemId, uint256 quantity) external",
+    "function buyNuke() external",
+    "function buyHealthPack() external",
+    "function buyHealthPacks(uint256 quantity) external",
+    "function getRemainingSupply(uint256 itemId) external view returns (uint256)",
+    "function getItemInfo(uint256 itemId) external view returns (string name, uint256 price, uint256 remaining, uint256 total, uint256 mainShopId, bool active)",
+    "function getAllItems() external view returns (uint256[] ids, string[] names, uint256[] prices, uint256[] remaining, uint256[] totals, uint256[] mainShopIds, bool[] actives)",
+    "function getUserPurchases(address user) external view returns (uint256[] itemIds, uint256[] quantities)",
+    "function getTimeUntilReset() external view returns (uint256)",
+    "function shopEnabled() external view returns (bool)",
+    "function treasury() external view returns (address)",
+    "function items(uint256) external view returns (string name, uint256 usdcPrice, uint256 dailySupply, uint256 mainShopItemId, bool active)",
+    "event USDCItemPurchased(address indexed buyer, uint256 indexed itemId, uint256 indexed mainShopItemId, string itemName, uint256 usdcPaid, uint256 quantity, uint256 timestamp)",
+];
+
 export const SUPER_LAND_ABI = ["function upgrade(uint256 landTokenId)","function upgradeEnabled() view returns (bool)"];
 export const ERC20_ABI = ["function approve(address spender, uint256 amount) returns (bool)","function allowance(address owner, address spender) view returns (uint256)","function balanceOf(address owner) view returns (uint256)"];
 
@@ -303,3 +322,4 @@ export const v3BattlesInterface = new ethers.utils.Interface(V3_BATTLES_ABI);
 export const v11ItemShopInterface = new ethers.utils.Interface(V11_ITEMSHOP_ABI);
 export const v5ItemShopInterface = v11ItemShopInterface; // Alias
 export const crateVaultInterface = new ethers.utils.Interface(CRATE_VAULT_ABI);
+export const usdcItemShopInterface = new ethers.utils.Interface(USDC_ITEM_SHOP_ABI);

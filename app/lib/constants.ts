@@ -15,7 +15,7 @@ export const CRATE_VAULT_ADDRESS = "0xC46cEF723767AcCeb3C7ad2513B9c997eACEcff4";
 export const CRATE_COST = ethers.utils.parseUnits("200000", 18);
 
 // ===============================
-// V3 CONTRACT ADDRESSES (NEW!)
+// V5 CONTRACT ADDRESSES (CURRENT)
 // ===============================
 export const V5_STAKING_ADDRESS = "0xAF335bd7c4DaA6DC137815bA0d6141534CEB75D4";
 export const V5_ITEMSHOP_ADDRESS = "0xAE7E20CD1f7736B29B756b36754C9f408faeF2cC";  // V14 ItemShop
@@ -25,6 +25,11 @@ export const ITEM_SHOP_ADDRESS = "0xAE7E20CD1f7736B29B756b36754C9f408faeF2cC";  
 export const BATTLE_SYSTEM_ADDRESS = "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00"; // NEW V3
 export const DEA_RAIDS_ADDRESS = "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00";     // NEW V3
 export const PURGE_ADDRESS = "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00";         // NEW V3
+
+// ===============================
+// USDC ITEM SHOP (NEW!)
+// ===============================
+export const USDC_ITEM_SHOP_ADDRESS = "0xA69646f43bD0a620A18F3c4c29cf3489b73ca7b3";
 
 // OLD CONTRACTS (for reference/migration)
 export const OLD_STAKING_ADDRESS = "0x9dA6B01BFcbf5ab256B7B1d46F316e946da85507";
