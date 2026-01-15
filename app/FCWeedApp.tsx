@@ -8497,7 +8497,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             {usdcShopItems.filter(item => item.active).map(item => {
                                 const canAfford = usdcBalanceRaw.gte(ethers.utils.parseUnits(item.price, 6));
                                 const itemColor = item.mainShopId === 3 ? "#ef4444" : item.mainShopId === 4 ? "#10b981" : "#a855f7";
-                                const itemIcon = item.mainShopId === 3 ? "☢️" : item.mainShopId === 4 ? "💚" : "⚡";
                                 const itemImg = item.mainShopId === 3 ? "/images/items/nuke.gif" : item.mainShopId === 4 ? "/images/items/healthpack.gif" : "/images/items/attackboost.gif";
                                 
                                 return (
@@ -8505,7 +8504,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
                                             <img src={itemImg} alt={item.name} style={{ width: 48, height: 48, objectFit: "contain" }} />
                                         </div>
-                                        <div style={{ fontSize: 14, fontWeight: 700, color: itemColor, marginBottom: 4 }}>{itemIcon} {item.name.toUpperCase()}</div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: itemColor, marginBottom: 4 }}>{item.name.toUpperCase()}</div>
                                         <div style={{ fontSize: 20, fontWeight: 700, color: "#2775CA", marginBottom: 4 }}>${item.price}</div>
                                         {item.remaining > 0 ? (
                                             <>
