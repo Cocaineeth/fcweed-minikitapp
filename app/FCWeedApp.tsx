@@ -1561,8 +1561,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             const iface = new ethers.utils.Interface(["function useHealthPackBatch(uint256[] plantIds)"]);
             const data = iface.encodeFunctionData("useHealthPackBatch", [selectedPlantsForHealthPack]);
-            // Gas scales with number of plants - 200k base + 100k per plant
-            const gasLimit = 200000 + (selectedPlantsForHealthPack.length * 100000);
+            // Gas scales with number of plants - high base due to _processExpiredPlantBoosts iteration
+            // First _settle call loops through each hour since last interaction (~5k gas each)
+            // Base 1.2M covers ~240 hours (10 days) of inactivity + 250k per plant for healPlantInstant overhead
+            const gasLimit = 1200000 + (selectedPlantsForHealthPack.length * 250000);
             const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x" + gasLimit.toString(16));
             if (tx) {
                 await tx.wait();
@@ -4145,7 +4147,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 tx = await txAction().sendContractTx(
                     V5_STAKING_ADDRESS, 
                     waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei]),
-                    "0x7A120" // 500k gas for single plant water
+                    "0xC3500" // 800k gas for single plant (includes _processExpiredPlantBoosts overhead)
                 );
             } else if (allWateringToFull) {
                 // BATCH WATER: All plants being watered to 100% - use single waterPlantsWithBalance() call
@@ -4171,9 +4173,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 
                 setV5ActionStatus(`Watering ${plantsNeedingWater.length} plants...`);
                 
-                // Calculate gas based on number of plants (100k per plant + 200k base)
-                const gasNeeded = 200000 + (plantsNeedingWater.length * 100000);
-                const gasHex = "0x" + Math.min(gasNeeded, 3000000).toString(16); // Cap at 3M
+                // Calculate gas: high base for _processExpiredPlantBoosts (user inactivity loop) + per-plant cost
+                // Base 600k covers ~120 hours of inactivity + 100k per plant for actual watering
+                const gasNeeded = 600000 + (plantsNeedingWater.length * 100000);
+                const gasHex = "0x" + Math.min(gasNeeded, 5000000).toString(16); // Cap at 5M
                 
                 console.log("[Water] ========== BATCH WATER TX ==========");
                 console.log("[Water] Function: waterPlants");
@@ -4229,7 +4232,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     tx = await txAction().sendContractTx(
                         V5_STAKING_ADDRESS, 
                         waterInterface.encodeFunctionData("waterPlantWithAmount", [pid, amountWei]),
-                        "0x7A120" // 500k gas for single plant water
+                        "0xC3500" // 800k gas for single plant (includes _processExpiredPlantBoosts overhead)
                     );
                     
                     if (!tx) throw new Error("Transaction rejected");
