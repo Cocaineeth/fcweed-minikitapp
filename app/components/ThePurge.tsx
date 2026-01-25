@@ -800,11 +800,15 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                                     <div
                                         onClick={() => handleSelectCluster(cluster)}
                                         style={{
-                                            background: cardBg,
+                                            background: cluster.isCluster 
+                                                ? (isDark ? "linear-gradient(135deg, rgba(139,92,246,0.1), rgba(88,28,135,0.15))" : "linear-gradient(135deg, rgba(139,92,246,0.08), rgba(167,139,250,0.12))")
+                                                : cardBg,
                                             borderRadius: cluster.isCluster && expandedCluster === cluster.address ? "10px 10px 0 0" : 10,
                                             padding: "12px 14px",
-                                            border: `1px solid ${borderColor}`,
-                                            borderBottom: cluster.isCluster && expandedCluster === cluster.address ? "none" : `1px solid ${borderColor}`,
+                                            border: cluster.isCluster 
+                                                ? "1px solid rgba(139,92,246,0.4)"
+                                                : `1px solid ${borderColor}`,
+                                            borderBottom: cluster.isCluster && expandedCluster === cluster.address ? "none" : (cluster.isCluster ? "1px solid rgba(139,92,246,0.4)" : `1px solid ${borderColor}`),
                                             cursor: "pointer"
                                         }}
                                     >
@@ -815,8 +819,8 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                                                         {cluster.name || shortAddr(cluster.address)}
                                                     </span>
                                                     {cluster.isCluster && (
-                                                        <span style={{ fontSize: 9, background: "rgba(139,92,246,0.2)", color: "#a78bfa", padding: "2px 6px", borderRadius: 4 }}>
-                                                            {cluster.farms.length} farms {expandedCluster === cluster.address ? "▲" : "▼"}
+                                                        <span style={{ fontSize: 9, background: "rgba(139,92,246,0.25)", color: "#a78bfa", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>
+                                                            🔗 {cluster.farms.length} linked farms {expandedCluster === cluster.address ? "▲" : "▼"}
                                                         </span>
                                                     )}
                                                 </div>
@@ -837,12 +841,15 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                                     {/* Expanded Farm List for Clusters */}
                                     {cluster.isCluster && expandedCluster === cluster.address && (
                                         <div style={{ 
-                                            background: isDark ? "rgba(20,24,36,0.95)" : "rgba(240,240,240,0.95)", 
+                                            background: isDark ? "rgba(139,92,246,0.08)" : "rgba(139,92,246,0.05)", 
                                             borderRadius: "0 0 10px 10px",
-                                            border: `1px solid ${borderColor}`,
+                                            border: "1px solid rgba(139,92,246,0.4)",
                                             borderTop: "none",
                                             padding: "8px"
                                         }}>
+                                            <div style={{ fontSize: 9, color: "#a78bfa", textAlign: "center", marginBottom: 8, fontWeight: 600 }}>
+                                                🔗 LINKED WALLETS - Same owner detected
+                                            </div>
                                             {cluster.farms.map((farm, idx) => (
                                                 <button
                                                     key={farm.address}

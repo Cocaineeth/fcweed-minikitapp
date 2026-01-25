@@ -6,11 +6,11 @@ import { ethers } from "ethers";
 // Battle contract address (same as V5_BATTLES_ADDRESS)
 const BATTLE_CONTRACT = "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00";
 
-// WebSocket RPC for reliable real-time events (Alchemy)
-const WSS_RPC_URL = "wss://base-mainnet.g.alchemy.com/v2/N95I5LVTDkn8MaZule8Fh";
+// WebSocket RPC for reliable real-time events (free)
+const WSS_RPC_URL = "wss://base.publicnode.com";
 
 // Fallback HTTP for polling (if WS fails)
-const HTTP_RPC_URL = "https://base-mainnet.g.alchemy.com/v2/N95I5LVTDkn8MaZule8Fh";
+const HTTP_RPC_URL = "https://base.publicnode.com";
 
 // ABI for battle events
 const BATTLE_ABI = [
