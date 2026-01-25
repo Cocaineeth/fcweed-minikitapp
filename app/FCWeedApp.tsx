@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import Image from "next/image";
-import { useAccount, useDisconnect, useWalletClient } from "wagmi";
+import { useAccount, useDisconnect, useWalletClient, useSwitchChain, useChainId } from "wagmi";
+import { base } from "wagmi/chains";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { ethers } from "ethers";
 import { sdk } from "@farcaster/miniapp-sdk";
@@ -20,7 +21,9 @@ import { QuestHubPanel } from "./components/QuestHubPanel";
 import { ThePurge } from "./components/ThePurge";
 import { DEARaidsLeaderboard } from "./components/DEARaidsLeaderboard";
 import { BattleEventToast } from "./components/BattleEventToast";
-import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS, WARS_BACKEND_URL } from "./lib/constants";
+import { NotificationSettings } from "./components/NotificationSettings";
+import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS } from "./lib/constants";
+import IsometricFarm from "./components/GrowRoomV3";
 
 import {
     CHAIN_ID,
@@ -39,7 +42,6 @@ import {
     LAND_PRICE_USDC,
     SUPER_LAND_FCWEED_COST,
     ERC721_TRANSFER_TOPIC,
-    GIFS,
     PLAYLIST,
     SUPER_PLANT_IDS,
     SUPER_LAND_IDS,
@@ -55,6 +57,8 @@ import {
     CRATE_REWARDS,
     CRATE_PROBS,
     RewardCategory,
+    WARS_BACKEND_URL,
+    USDC_ITEM_SHOP_ADDRESS,
 } from "./lib/constants";
 
 import {
@@ -83,6 +87,8 @@ import {
     v3BattlesInterface,
     v5ItemShopInterface,
     v11ItemShopInterface,
+    USDC_ITEM_SHOP_ABI,
+    usdcItemShopInterface,
 } from "./lib/abis";
 
 // Screenshot and share to Twitter/Farcaster/Base
@@ -239,6 +245,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const { data: walletClient } = useWalletClient();
     const { openConnectModal } = useConnectModal();
     const { disconnect: wagmiDisconnect } = useDisconnect();
+    const { switchChain } = useSwitchChain();
+    const currentChainId = useChainId();
 
     const [theme, setTheme] = useState<"dark" | "light">("dark");
     const [displayName, setDisplayName] = useState<string | null>(null);
@@ -477,6 +485,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [v4CustomWaterAmounts, setV4CustomWaterAmounts] = useState<Record<number, number>>({});
     const [v5ActionStatus, setV5ActionStatus] = useState("");
     const [v5AverageHealth, setV5AverageHealth] = useState<number>(100);
+    const [isPurgeActive, setIsPurgeActive] = useState(false);
 
     const [waterShopInfo, setWaterShopInfo] = useState<any>(null);
     const [waterBuyAmount, setWaterBuyAmount] = useState(1);
@@ -511,6 +520,24 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [inventoryStatus, setInventoryStatus] = useState<string>("");
     const [waterModalOpen, setWaterModalOpen] = useState<boolean>(false);
     const [itemsModalOpen, setItemsModalOpen] = useState<boolean>(false);
+    
+    // USDC Item Shop state
+    const [usdcShopModalOpen, setUsdcShopModalOpen] = useState<boolean>(false);
+    const [usdcShopLoading, setUsdcShopLoading] = useState(false);
+    const [usdcShopStatus, setUsdcShopStatus] = useState("");
+    const [usdcShopItems, setUsdcShopItems] = useState<{
+        id: number;
+        name: string;
+        price: string;
+        remaining: number;
+        total: number;
+        mainShopId: number;
+        active: boolean;
+    }[]>([]);
+    const [usdcShopTimeUntilReset, setUsdcShopTimeUntilReset] = useState(0);
+    const [usdcBalance, setUsdcBalance] = useState("0");
+    const [usdcBalanceRaw, setUsdcBalanceRaw] = useState(ethers.BigNumber.from(0));
+    
     const [shopItems, setShopItems] = useState<any[]>([]);
     const [shopTimeUntilReset, setShopTimeUntilReset] = useState<number>(0);
     
@@ -560,6 +587,79 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         const interval = setInterval(updateTimer, 60000);
         return () => clearInterval(interval);
     }, [getTimeUntilShopReset]);
+
+    // Auto-register for notifications when user connects in Farcaster
+    const notificationRegistered = useRef(false);
+    useEffect(() => {
+        if (!userAddress || notificationRegistered.current) return;
+        
+        const autoRegisterNotifications = async () => {
+            try {
+                // Get Farcaster context
+                const context = await sdk.context;
+                const fid = context?.user?.fid;
+                
+                if (!fid) {
+                    console.log("[Notifications] Not in Farcaster context, skipping auto-register");
+                    return;
+                }
+
+                // Check if already registered
+                try {
+                    const statusRes = await fetch(`${WARS_BACKEND_URL}/api/notifications/status/${userAddress}`);
+                    const status = await statusRes.json();
+                    if (status.registered) {
+                        console.log("[Notifications] Already registered");
+                        notificationRegistered.current = true;
+                        return;
+                    }
+                } catch (e) {
+                    // Backend might not be available, continue anyway
+                }
+
+                // Auto-register with default preferences
+                console.log(`[Notifications] Auto-registering ${userAddress.slice(0,10)}... with FID ${fid}`);
+                
+                const res = await fetch(`${WARS_BACKEND_URL}/api/notifications/register`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        address: userAddress,
+                        fid: fid,
+                        preferences: {
+                            shopRestock: true,
+                            purgeStarted: true,
+                            attacked: true,
+                            battleResult: true,
+                            cartelCooldown: true,
+                            purgeCooldown: true,
+                            deaCooldown: true,
+                            shieldExpiring: true,
+                            nukeExpiring: true,
+                            plantHealthCritical: true,
+                            referralUsed: true,
+                            deaListFlagged: true,
+                            crateJackpot: true,
+                        },
+                    }),
+                });
+
+                if (res.ok) {
+                    console.log("[Notifications] Auto-registered successfully!");
+                    notificationRegistered.current = true;
+                    localStorage.setItem("fcweed_notifications_enabled", "true");
+                    localStorage.setItem("fcweed_fid", String(fid));
+                }
+            } catch (e) {
+                console.error("[Notifications] Auto-register failed:", e);
+            }
+        };
+
+        // Small delay to let app initialize
+        const timer = setTimeout(autoRegisterNotifications, 3000);
+        return () => clearTimeout(timer);
+    }, [userAddress]);
+
     const [shopSupply, setShopSupply] = useState<Record<number, {remaining: number, total: number}>>({
         1: { remaining: 20, total: 20 },
         2: { remaining: 25, total: 25 },
@@ -632,13 +732,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [isPlaying, setIsPlaying] = useState(true);
     const [manualPause, setManualPause] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
-    const [gifIndex, setGifIndex] = useState(0);
     const [imagesLoaded, setImagesLoaded] = useState(false);
+    
+    // Video refs for persistent playback across tabs
+    const infoVideoRef = useRef<HTMLVideoElement | null>(null);
+    const mintVideoRef = useRef<HTMLVideoElement | null>(null);
+    const stakeVideoRef = useRef<HTMLVideoElement | null>(null);
 
     // Preload all images on mount to prevent flickering
     useEffect(() => {
         const imagesToPreload = [
-            ...GIFS,
             '/images/items/ak47.gif',
             '/images/items/nuke.gif',
             '/images/items/rpg.gif',
@@ -668,6 +771,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         // Fallback - mark as loaded after 2 seconds regardless
         const timeout = setTimeout(() => setImagesLoaded(true), 2000);
         return () => clearTimeout(timeout);
+    }, []);
+
+    // Ensure all videos keep playing (some browsers pause hidden videos)
+    useEffect(() => {
+        const keepVideosPlaying = () => {
+            [infoVideoRef, mintVideoRef, stakeVideoRef].forEach(ref => {
+                if (ref.current && ref.current.paused) {
+                    ref.current.play().catch(() => {});
+                }
+            });
+        };
+        
+        const interval = setInterval(keepVideosPlaying, 1000);
+        return () => clearInterval(interval);
     }, []);
 
     const [ladderRows, setLadderRows] = useState<FarmerRow[]>([]);
@@ -782,7 +899,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
     }
 
-    async function sendContractTx(to: string, data: string, gasLimit?: string): Promise<ethers.providers.TransactionResponse | null> {
+    async function sendContractTx(to: string, data: string, gasLimit?: string, fromAddress?: string): Promise<ethers.providers.TransactionResponse | null> {
+        // Use explicit fromAddress if provided, otherwise use global state
+        const effectiveUserAddress = fromAddress || userAddress;
+        const effectiveWagmiAddress = fromAddress || wagmiAddress;
+        
         // Helper to get the correct provider
         const getProvider = () => {
             const anyWindow = window as any;
@@ -810,13 +931,41 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             return anyWindow.ethereum;
         };
 
-        // Handle Farcaster MiniApp transactions FIRST
-        if (usingMiniApp && miniAppEthProvider && userAddress) {
+        // CRITICAL: Ensure we're on Base chain before sending any transaction
+        if (currentChainId && currentChainId !== base.id && switchChain) {
+            console.log("[TX] Wrong chain detected:", currentChainId, "- switching to Base...");
             try {
-                console.log("[TX] Using MiniApp eth_sendTransaction for:", userAddress);
+                await switchChain({ chainId: base.id });
+                console.log("[TX] Successfully switched to Base");
+                // Small delay to let the switch propagate
+                await new Promise(r => setTimeout(r, 500));
+            } catch (switchErr: any) {
+                console.error("[TX] Failed to switch to Base:", switchErr);
+                setMintStatus("Please switch to Base network in your wallet");
+                return null;
+            }
+        }
+
+        // Handle Farcaster MiniApp transactions FIRST
+        if (usingMiniApp && miniAppEthProvider && effectiveUserAddress) {
+            try {
+                // DEBUG: Check what accounts the MiniApp provider actually has
+                try {
+                    const accounts = await miniAppEthProvider.request({ method: "eth_accounts" });
+                    console.log("[TX] MiniApp eth_accounts:", accounts);
+                    if (accounts && accounts[0] && accounts[0].toLowerCase() !== effectiveUserAddress.toLowerCase()) {
+                        console.error("[TX] WARNING: MiniApp wallet address mismatch!");
+                        console.error("[TX] Expected:", effectiveUserAddress);
+                        console.error("[TX] MiniApp has:", accounts[0]);
+                    }
+                } catch (accErr) {
+                    console.warn("[TX] Could not fetch MiniApp accounts:", accErr);
+                }
+                
+                console.log("[TX] Using MiniApp eth_sendTransaction for:", effectiveUserAddress);
                 
                 const txParams: any = {
-                    from: userAddress,
+                    from: effectiveUserAddress,
                     to: to,
                     data: data,
                     value: "0x0",
@@ -844,13 +993,22 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         hash: txHash,
                         wait: async () => {
                             // Poll for receipt with longer timeout for mobile
+                            console.log("[TX] MiniApp waiting for receipt:", txHash);
                             for (let i = 0; i < 60; i++) {
                                 await new Promise(r => setTimeout(r, 2000));
                                 try {
                                     const receipt = await readProvider.getTransactionReceipt(txHash);
-                                    if (receipt && receipt.confirmations > 0) return receipt;
-                                } catch {}
+                                    if (receipt) {
+                                        console.log("[TX] MiniApp receipt found, status:", receipt.status, "confirmations:", receipt.confirmations);
+                                        if (receipt.confirmations > 0) {
+                                            return receipt;
+                                        }
+                                    }
+                                } catch (pollErr) {
+                                    console.warn("[TX] MiniApp poll error (will retry):", pollErr);
+                                }
                             }
+                            console.warn("[TX] MiniApp polling timed out for:", txHash);
                             return null;
                         }
                     } as any;
@@ -874,17 +1032,31 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
 
         // NEW: Handle RainbowKit/desktop connections using walletClient
-        if (wagmiConnected && wagmiAddress && !usingMiniApp && walletClient) {
+        if (wagmiConnected && effectiveWagmiAddress && !usingMiniApp && walletClient) {
             try {
-                console.log("[TX] Attempting walletClient.sendTransaction for:", wagmiAddress);
+                console.log("[TX] Attempting walletClient.sendTransaction for:", effectiveWagmiAddress);
                 
-                // Use walletClient from wagmi - this is the correct provider for ANY connected wallet
-                const hash = await walletClient.sendTransaction({
+                // Build transaction params - ALWAYS use Base chain
+                const txParams: any = {
                     to: to as `0x${string}`,
                     data: data as `0x${string}`,
-                    chain: walletClient.chain,
+                    chain: base, // Always use Base, not walletClient.chain
                     account: walletClient.account,
-                });
+                };
+                
+                // Include gas limit if provided (critical for battles/crates)
+                if (gasLimit) {
+                    // Convert hex string to bigint for viem
+                    if (gasLimit.startsWith("0x")) {
+                        txParams.gas = BigInt(gasLimit);
+                    } else {
+                        txParams.gas = BigInt(parseInt(gasLimit, 10));
+                    }
+                    console.log("[TX] WalletClient gas limit:", txParams.gas.toString());
+                }
+                
+                // Use walletClient from wagmi - this is the correct provider for ANY connected wallet
+                const hash = await walletClient.sendTransaction(txParams);
                 
                 console.log("[TX] WalletClient tx hash:", hash);
                 
@@ -902,13 +1074,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 return { 
                     hash,
                     wait: async () => {
+                        console.log("[TX] WalletClient waiting for receipt:", hash);
                         for (let i = 0; i < 30; i++) {
                             await new Promise(r => setTimeout(r, 2000));
                             try {
                                 const receipt = await readProvider.getTransactionReceipt(hash);
-                                if (receipt && receipt.confirmations > 0) return receipt;
-                            } catch {}
+                                if (receipt) {
+                                    console.log("[TX] WalletClient receipt found, status:", receipt.status);
+                                    if (receipt.confirmations > 0) return receipt;
+                                }
+                            } catch (pollErr) {
+                                console.warn("[TX] WalletClient poll error:", pollErr);
+                            }
                         }
+                        console.warn("[TX] WalletClient polling timed out");
                         return null;
                     }
                 } as any;
@@ -931,15 +1110,15 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
         
         // Fallback to raw eth_sendTransaction for better Phantom/Base App compatibility
-        if (wagmiConnected && wagmiAddress && !usingMiniApp) {
+        if (wagmiConnected && effectiveWagmiAddress && !usingMiniApp) {
             const ethProvider = getProvider();
             if (ethProvider) {
                 try {
-                    console.log("[TX] Using raw eth_sendTransaction for:", wagmiAddress,
+                    console.log("[TX] Using raw eth_sendTransaction for:", effectiveWagmiAddress,
                         "Provider:", ethProvider.isPhantom ? "Phantom" : ethProvider.isRabby ? "Rabby" : ethProvider.isMetaMask ? "MetaMask" : "Unknown");
                     
                     const txParams: any = {
-                        from: wagmiAddress,
+                        from: effectiveWagmiAddress,
                         to: to,
                         data: data,
                         value: "0x0",
@@ -969,13 +1148,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             hash: txHash,
                             wait: async () => {
                                 // Poll for receipt
+                                console.log("[TX] Raw provider waiting for receipt:", txHash);
                                 for (let i = 0; i < 30; i++) {
                                     await new Promise(r => setTimeout(r, 2000));
                                     try {
                                         const receipt = await readProvider.getTransactionReceipt(txHash);
-                                        if (receipt && receipt.confirmations > 0) return receipt;
-                                    } catch {}
+                                        if (receipt) {
+                                            console.log("[TX] Raw provider receipt found, status:", receipt.status);
+                                            if (receipt.confirmations > 0) return receipt;
+                                        }
+                                    } catch (pollErr) {
+                                        console.warn("[TX] Raw provider poll error:", pollErr);
+                                    }
                                 }
+                                console.warn("[TX] Raw provider polling timed out");
                                 return null;
                             }
                         } as any;
@@ -1020,44 +1206,73 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function fetchInventory() {
         if (!userAddress || !readProvider) return;
         try {
+            // Check purge status first
+            try {
+                const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, [
+                    "function isPurgeActive() view returns (bool)"
+                ], readProvider);
+                const purgeActive = await battlesContract.isPurgeActive();
+                setIsPurgeActive(purgeActive);
+                console.log("[Inventory] Purge active:", purgeActive);
+            } catch (e) {
+                console.log("[Inventory] Failed to check purge status:", e);
+            }
+            
+            // V14 ItemShop ABI
             const itemShopAbi = [
                 "function inventory(address user, uint256 itemId) view returns (uint256)",
-                "function getUserInventory(address) view returns (uint256 ak47, uint256 rpg, uint256 nuke, uint256 healthPack, uint256 shield, uint256 attackBoost)",
-                "function getDailyStock(uint256 itemId) view returns (uint256 remaining, uint256 total)",
-                "function getItemConfig(uint256 itemId) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, uint256 soldToday, bool isWeapon)",
+                "function getUserFullInventory(address) view returns (uint256[])",
+                "function getRemainingSupply(uint256 itemId) view returns (uint256)",
+                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active)",
                 "function hasActiveShield(address) view returns (bool active, uint256 expiresAt)",
-                "function getUserActiveBoosts(address) view returns (uint256 ak47Boost, uint256 ak47Expires, uint256 rpgBoost, uint256 rpgExpires, uint256 attackBoostBps, uint256 attackBoostExpires, bool nukeReady, uint256 nukeExpires, bool shieldActive, uint256 shieldExpires, uint256 totalBoost)",
+                "function getActiveBoosts(address) view returns (uint256 ak47Boost, uint256 ak47Expires, uint256 rpgBoost, uint256 rpgExpires, uint256 attackBoost, uint256 attackBoostExpires, bool nukeActive, uint256 nukeExpires, uint256 shieldExpires)",
             ];
             const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
             
-            // V11 uses getUserInventory for batch fetching
+            // V14 uses getUserFullInventory which returns uint256[] array
             let inv = { ak47: 0, rpg: 0, nuke: 0, healthPack: 0, shield: 0, attackBoost: 0 };
             let boosts = { ak47Expires: 0, rpgExpires: 0, attackBoostExpires: 0, nukeExpires: 0, shieldExpires: 0 };
             
             try {
-                const invResult = await itemShop.getUserInventory(userAddress);
+                const invResult = await itemShop.getUserFullInventory(userAddress);
+                // V14 returns array: [ak47, rpg, nuke, healthPack, shield, attackBoost]
                 inv = {
-                    ak47: invResult.ak47.toNumber(),
-                    rpg: invResult.rpg.toNumber(),
-                    nuke: invResult.nuke.toNumber(),
-                    healthPack: invResult.healthPack.toNumber(),
-                    shield: invResult.shield.toNumber(),
-                    attackBoost: invResult.attackBoost.toNumber(),
+                    ak47: Number(invResult[0]),
+                    rpg: Number(invResult[1]),
+                    nuke: Number(invResult[2]),
+                    healthPack: Number(invResult[3]),
+                    shield: Number(invResult[4]),
+                    attackBoost: Number(invResult[5]),
                 };
+                console.log("[Inventory] V14 fetched:", inv);
             } catch (e) {
-                console.log("[Inventory] getUserInventory failed, trying individual calls");
+                console.log("[Inventory] getUserFullInventory failed, trying individual calls:", e);
+                // Fallback to individual inventory calls
+                for (let i = 1; i <= 6; i++) {
+                    try {
+                        const count = await itemShop.inventory(userAddress, i);
+                        const num = Number(count);
+                        if (i === 1) inv.ak47 = num;
+                        if (i === 2) inv.rpg = num;
+                        if (i === 3) inv.nuke = num;
+                        if (i === 4) inv.healthPack = num;
+                        if (i === 5) inv.shield = num;
+                        if (i === 6) inv.attackBoost = num;
+                    } catch {}
+                }
             }
 
             try {
-                const boostResult = await itemShop.getUserActiveBoosts(userAddress);
+                // V14 getActiveBoosts returns 9 values (not 11)
+                const boostResult = await itemShop.getActiveBoosts(userAddress);
                 boosts = {
-                    ak47Expires: boostResult.ak47Expires.toNumber(),
-                    rpgExpires: boostResult.rpgExpires.toNumber(),
-                    attackBoostExpires: boostResult.attackBoostExpires.toNumber(),
-                    nukeExpires: boostResult.nukeExpires.toNumber(),
-                    shieldExpires: boostResult.shieldExpires.toNumber(),
+                    ak47Expires: Number(boostResult[1]),      // ak47Expires
+                    rpgExpires: Number(boostResult[3]),       // rpgExpires  
+                    attackBoostExpires: Number(boostResult[5]), // attackBoostExpires
+                    nukeExpires: Number(boostResult[7]),      // nukeExpires
+                    shieldExpires: Number(boostResult[8]),    // shieldExpires
                 };
-            } catch {}
+            } catch (e) { console.log("[Inventory] getActiveBoosts failed:", e); }
 
             // V11 item IDs: 1=AK47, 2=RPG, 3=Nuke, 4=HealthPack, 5=Shield, 6=AttackBoost
             setInventoryAK47(inv.ak47);
@@ -1072,14 +1287,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setNukeExpiry(boosts.nukeExpires);
             setShieldExpiry(boosts.shieldExpires);
 
-            // Get daily supply for each item
+            // Get daily supply for each item - V14 uses getRemainingSupply + itemConfigs
             const supplyData: Record<number, {remaining: number, total: number}> = {};
             const itemIds = [1, 2, 3, 4, 5, 6];
             for (const id of itemIds) {
                 try {
-                    const [remaining, total] = await itemShop.getDailyStock(id);
-                    const remainingNum = remaining.gt(ethers.BigNumber.from(1000000)) ? 999 : remaining.toNumber();
-                    supplyData[id] = { remaining: remainingNum, total: total.toNumber() > 1000000 ? 999 : total.toNumber() };
+                    const remaining = await itemShop.getRemainingSupply(id);
+                    const config = await itemShop.itemConfigs(id);
+                    const remainingNum = Number(remaining) > 1000000 ? 999 : Number(remaining);
+                    const totalNum = Number(config.dailySupply) > 1000000 ? 999 : Number(config.dailySupply);
+                    supplyData[id] = { remaining: remainingNum, total: totalNum };
                 } catch { supplyData[id] = { remaining: 999, total: 999 }; }
             }
             setShopSupply(supplyData);
@@ -1091,31 +1308,31 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function refreshShopSupply() {
         if (!readProvider) return;
         try {
+            // V14 ItemShop ABI
             const itemShopAbi = [
-                "function getDailyStock(uint256 itemId) view returns (uint256 remaining, uint256 total)",
-                "function getTimeUntilReset() view returns (uint256)",
+                "function getRemainingSupply(uint256 itemId) view returns (uint256)",
+                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active)",
+                "function getCurrentDay() view returns (uint256)",
             ];
             const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
             const supplyData: Record<number, {remaining: number, total: number}> = {};
             const itemIds = [1, 2, 3, 4, 5, 6];
             
-            // Debug: Get time until reset from contract
+            // V14 uses getCurrentDay instead of getTimeUntilReset
             try {
-                const timeUntilReset = await itemShop.getTimeUntilReset();
-                const hours = Math.floor(timeUntilReset.toNumber() / 3600);
-                const minutes = Math.floor((timeUntilReset.toNumber() % 3600) / 60);
-                console.log(`[Shop] Contract says time until UTC reset: ${hours}h ${minutes}m`);
+                const currentDay = await itemShop.getCurrentDay();
+                console.log(`[Shop] Current day (UTC): ${currentDay.toString()}`);
             } catch (e) {
-                console.log("[Shop] Could not get time until reset from contract");
+                console.log("[Shop] Could not get current day");
             }
             
             // Fetch all in parallel for speed
             const promises = itemIds.map(async (id) => {
                 try {
-                    const [remaining, total] = await itemShop.getDailyStock(id);
-                    // getDailyStock returns max uint256 for remaining if dailySupply is 0 (unlimited)
-                    const remainingNum = remaining.gt(ethers.BigNumber.from(1000000)) ? 999 : remaining.toNumber();
-                    const totalNum = total.toNumber();
+                    const remaining = await itemShop.getRemainingSupply(id);
+                    const config = await itemShop.itemConfigs(id);
+                    const remainingNum = Number(remaining) > 1000000 ? 999 : Number(remaining);
+                    const totalNum = Number(config.dailySupply);
                     console.log(`[Shop] Item ${id}: remaining=${remainingNum}, total=${totalNum}`);
                     return { id, remaining: totalNum > 0 ? remainingNum : 999, total: totalNum > 0 ? totalNum : 999 };
                 } catch (err) {
@@ -1135,6 +1352,60 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             console.error("Failed to refresh shop supply:", e);
         }
     }
+
+    // ===============================
+    // USDC ITEM SHOP FUNCTIONS
+    // ===============================
+    async function loadUsdcShopInfo() {
+        if (!readProvider || USDC_ITEM_SHOP_ADDRESS === "0x0000000000000000000000000000000000000000") return;
+        
+        try {
+            const usdcShop = new ethers.Contract(USDC_ITEM_SHOP_ADDRESS, USDC_ITEM_SHOP_ABI, readProvider);
+            
+            const [allItems, timeUntilReset] = await Promise.all([
+                usdcShop.getAllItems(),
+                usdcShop.getTimeUntilReset(),
+            ]);
+            
+            const items = [];
+            for (let i = 0; i < allItems.ids.length; i++) {
+                items.push({
+                    id: allItems.ids[i].toNumber(),
+                    name: allItems.names[i],
+                    price: ethers.utils.formatUnits(allItems.prices[i], 6),
+                    remaining: allItems.remaining[i].toNumber(),
+                    total: allItems.totals[i].toNumber(),
+                    mainShopId: allItems.mainShopIds[i].toNumber(),
+                    active: allItems.actives[i],
+                });
+            }
+            
+            setUsdcShopItems(items);
+            setUsdcShopTimeUntilReset(timeUntilReset.toNumber());
+        } catch (err) {
+            console.error("[USDC Shop] Failed to load:", err);
+        }
+    }
+
+    async function loadUsdcBalance() {
+        if (!userAddress || !readProvider) return;
+        try {
+            const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, readProvider);
+            const balance = await usdc.balanceOf(userAddress);
+            setUsdcBalanceRaw(balance);
+            setUsdcBalance(parseFloat(ethers.utils.formatUnits(balance, 6)).toFixed(2));
+        } catch (err) {
+            console.error("[USDC] Balance load failed:", err);
+        }
+    }
+
+    // Load USDC shop info when modal opens
+    useEffect(() => {
+        if (usdcShopModalOpen) {
+            loadUsdcShopInfo();
+            loadUsdcBalance();
+        }
+    }, [usdcShopModalOpen, readProvider, userAddress]);
 
     // Refresh shop supply when modal is open (faster refresh)
     useEffect(() => {
@@ -1159,13 +1430,19 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }, [readProvider]);
 
     async function handleActivateShield() {
+        // Block shield activation during The Purge - all shields are bypassed anyway
+        if (isPurgeActive) {
+            setInventoryStatus("🔪 Shields are useless during The Purge!");
+            setTimeout(() => setInventoryStatus(""), 3000);
+            return;
+        }
         if (!userAddress || inventoryShields === 0) return;
         setInventoryLoading(true);
         setInventoryStatus("Activating shield...");
         try {
             const iface = new ethers.utils.Interface(["function activateShield() external"]);
             const data = iface.encodeFunctionData("activateShield", []);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("Shield activated! 24h protection.");
@@ -1188,7 +1465,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             const iface = new ethers.utils.Interface(["function activateAttackBoost() external"]);
             const data = iface.encodeFunctionData("activateAttackBoost", []);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("Attack boost activated!");
@@ -1209,9 +1486,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setInventoryLoading(true);
         setInventoryStatus("Activating AK-47...");
         try {
-            const iface = new ethers.utils.Interface(["function activateAK47() external"]);
-            const data = iface.encodeFunctionData("activateAK47", []);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            // V14 uses activateWeapon(itemId) instead of activateAK47()
+            const iface = new ethers.utils.Interface(["function activateWeapon(uint256 itemId) external"]);
+            const data = iface.encodeFunctionData("activateWeapon", [1]); // 1 = AK47_ID
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("AK-47 activated! +100% combat power for 12h");
@@ -1232,12 +1510,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setInventoryLoading(true);
         setInventoryStatus("Activating RPG...");
         try {
-            const iface = new ethers.utils.Interface(["function activateRPG() external"]);
-            const data = iface.encodeFunctionData("activateRPG", []);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            // V14 uses activateWeapon(itemId) instead of activateRPG()
+            const iface = new ethers.utils.Interface(["function activateWeapon(uint256 itemId) external"]);
+            const data = iface.encodeFunctionData("activateWeapon", [2]); // 2 = RPG_ID
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
-                setInventoryStatus("RPG activated! +500% combat power for 3h");
+                setInventoryStatus("RPG activated! +500% combat power for 6h");
                 fetchInventory();
                 refreshAllData();
             } else {
@@ -1256,9 +1535,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setInventoryLoading(true);
         setInventoryStatus("Launching Tactical Nuke...");
         try {
-            const iface = new ethers.utils.Interface(["function activateNuke() external"]);
-            const data = iface.encodeFunctionData("activateNuke", []);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            // V14 uses activateWeapon(itemId) instead of activateNuke()
+            const iface = new ethers.utils.Interface(["function activateWeapon(uint256 itemId) external"]);
+            const data = iface.encodeFunctionData("activateWeapon", [3]); // 3 = NUKE_ID
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("☢️ TACTICAL NUKE ACTIVATED! +10000% combat power for 10min");
@@ -1282,7 +1562,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             const iface = new ethers.utils.Interface(["function useHealthPackBatch(uint256[] plantIds)"]);
             const data = iface.encodeFunctionData("useHealthPackBatch", [selectedPlantsForHealthPack]);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
+            // Gas scales with number of plants - high base due to _processExpiredPlantBoosts iteration
+            // First _settle call loops through each hour since last interaction (~5k gas each)
+            // Base 1.2M covers ~240 hours (10 days) of inactivity + 250k per plant for healPlantInstant overhead
+            const gasLimit = 1200000 + (selectedPlantsForHealthPack.length * 250000);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x" + gasLimit.toString(16));
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("Health pack used! Plants healed to 80%");
@@ -1302,9 +1586,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
     async function handleBuyItem(itemId: number, currency: "dust" | "fcweed") {
         if (!userAddress) return;
+        
+        // Block shield purchases during The Purge - shields are useless
+        if (itemId === 5 && isPurgeActive) {
+            setShopStatus("🔪 Shields are useless during The Purge! All shields are bypassed.");
+            setTimeout(() => setShopStatus(""), 4000);
+            return;
+        }
+        
         setShopLoading(true);
         setShopStatus(`Buying item...`);
         try {
+            // V14 ItemShop uses buyItem(itemId, payWithDust)
             const itemShopAbi = [
                 "function buyItem(uint256 itemId, bool payWithDust) external",
                 "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active)",
@@ -1329,6 +1622,17 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     setShopLoading(false);
                     return;
                 }
+                
+                setShopStatus("Confirming purchase...");
+                // V14: buyItem(itemId, false) for FCWEED payment
+                const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, false]);
+                const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
+                if (!tx) {
+                    setShopStatus("Transaction canceled");
+                    setShopLoading(false);
+                    return;
+                }
+                await tx.wait();
             } else {
                 const dustPrice = item.dustPrice;
                 if (dustPrice.eq(0)) {
@@ -1343,13 +1647,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     ];
                     const crateVault = new ethers.Contract(CRATE_VAULT_ADDRESS, crateVaultAbi, readProvider);
                     const stats = await crateVault.getUserStats(userAddress);
-                    const dustBalance = stats.dustBalance ?? stats[0];
+                    const dustBalanceRaw = stats.dustBalance ?? stats[0];
                     
-                    console.log("[Shop] Dust check - price:", dustPrice.toString(), "balance:", dustBalance.toString());
+                    // CrateVault stores dust as raw integers (500 = 500 dust)
+                    // ItemShop stores dustPrice in 18 decimals (200 dust = 200e18)
+                    // Scale dustBalance to 18 decimals for comparison
+                    const dustBalanceScaled = ethers.BigNumber.from(dustBalanceRaw).mul(ethers.BigNumber.from(10).pow(18));
                     
-                    if (dustBalance.lt(dustPrice)) {
+                    console.log("[Shop] Dust check - price:", dustPrice.toString(), "balance raw:", dustBalanceRaw.toString(), "balance scaled:", dustBalanceScaled.toString());
+                    
+                    if (dustBalanceScaled.lt(dustPrice)) {
                         const needed = parseFloat(ethers.utils.formatUnits(dustPrice, 18));
-                        const have = parseFloat(ethers.utils.formatUnits(dustBalance, 18));
+                        const have = typeof dustBalanceRaw === 'number' ? dustBalanceRaw : dustBalanceRaw.toNumber();
                         setShopStatus(`Insufficient Dust! Need ${needed.toLocaleString()}, have ${have.toLocaleString()}. Open crates to earn Dust.`);
                         setShopLoading(false);
                         return;
@@ -1357,18 +1666,19 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 } catch (e) {
                     console.error("[Shop] Dust balance check failed:", e);
                 }
+                
+                setShopStatus("Confirming purchase...");
+                // V14: buyItem(itemId, true) for Dust payment
+                const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, true]);
+                const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
+                if (!tx) {
+                    setShopStatus("Transaction canceled");
+                    setShopLoading(false);
+                    return;
+                }
+                await tx.wait();
             }
             
-            setShopStatus("Confirming purchase...");
-            const payWithDust = currency === "dust";
-            const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, payWithDust]);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data);
-            if (!tx) {
-                setShopStatus("Transaction canceled");
-                setShopLoading(false);
-                return;
-            }
-            await tx.wait();
             setShopStatus("✅ Purchase successful!");
             fetchInventory();
             refreshAllData();
@@ -1376,13 +1686,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         } catch (e: any) {
             const reason = e?.reason || e?.shortMessage || e?.message || "Purchase failed";
             console.error("[Shop] Purchase error:", reason);
-            if (reason.includes("!water") || reason.includes("Insufficient")) {
+            if (reason.includes("!water") || reason.includes("Insufficient") || reason.includes("Transfer failed")) {
                 setShopStatus("Insufficient balance!");
             } else if (reason.includes("exhausted") || reason.includes("Sold out")) {
                 setShopStatus("Item sold out for today!");
-            } else if (reason.includes("disabled") || reason.includes("closed")) {
+            } else if (reason.includes("disabled") || reason.includes("closed") || reason.includes("Shop disabled")) {
                 setShopStatus("Shop is currently disabled");
-            } else if (reason.includes("not available") || reason.includes("FCWEED payment not available")) {
+            } else if (reason.includes("not available") || reason.includes("Not available")) {
                 setShopStatus("This payment method not available for this item");
             } else if (reason.includes("rejected") || reason.includes("denied") || reason.includes("canceled") || e?.code === 4001) {
                 setShopStatus("Transaction canceled");
@@ -1391,6 +1701,109 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             }
         } finally {
             setShopLoading(false);
+        }
+    }
+
+    // ===============================
+    // USDC ITEM SHOP PURCHASE FUNCTIONS
+    // ===============================
+    async function ensureUsdcShopAllowance(required: ethers.BigNumber): Promise<boolean> {
+        if (!userAddress || USDC_ITEM_SHOP_ADDRESS === "0x0000000000000000000000000000000000000000") return false;
+        
+        const ctx = await ensureWallet();
+        if (!ctx) return false;
+        
+        const usdcRead = new ethers.Contract(USDC_ADDRESS, USDC_ABI, readProvider);
+        
+        let current = ethers.constants.Zero;
+        try {
+            current = await usdcRead.allowance(userAddress, USDC_ITEM_SHOP_ADDRESS);
+        } catch {}
+        
+        if (current.gte(required)) {
+            return true;
+        }
+        
+        setUsdcShopStatus("Requesting USDC approval...");
+        
+        try {
+            const approveData = usdcInterface.encodeFunctionData("approve", [USDC_ITEM_SHOP_ADDRESS, required]);
+            const tx = await sendContractTx(USDC_ADDRESS, approveData, "0x186A0");
+            if (!tx) {
+                setUsdcShopStatus("Approval canceled");
+                return false;
+            }
+            setUsdcShopStatus("Confirming approval...");
+            await tx.wait();
+            setUsdcShopStatus("Approval confirmed!");
+            return true;
+        } catch (err: any) {
+            const errMsg = err?.message || "";
+            if (errMsg.includes("rejected") || errMsg.includes("canceled")) {
+                setUsdcShopStatus("Approval canceled");
+            } else {
+                setUsdcShopStatus(errMsg.slice(0, 60) || "Approval failed");
+            }
+            return false;
+        }
+    }
+
+    async function handleBuyUsdcItem(itemId: number, quantity: number = 1) {
+        if (!userAddress || USDC_ITEM_SHOP_ADDRESS === "0x0000000000000000000000000000000000000000") {
+            setUsdcShopStatus("USDC Shop not deployed yet");
+            return;
+        }
+        
+        const item = usdcShopItems.find(i => i.id === itemId);
+        if (!item) {
+            setUsdcShopStatus("Item not found");
+            return;
+        }
+        
+        setUsdcShopLoading(true);
+        setUsdcShopStatus("Checking USDC balance...");
+        
+        try {
+            const pricePerItem = ethers.utils.parseUnits(item.price, 6);
+            const totalCost = pricePerItem.mul(quantity);
+            const totalCostFormatted = ethers.utils.formatUnits(totalCost, 6);
+            
+            if (usdcBalanceRaw.lt(totalCost)) {
+                setUsdcShopStatus(`Insufficient USDC! Need $${totalCostFormatted}, have $${usdcBalance}`);
+                setUsdcShopLoading(false);
+                return;
+            }
+            
+            const approved = await ensureUsdcShopAllowance(totalCost);
+            if (!approved) {
+                setUsdcShopLoading(false);
+                return;
+            }
+            
+            setUsdcShopStatus("Confirming purchase...");
+            
+            const data = usdcItemShopInterface.encodeFunctionData("buyItem", [itemId, quantity]);
+            const tx = await sendContractTx(USDC_ITEM_SHOP_ADDRESS, data, "0x1E8480");
+            
+            if (!tx) {
+                setUsdcShopStatus("Transaction canceled");
+                setUsdcShopLoading(false);
+                return;
+            }
+            
+            await tx.wait();
+            setUsdcShopStatus(`🎉 ${quantity}x ${item.name} purchased!`);
+            
+            loadUsdcShopInfo();
+            loadUsdcBalance();
+            fetchInventory();
+            
+        } catch (err: any) {
+            console.error("[USDC Shop] Buy error:", err);
+            setUsdcShopStatus(err?.message?.slice(0, 60) || "Purchase failed");
+        } finally {
+            setUsdcShopLoading(false);
+            setTimeout(() => setUsdcShopStatus(""), 5000);
         }
     }
 
@@ -1426,13 +1839,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             audioRef.current.pause();
         }
     }, [isPlaying, currentTrack]);
-
-    useEffect(() => {
-        const id = setInterval(() => {
-            setGifIndex((prev) => (prev + 1) % GIFS.length);
-        }, 5000);
-        return () => clearInterval(id);
-    }, []);
 
     const resetSelections = useCallback(() =>
         {
@@ -2103,7 +2509,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             }
             
             // Use local sendContractTx for MiniApp support
-            const tx = await sendContractTx(LAND_ADDRESS, data);
+            const tx = await sendContractTx(LAND_ADDRESS, data, "0x7A120"); // 500k gas
             if (!tx) return;
             setMintStatus("Land mint transaction sent. Waiting for confirmation…");
             await waitForTx(tx);
@@ -2147,7 +2553,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             }
             
             // Use local sendContractTx for MiniApp support
-            const tx = await sendContractTx(PLANT_ADDRESS, data);
+            const tx = await sendContractTx(PLANT_ADDRESS, data, "0x7A120"); // 500k gas
             if (!tx) return;
             setMintStatus("Plant mint transaction sent. Waiting for confirmation…");
             await waitForTx(tx);
@@ -3005,100 +3411,41 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v4StakingStats.water.toString()), 18))
                 : 0;
             
-            // Helper function to calculate default water amount (rounded up to 0.1L)
-            const getDefaultWater = (needed: number) => Math.max(0.1, Math.ceil((needed || 0.1) * 10) / 10);
-            
-            // Check if user has ANY custom amounts set (via +/- buttons)
-            const hasCustomAmounts = selectedV4PlantsToWater.some(id => 
-                v4CustomWaterAmounts[id] !== undefined && 
-                Math.abs(v4CustomWaterAmounts[id] - getDefaultWater(v4WaterNeeded[id])) > 0.01
-            );
-            
-            // Calculate total water user wants to use
-            const totalWaterToUse = selectedV4PlantsToWater.reduce((sum, id) => {
-                const customAmt = v4CustomWaterAmounts[id];
-                const neededAmt = getDefaultWater(v4WaterNeeded[id]);
-                return sum + (customAmt !== undefined ? customAmt : neededAmt);
+            // Calculate total water needed for selected plants
+            const totalWaterNeeded = selectedV4PlantsToWater.reduce((sum, id) => {
+                return sum + (v4WaterNeeded[id] || 0);
             }, 0);
             
-            console.log("[V4 Water] Total to use:", totalWaterToUse, "User balance:", userWaterBalance);
+            console.log("[V4 Water] Total needed:", totalWaterNeeded, "User balance:", userWaterBalance);
             
             // VALIDATION: User must have enough water
-            if (userWaterBalance < totalWaterToUse) {
-                setV4ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterToUse.toFixed(2)}L`);
+            if (userWaterBalance < totalWaterNeeded) {
+                setV4ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterNeeded.toFixed(2)}L`);
                 setActionLoading(false);
                 return;
             }
             
-            // Create interface for water functions
+            // Create interface for water functions - V4 contract only has waterPlant and waterPlants
             const waterInterface = new ethers.utils.Interface([
-                "function waterPlants(uint256[] calldata ids)",
-                "function waterPlantWithAmount(uint256 id, uint256 amount)",
-                "function waterPlantsWithBalance(uint256[] calldata ids)"
+                "function waterPlant(uint256 id)",
+                "function waterPlants(uint256[] calldata ids)"
             ]);
             
             let tx;
             
-            if (hasCustomAmounts || selectedV4PlantsToWater.length === 1) {
-                // Use waterPlantWithAmount for precise control
+            if (selectedV4PlantsToWater.length === 1) {
+                // Single plant - use waterPlant
                 const plantId = selectedV4PlantsToWater[0];
-                
-                if (selectedV4PlantsToWater.length === 1) {
-                    const amountToUse = v4CustomWaterAmounts[plantId] !== undefined 
-                        ? v4CustomWaterAmounts[plantId] 
-                        : getDefaultWater(v4WaterNeeded[plantId]);
-                    const finalAmount = Math.min(amountToUse, userWaterBalance);
-                    const amountWei = ethers.utils.parseUnits(finalAmount.toFixed(18), 18);
-                    
-                    tx = await txAction().sendContractTx(
-                        V4_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei])
-                    );
-                } else {
-                    // Multiple plants with custom amounts - water one by one
-                    for (let i = 0; i < selectedV4PlantsToWater.length; i++) {
-                        const pid = selectedV4PlantsToWater[i];
-                        const amountToUse = v4CustomWaterAmounts[pid] !== undefined 
-                            ? v4CustomWaterAmounts[pid] 
-                            : getDefaultWater(v4WaterNeeded[pid]);
-                        
-                        if (amountToUse <= 0) continue;
-                        
-                        const amountWei = ethers.utils.parseUnits(amountToUse.toFixed(18), 18);
-                        setV4ActionStatus(`Watering plant ${i+1}/${selectedV4PlantsToWater.length}...`);
-                        
-                        tx = await txAction().sendContractTx(
-                            V4_STAKING_ADDRESS, 
-                            waterInterface.encodeFunctionData("waterPlantWithAmount", [pid, amountWei])
-                        );
-                        
-                        if (!tx) throw new Error("Transaction rejected");
-                        await waitForTx(tx);
-                    }
-                    
-                    setV4ActionStatus("All plants watered!");
-                    setSelectedV4PlantsToWater([]);
-                    setV4CustomWaterAmounts({});
-                    setTimeout(() => { refreshV4StakingRef.current = false; refreshV4Staking(); setV4ActionStatus(""); }, 2000);
-                    return;
-                }
-            } else {
-                // No custom amounts, multiple plants
-                const totalNeededFor100 = selectedV4PlantsToWater.reduce((sum, id) => 
-                    sum + getDefaultWater(v4WaterNeeded[id]), 0
+                tx = await txAction().sendContractTx(
+                    V4_STAKING_ADDRESS, 
+                    waterInterface.encodeFunctionData("waterPlant", [plantId])
                 );
-                
-                if (userWaterBalance >= totalNeededFor100) {
-                    tx = await txAction().sendContractTx(
-                        V4_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater])
-                    );
-                } else {
-                    tx = await txAction().sendContractTx(
-                        V4_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlantsWithBalance", [selectedV4PlantsToWater])
-                    );
-                }
+            } else {
+                // Multiple plants - use waterPlants
+                tx = await txAction().sendContractTx(
+                    V4_STAKING_ADDRESS, 
+                    waterInterface.encodeFunctionData("waterPlants", [selectedV4PlantsToWater])
+                );
             }
             
             if (!tx) throw new Error("Transaction rejected");
@@ -3278,25 +3625,49 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             // Fetch combat power from Battles contract (includes ItemShop boosts)
             try {
                 const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, [
-                    "function getPower(address) view returns (uint256 base, uint256 atk, uint256 def)"
+                    "function getPower(address) view returns (uint256 base, uint256 atk, uint256 def)",
+                    "function canCartel(address) view returns (bool)",
+                    "function lastCartel(address) view returns (uint256)",
+                    "function isPurgeActive() view returns (bool)"
                 ], readProvider);
                 const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, [
-                    "function hasActiveNukeReady(address) view returns (bool)"
+                    "function canBypassShield(address) view returns (bool)"
                 ], readProvider);
                 
-                const [powerResult, hasNuke] = await Promise.all([
+                const [powerResult, hasNuke, purgeActive] = await Promise.all([
                     battlesContract.getPower(userAddress),
-                    itemShopContract.hasActiveNukeReady(userAddress).catch(() => false)
+                    itemShopContract.canBypassShield(userAddress).catch(() => false),
+                    battlesContract.isPurgeActive().catch(() => false)
                 ]);
                 
-                let atkPower = powerResult[1].toNumber(); // ATK power includes boosts
-                const defPower = powerResult[2].toNumber(); // DEF power (base, no boosts)
+                // Update purge state
+                setIsPurgeActive(purgeActive);
+                console.log("[V5] Purge active:", purgeActive);
+                
+                let atkPower = powerResult[1].toNumber();
+                const defPower = powerResult[2].toNumber();
                 if (hasNuke) {
-                    atkPower = Math.floor(atkPower * 101); // Nuke = 101x
+                    atkPower = Math.floor(atkPower * 101);
                 }
                 setContractCombatPower(atkPower);
                 setContractDefensePower(defPower);
                 console.log("[V5] Contract combat power:", atkPower, "defense:", defPower, "hasNuke:", hasNuke);
+
+                // Fetch Cartel Wars cooldown on page load
+                try {
+                    const canAttack = await battlesContract.canCartel(userAddress);
+                    if (!canAttack) {
+                        const lastAttackTime = await battlesContract.lastCartel(userAddress);
+                        const cooldownEnd = lastAttackTime.toNumber() + 21600;
+                        const now = Math.floor(Date.now() / 1000);
+                        const remaining = cooldownEnd > now ? cooldownEnd - now : 0;
+                        setWarsCooldown(remaining);
+                    } else {
+                        setWarsCooldown(0);
+                    }
+                } catch (e) {
+                    console.error("[V5] Failed to get wars cooldown:", e);
+                }
             } catch (e) {
                 console.error("[V5] Failed to get combat power:", e);
             }
@@ -3382,15 +3753,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         return () => clearInterval(healthInterval);
     }, [v5StakingOpen, v5StakedPlants]);
 
-    async function handleV5StakePlants() {
-        if (selectedV5AvailPlants.length === 0) return;
+    async function handleV5StakePlants(ids?: number[]) {
+        const plantIds = ids ?? selectedV5AvailPlants;
+        if (plantIds.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Approving...");
             const ctx = await ensureWallet();
             if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(PLANT_ADDRESS, V5_STAKING_ADDRESS, ctx);
             
-            const data = v4StakingInterface.encodeFunctionData("stakePlants", [selectedV5AvailPlants]);
+            const data = v4StakingInterface.encodeFunctionData("stakePlants", [plantIds]);
             
             // Try sponsored transaction first
             if (supportsSponsorship) {
@@ -3414,19 +3786,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setSelectedV5AvailPlants([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); setTimeout(() => setV5ActionStatus(""), 3000); }
         finally { setActionLoading(false); }
     }
 
-    async function handleV5StakeLands() {
-        if (selectedV5AvailLands.length === 0) return;
+    async function handleV5StakeLands(ids?: number[]) {
+        const landIds = ids ?? selectedV5AvailLands;
+        if (landIds.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Approving...");
             const ctx = await ensureWallet();
             if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
             
-            const data = v4StakingInterface.encodeFunctionData("stakeLands", [selectedV5AvailLands]);
+            const data = v4StakingInterface.encodeFunctionData("stakeLands", [landIds]);
             
             // Try sponsored transaction first
             if (supportsSponsorship) {
@@ -3450,19 +3823,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setSelectedV5AvailLands([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); setTimeout(() => setV5ActionStatus(""), 3000); }
         finally { setActionLoading(false); }
     }
 
-    async function handleV5StakeSuperLands() {
-        if (selectedV5AvailSuperLands.length === 0) return;
+    async function handleV5StakeSuperLands(ids?: number[]) {
+        const superLandIds = ids ?? selectedV5AvailSuperLands;
+        if (superLandIds.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Approving...");
             const ctx = await ensureWallet();
             if (!ctx) { setV5ActionStatus("Wallet not connected"); setActionLoading(false); return; }
             await ensureCollectionApproval(SUPER_LAND_ADDRESS, V5_STAKING_ADDRESS, ctx);
             
-            const data = v4StakingInterface.encodeFunctionData("stakeSuperLands", [selectedV5AvailSuperLands]);
+            const data = v4StakingInterface.encodeFunctionData("stakeSuperLands", [superLandIds]);
             
             // Try sponsored transaction first
             if (supportsSponsorship) {
@@ -3486,82 +3860,140 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setSelectedV5AvailSuperLands([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); setTimeout(() => setV5ActionStatus(""), 3000); }
         finally { setActionLoading(false); }
     }
 
-    async function handleV5UnstakePlants() {
-        if (selectedV5StakedPlants.length === 0) return;
-        const unhealthy = selectedV5StakedPlants.filter(id => (v5PlantHealths[id] ?? 0) < 100);
+    async function handleV5UnstakePlants(ids?: number[]) {
+        // Block unstaking during The Purge
+        if (isPurgeActive) {
+            setV5ActionStatus("🔒 Unstaking is disabled during The Purge!");
+            setTimeout(() => setV5ActionStatus(""), 3000);
+            return;
+        }
+        const plantIds = ids ?? selectedV5StakedPlants;
+        if (plantIds.length === 0) return;
+        const unhealthy = plantIds.filter(id => (v5PlantHealths[id] ?? 0) < 100);
         if (unhealthy.length > 0) {
             setV5ActionStatus(`Water plants first! ${unhealthy.map(id => `#${id}: ${v5PlantHealths[id] ?? 0}%`).join(", ")}`);
+            setTimeout(() => setV5ActionStatus(""), 3000);
             return;
         }
         try {
             setActionLoading(true); setV5ActionStatus("Unstaking plants...");
-            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakePlants", [selectedV5StakedPlants]));
-            if (!tx) throw new Error("Tx rejected");
+            console.log("[V5Unstake] Unstaking plants:", plantIds);
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakePlants", [plantIds]));
+            if (!tx) {
+                console.log("[V5Unstake] Transaction rejected");
+                throw new Error("Transaction rejected");
+            }
+            console.log("[V5Unstake] Tx submitted:", tx.hash);
             await waitForTx(tx);
-            setV5ActionStatus("Unstaked!");
+            console.log("[V5Unstake] Tx confirmed");
+            setV5ActionStatus("✅ Unstaked!");
             setSelectedV5StakedPlants([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
         } catch (err: any) {
+            console.error("[V5Unstake] Error:", err);
             if (err.message?.includes("!healthy") || err.reason?.includes("!healthy")) {
                 setV5ActionStatus("Plants need 100% health! Water them first.");
             } else { setV5ActionStatus("Error: " + (err.reason || err.message || err)); }
+            setTimeout(() => setV5ActionStatus(""), 3000);
         }
         finally { setActionLoading(false); }
     }
 
-    async function handleV5UnstakeLands() {
-        if (selectedV5StakedLands.length === 0) return;
+    async function handleV5UnstakeLands(ids?: number[]) {
+        // Block unstaking during The Purge
+        if (isPurgeActive) {
+            setV5ActionStatus("🔒 Unstaking is disabled during The Purge!");
+            setTimeout(() => setV5ActionStatus(""), 3000);
+            return;
+        }
+        const landIds = ids ?? selectedV5StakedLands;
+        if (landIds.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Unstaking lands...");
-            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeLands", [selectedV5StakedLands]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeLands", [landIds]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
-            setV5ActionStatus("Unstaked!");
+            setV5ActionStatus("✅ Unstaked!");
             setSelectedV5StakedLands([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); setTimeout(() => setV5ActionStatus(""), 3000); }
         finally { setActionLoading(false); }
     }
 
-    async function handleV5UnstakeSuperLands() {
-        if (selectedV5StakedSuperLands.length === 0) return;
+    async function handleV5UnstakeSuperLands(ids?: number[]) {
+        // Block unstaking during The Purge
+        if (isPurgeActive) {
+            setV5ActionStatus("🔒 Unstaking is disabled during The Purge!");
+            setTimeout(() => setV5ActionStatus(""), 3000);
+            return;
+        }
+        const superLandIds = ids ?? selectedV5StakedSuperLands;
+        if (superLandIds.length === 0) return;
         try {
             setActionLoading(true); setV5ActionStatus("Unstaking super lands...");
-            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeSuperLands", [selectedV5StakedSuperLands]));
+            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("unstakeSuperLands", [superLandIds]));
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
-            setV5ActionStatus("Unstaked!");
+            setV5ActionStatus("✅ Unstaked!");
             setSelectedV5StakedSuperLands([]);
             ownedCacheRef.current = { addr: null, state: null };
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); setTimeout(() => setV5ActionStatus(""), 3000); }
         finally { setActionLoading(false); }
     }
 
     async function handleV5Claim() {
-        if (!v5StakingStats || v5StakingStats.pendingFormatted <= 0) { setV5ActionStatus("No rewards."); return; }
+        if (!v5StakingStats || v5StakingStats.pendingFormatted <= 0) { 
+            setV5ActionStatus("No rewards to claim."); 
+            setTimeout(() => setV5ActionStatus(""), 3000);
+            return; 
+        }
         try {
-            setActionLoading(true); setV5ActionStatus("Claiming...");
+            setActionLoading(true); 
+            setV5ActionStatus("Claiming rewards...");
+            console.log("[V5Claim] Starting claim, pending:", v5StakingStats.pendingFormatted);
             const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("claim", []));
-            if (!tx) throw new Error("Tx rejected");
+            if (!tx) {
+                console.log("[V5Claim] Transaction rejected or failed");
+                throw new Error("Transaction rejected");
+            }
+            console.log("[V5Claim] Tx submitted:", tx.hash);
             await waitForTx(tx);
-            setV5ActionStatus("Claimed!");
+            console.log("[V5Claim] Tx confirmed");
+            setV5ActionStatus("✅ Claimed!");
             setV5RealTimePending("0.00");
             // Refresh all balances after claim
             refreshAllData();
             setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
-        } catch (err: any) { setV5ActionStatus("Error: " + (err.message || err)); }
+        } catch (err: any) { 
+            console.error("[V5Claim] Error:", err);
+            const reason = err.reason || err.message || String(err);
+            if (reason.includes("cd")) {
+                setV5ActionStatus("⏳ Claim cooldown not ready yet");
+            } else if (reason.includes("off")) {
+                setV5ActionStatus("❌ Claiming is currently disabled");
+            } else if (reason.includes("0")) {
+                setV5ActionStatus("No rewards accrued");
+            } else {
+                setV5ActionStatus("Error: " + reason);
+            }
+            setTimeout(() => setV5ActionStatus(""), 4000);
+        }
         finally { setActionLoading(false); }
     }
 
-    async function handleV5WaterPlants() {
-        if (selectedV5PlantsToWater.length === 0) return;
+    async function handleV5WaterPlants(plantIds?: number[], waterAmounts?: Record<number, number>) {
+        // Use passed IDs/amounts OR fall back to state (for backward compatibility)
+        const idsToWater = plantIds ?? selectedV5PlantsToWater;
+        const amountsToUse = waterAmounts ?? v5CustomWaterAmounts;
+        
+        if (idsToWater.length === 0) return;
         
         try {
             setActionLoading(true);
@@ -3572,8 +4004,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18))
                 : 0;
             
-            // FIX #1: Filter out plants that don't actually need water
-            const plantsNeedingWater = selectedV5PlantsToWater.filter(id => {
+            // Filter out plants that don't actually need water
+            const plantsNeedingWater = idsToWater.filter(id => {
                 const needed = v5WaterNeeded[id] ?? 0;
                 const health = v5PlantHealths[id] ?? 100;
                 return needed > 0 && health < 100;
@@ -3587,39 +4019,30 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 return;
             }
             
-            // Inform user if some plants were skipped
-            if (plantsNeedingWater.length < selectedV5PlantsToWater.length) {
-                const skipped = selectedV5PlantsToWater.length - plantsNeedingWater.length;
+            // Log if some plants were skipped
+            if (plantsNeedingWater.length < idsToWater.length) {
+                const skipped = idsToWater.length - plantsNeedingWater.length;
                 console.log(`[Water] Skipping ${skipped} plants that are already full`);
             }
             
-            // FIX #2: Better getDefaultWater that returns 0 for full plants
-            const getDefaultWater = (needed: number): number => {
-                if (!needed || needed <= 0) return 0;
-                return Math.max(0.1, Math.ceil(needed * 10) / 10);
-            };
-            
-            // Check if user has ANY custom amounts set (via +/- buttons)
-            const hasCustomAmounts = plantsNeedingWater.some(id => 
-                v5CustomWaterAmounts[id] !== undefined && 
-                Math.abs(v5CustomWaterAmounts[id] - getDefaultWater(v5WaterNeeded[id])) > 0.01
-            );
-            
-            // Calculate total water user wants to use
+            // Calculate total water to use from the passed amounts
             const totalWaterToUse = plantsNeedingWater.reduce((sum, id) => {
-                const customAmt = v5CustomWaterAmounts[id];
-                const neededAmt = getDefaultWater(v5WaterNeeded[id]);
-                return sum + (customAmt !== undefined ? customAmt : neededAmt);
+                return sum + (amountsToUse[id] || 0);
             }, 0);
             
             console.log("[Water] Plants needing water:", plantsNeedingWater);
-            console.log("[Water] Custom amounts:", v5CustomWaterAmounts);
-            console.log("[Water] Has custom amounts:", hasCustomAmounts);
+            console.log("[Water] Amounts from UI:", amountsToUse);
             console.log("[Water] Total to use:", totalWaterToUse, "User balance:", userWaterBalance);
             
             // VALIDATION: User must have enough water
             if (userWaterBalance < totalWaterToUse - 0.001) {
                 setV5ActionStatus(`Not enough water! Have ${userWaterBalance.toFixed(2)}L, need ${totalWaterToUse.toFixed(2)}L`);
+                setActionLoading(false);
+                return;
+            }
+            
+            if (totalWaterToUse <= 0) {
+                setV5ActionStatus("No water amount selected!");
                 setActionLoading(false);
                 return;
             }
@@ -3631,120 +4054,319 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 "function waterPlantsWithBalance(uint256[] calldata ids)"
             ]);
             
+            // Double-check water balance from contract RIGHT NOW (not cached stats)
+            let actualOnChainBalance = userWaterBalance;
+            try {
+                const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
+                const userData = await v5Contract.users(userAddress);
+                actualOnChainBalance = parseFloat(ethers.utils.formatUnits(userData.waterBalance, 18));
+                
+                console.log("[Water] ========== BALANCE CHECK ==========");
+                console.log("[Water] Cached balance (from stats):", userWaterBalance, "L");
+                console.log("[Water] Fresh on-chain balance:", actualOnChainBalance, "L");
+                console.log("[Water] Total water to use:", totalWaterToUse, "L");
+                console.log("[Water] Raw on-chain wei:", userData.waterBalance.toString());
+                console.log("[Water] =====================================");
+                
+                // CRITICAL: If on-chain balance is less than what user wants to use, STOP
+                if (actualOnChainBalance < 0.01) {
+                    setV5ActionStatus(`No water! Balance: ${actualOnChainBalance.toFixed(4)}L. Buy more water first.`);
+                    setTimeout(() => setV5ActionStatus(""), 3000);
+                    setActionLoading(false);
+                    // Refresh stats to update UI with real value
+                    refreshV5StakingRef.current = false;
+                    refreshV5Staking();
+                    return;
+                }
+                
+                if (actualOnChainBalance < totalWaterToUse - 0.001) {
+                    setV5ActionStatus(`Not enough water! Have ${actualOnChainBalance.toFixed(2)}L, need ${totalWaterToUse.toFixed(2)}L`);
+                    setTimeout(() => setV5ActionStatus(""), 3000);
+                    setActionLoading(false);
+                    // Refresh stats to update UI
+                    refreshV5StakingRef.current = false;
+                    refreshV5Staking();
+                    return;
+                }
+            } catch (e) {
+                console.warn("[Water] Could not verify on-chain balance:", e);
+                // If we can't check, be cautious
+                setV5ActionStatus("Could not verify water balance. Please try again.");
+                setTimeout(() => setV5ActionStatus(""), 3000);
+                setActionLoading(false);
+                return;
+            }
+            
             let tx;
             setV5ActionStatus("Watering plants...");
             
-            if (hasCustomAmounts || plantsNeedingWater.length === 1) {
+            // Check if ALL plants are being watered to full (100% health)
+            // This is what "Select All Thirsty" does - we can use batch waterPlants() for this
+            const allWateringToFull = plantsNeedingWater.every(pid => {
+                const actualNeeded = v5WaterNeeded[pid] ?? 0;
+                const amountFromUI = amountsToUse[pid] ?? 0;
+                // Consider "full" if amount >= needed (with small epsilon for float comparison)
+                return amountFromUI >= actualNeeded - 0.001;
+            });
+            
+            console.log("[Water] All watering to full?", allWateringToFull, "Plants:", plantsNeedingWater.length);
+            
+            if (plantsNeedingWater.length === 1) {
+                // Single plant - use waterPlantWithAmount for precise control
                 const plantId = plantsNeedingWater[0];
+                const actualNeeded = v5WaterNeeded[plantId] ?? 0;
+                const amountFromUI = amountsToUse[plantId] ?? 0;
                 
-                if (plantsNeedingWater.length === 1) {
-                    const actualNeeded = v5WaterNeeded[plantId] ?? 0;
-                    const amountToUse = v5CustomWaterAmounts[plantId] !== undefined 
-                        ? v5CustomWaterAmounts[plantId] 
-                        : getDefaultWater(actualNeeded);
-                    
-                    const cappedAmount = Math.min(amountToUse, actualNeeded, userWaterBalance);
-                    
-                    if (cappedAmount <= 0) {
-                        setV5ActionStatus("Plant doesn't need water!");
-                        setActionLoading(false);
-                        return;
-                    }
-                    
-                    // FIX #3: Proper precision - round to 6 decimals
-                    const roundedAmount = Math.round(cappedAmount * 1e6) / 1e6;
-                    const amountWei = ethers.utils.parseUnits(roundedAmount.toFixed(6), 18);
-                    
-                    console.log("[Water] Single plant", plantId, "amount:", roundedAmount, "L (needed:", actualNeeded, ")");
-                    
-                    tx = await txAction().sendContractTx(
-                        V5_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei])
-                    );
-                } else {
-                    setV5ActionStatus(`Watering ${plantsNeedingWater.length} plants...`);
-                    
-                    for (let i = 0; i < plantsNeedingWater.length; i++) {
-                        const pid = plantsNeedingWater[i];
-                        const actualNeeded = v5WaterNeeded[pid] ?? 0;
-                        
-                        if (actualNeeded <= 0) {
-                            console.log(`[Water] Skipping plant ${pid} - already full`);
-                            continue;
-                        }
-                        
-                        const amountToUse = v5CustomWaterAmounts[pid] !== undefined 
-                            ? v5CustomWaterAmounts[pid] 
-                            : getDefaultWater(actualNeeded);
-                        
-                        const cappedAmount = Math.min(amountToUse, actualNeeded);
-                        if (cappedAmount <= 0) continue;
-                        
-                        const roundedAmount = Math.round(cappedAmount * 1e6) / 1e6;
-                        const amountWei = ethers.utils.parseUnits(roundedAmount.toFixed(6), 18);
-                        
-                        console.log(`[Water] Plant ${i+1}/${plantsNeedingWater.length}:`, pid, "amount:", roundedAmount, "L");
-                        setV5ActionStatus(`Watering plant ${i+1}/${plantsNeedingWater.length}...`);
-                        
-                        tx = await txAction().sendContractTx(
-                            V5_STAKING_ADDRESS, 
-                            waterInterface.encodeFunctionData("waterPlantWithAmount", [pid, amountWei])
-                        );
-                        
-                        if (!tx) throw new Error("Transaction rejected");
-                        await waitForTx(tx);
-                    }
-                    
-                    setV5ActionStatus("All plants watered!");
-                    setSelectedV5PlantsToWater([]);
-                    setV5CustomWaterAmounts({});
-                    setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+                // Cap to what's actually needed AND actual on-chain balance
+                // Use 99.9% of balance as safety margin for any rounding
+                const safeBalance = actualOnChainBalance * 0.999;
+                const cappedAmount = Math.min(amountFromUI, actualNeeded, safeBalance);
+                
+                if (cappedAmount <= 0.001) {
+                    setV5ActionStatus("Not enough water or plant is full!");
+                    setTimeout(() => setV5ActionStatus(""), 2000);
+                    setActionLoading(false);
                     return;
                 }
-            } else {
-                const totalNeededFor100 = plantsNeedingWater.reduce((sum, id) => 
-                    sum + (v5WaterNeeded[id] ?? 0), 0
+                
+                // Proper precision - round DOWN to 6 decimals to avoid exceeding balance
+                const roundedAmount = Math.floor(cappedAmount * 1e6) / 1e6;
+                const amountWei = ethers.utils.parseUnits(roundedAmount.toFixed(6), 18);
+                
+                // Detailed debug logging
+                console.log("[Water Debug] =================================");
+                console.log("[Water Debug] Plant ID:", plantId);
+                console.log("[Water Debug] Amount from UI:", amountFromUI, "L");
+                console.log("[Water Debug] Actual needed:", actualNeeded, "L");
+                console.log("[Water Debug] On-chain balance:", actualOnChainBalance, "L");
+                console.log("[Water Debug] Safe balance (99.9%):", safeBalance, "L");
+                console.log("[Water Debug] Capped amount:", cappedAmount, "L");
+                console.log("[Water Debug] Rounded amount (floor):", roundedAmount, "L");
+                console.log("[Water Debug] Amount in wei:", amountWei.toString());
+                console.log("[Water Debug] =================================");
+                
+                tx = await txAction().sendContractTx(
+                    V5_STAKING_ADDRESS, 
+                    waterInterface.encodeFunctionData("waterPlantWithAmount", [plantId, amountWei]),
+                    "0xC3500" // 800k gas for single plant (includes _processExpiredPlantBoosts overhead)
+                );
+            } else if (allWateringToFull) {
+                // BATCH WATER: All plants being watered to 100% - use single waterPlantsWithBalance() call
+                // This is the optimal path for "Select All Thirsty" button
+                // Using waterPlantsWithBalance is SAFER than waterPlants because it uses user's actual balance
+                console.log("[Water] Using BATCH waterPlantsWithBalance() for", plantsNeedingWater.length, "plants");
+                
+                // CRITICAL: Calculate total water needed for ALL plants
+                const totalWaterNeededForBatch = plantsNeedingWater.reduce((sum, pid) => {
+                    return sum + (v5WaterNeeded[pid] ?? 0);
+                }, 0);
+                
+                console.log("[Water] BATCH CHECK: Need", totalWaterNeededForBatch.toFixed(2), "L, Have", actualOnChainBalance.toFixed(2), "L");
+                
+                // CRITICAL: Verify user has enough water for ALL plants BEFORE sending tx
+                if (actualOnChainBalance < totalWaterNeededForBatch - 0.01) {
+                    console.error("[Water] BATCH ABORT: Not enough water for all plants!");
+                    setV5ActionStatus(`❌ Need ${totalWaterNeededForBatch.toFixed(1)}L but only have ${actualOnChainBalance.toFixed(1)}L. Buy more water!`);
+                    setTimeout(() => setV5ActionStatus(""), 4000);
+                    setActionLoading(false);
+                    return;
+                }
+                
+                setV5ActionStatus(`Watering ${plantsNeedingWater.length} plants...`);
+                
+                // Calculate gas: high base for _processExpiredPlantBoosts (user inactivity loop) + per-plant cost
+                // Base 600k covers ~120 hours of inactivity + 100k per plant for actual watering
+                const gasNeeded = 600000 + (plantsNeedingWater.length * 100000);
+                const gasHex = "0x" + Math.min(gasNeeded, 5000000).toString(16); // Cap at 5M
+                
+                console.log("[Water] ========== BATCH WATER TX ==========");
+                console.log("[Water] Function: waterPlants");
+                console.log("[Water] Plant IDs:", plantsNeedingWater);
+                console.log("[Water] Total plants:", plantsNeedingWater.length);
+                console.log("[Water] Total water needed:", totalWaterNeededForBatch.toFixed(2), "L");
+                console.log("[Water] User balance:", actualOnChainBalance.toFixed(2), "L");
+                console.log("[Water] Gas limit:", gasHex, "(", Math.min(gasNeeded, 3000000), ")");
+                console.log("[Water] ======================================");
+                
+                // Use waterPlants batch function - waters all plants to 100% using user's balance
+                tx = await txAction().sendContractTx(
+                    V5_STAKING_ADDRESS, 
+                    waterInterface.encodeFunctionData("waterPlants", [plantsNeedingWater]),
+                    gasHex
                 );
                 
-                if (userWaterBalance >= totalNeededFor100 - 0.001) {
-                    console.log("[Water] Batch watering to 100% - total needed:", totalNeededFor100);
+                console.log("[Water] TX submitted:", tx?.hash || "no hash");
+            } else {
+                // PARTIAL WATER: Multiple plants with custom amounts - must water individually
+                // This happens when user manually adjusts water amounts below max
+                setV5ActionStatus(`Watering ${plantsNeedingWater.length} plants...`);
+                
+                // Track remaining balance as we water each plant
+                let remainingBalance = actualOnChainBalance;
+                
+                for (let i = 0; i < plantsNeedingWater.length; i++) {
+                    const pid = plantsNeedingWater[i];
+                    const actualNeeded = v5WaterNeeded[pid] ?? 0;
+                    
+                    if (actualNeeded <= 0) {
+                        console.log(`[Water] Skipping plant ${pid} - already full`);
+                        continue;
+                    }
+                    
+                    const amountFromUI = amountsToUse[pid] ?? 0;
+                    // Use 99.9% of remaining balance as safety
+                    const safeRemaining = remainingBalance * 0.999;
+                    const cappedAmount = Math.min(amountFromUI, actualNeeded, safeRemaining);
+                    
+                    if (cappedAmount <= 0.001) {
+                        console.log(`[Water] Skipping plant ${pid} - no water amount or balance`);
+                        continue;
+                    }
+                    
+                    // Round DOWN to avoid exceeding balance
+                    const roundedAmount = Math.floor(cappedAmount * 1e6) / 1e6;
+                    const amountWei = ethers.utils.parseUnits(roundedAmount.toFixed(6), 18);
+                    
+                    console.log(`[Water] Plant ${i+1}/${plantsNeedingWater.length}:`, pid, "amount:", roundedAmount, "L, remaining:", remainingBalance, "L");
+                    setV5ActionStatus(`Watering plant ${i+1}/${plantsNeedingWater.length}...`);
+                    
                     tx = await txAction().sendContractTx(
                         V5_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlants", [plantsNeedingWater])
+                        waterInterface.encodeFunctionData("waterPlantWithAmount", [pid, amountWei]),
+                        "0xC3500" // 800k gas for single plant (includes _processExpiredPlantBoosts overhead)
                     );
-                } else {
-                    console.log("[Water] Using waterPlantsWithBalance - spreading", userWaterBalance, "across", plantsNeedingWater.length, "plants");
-                    tx = await txAction().sendContractTx(
-                        V5_STAKING_ADDRESS, 
-                        waterInterface.encodeFunctionData("waterPlantsWithBalance", [plantsNeedingWater])
-                    );
+                    
+                    if (!tx) throw new Error("Transaction rejected");
+                    
+                    // Wait and verify transaction
+                    const receipt = await waitForTx(tx, readProvider);
+                    if (receipt && receipt.status === 0) {
+                        console.error(`[Water] Plant ${pid} watering reverted!`);
+                        setV5ActionStatus(`❌ Watering plant ${pid} failed!`);
+                        // Continue with remaining plants or stop? Stop to be safe.
+                        throw new Error(`Watering plant ${pid} failed - transaction reverted`);
+                    }
+                    
+                    // Deduct from remaining balance
+                    remainingBalance -= roundedAmount;
                 }
+                
+                setV5ActionStatus("✅ All plants watered!");
+                setSelectedV5PlantsToWater([]);
+                setV5CustomWaterAmounts({});
+                // Immediate refresh
+                refreshV5StakingRef.current = false;
+                refreshV5Staking();
+                setTimeout(() => setV5ActionStatus(""), 2000);
+                setActionLoading(false);
+                return;
             }
             
             if (!tx) throw new Error("Transaction rejected");
-            await waitForTx(tx);
-            setV5ActionStatus("Plants watered!");
+            
+            // Wait for transaction and VERIFY it succeeded
+            const receipt = await waitForTx(tx, readProvider);
+            
+            // Check if transaction actually succeeded
+            if (receipt && receipt.status === 0) {
+                console.error("[Water] Transaction reverted! Receipt:", receipt);
+                setV5ActionStatus("❌ Watering failed - transaction reverted. Try again.");
+                setTimeout(() => setV5ActionStatus(""), 3000);
+                // Force refresh to show current state
+                refreshV5StakingRef.current = false;
+                refreshV5Staking();
+                setActionLoading(false);
+                return;
+            }
+            
+            if (!receipt) {
+                console.warn("[Water] No receipt returned - checking on-chain state...");
+                // Transaction might have succeeded, force refresh to verify
+            }
+            
+            // VERIFICATION: Check on-chain that plants were actually watered
+            try {
+                const v5Contract = new ethers.Contract(V5_STAKING_ADDRESS, V4_STAKING_ABI, readProvider);
+                // Wait a moment for state to propagate
+                await new Promise(r => setTimeout(r, 1500));
+                
+                // Check health of first plant we tried to water
+                const checkPlantId = plantsNeedingWater[0];
+                const plantInfo = await v5Contract.getPlantInfo(checkPlantId);
+                const newHealth = plantInfo.health?.toNumber?.() ?? plantInfo[3]?.toNumber?.() ?? 100;
+                const oldHealth = v5PlantHealths[checkPlantId] ?? 0;
+                
+                // Also check water balance was deducted
+                const userData = await v5Contract.users(userAddress);
+                const newWaterBalance = parseFloat(ethers.utils.formatUnits(userData.waterBalance, 18));
+                
+                console.log(`[Water] Verification:`);
+                console.log(`  Plant ${checkPlantId} health: ${oldHealth}% -> ${newHealth}%`);
+                console.log(`  Water balance: ${actualOnChainBalance.toFixed(2)}L -> ${newWaterBalance.toFixed(2)}L`);
+                
+                const waterUsed = actualOnChainBalance - newWaterBalance;
+                const healthIncreased = newHealth > oldHealth;
+                
+                if (waterUsed > 0.01 && healthIncreased) {
+                    // SUCCESS: Water was used AND health increased
+                    setV5ActionStatus("✅ Plants watered!");
+                } else if (waterUsed > 0.01 && !healthIncreased && oldHealth >= 99) {
+                    // Plant was already nearly full
+                    setV5ActionStatus("✅ Plants watered!");
+                } else if (waterUsed < 0.01 && !healthIncreased) {
+                    // FAILURE: Neither water used nor health increased
+                    console.error("[Water] VERIFICATION FAILED: Water not used and health not increased!");
+                    setV5ActionStatus("⚠️ Watering may have failed! Please check your plants.");
+                } else if (waterUsed < 0.01) {
+                    // Water not deducted but health changed? Weird state
+                    console.warn("[Water] Unusual: Health changed but water not deducted");
+                    setV5ActionStatus("⚠️ Please verify your plants were watered");
+                } else {
+                    setV5ActionStatus("✅ Plants watered!");
+                }
+            } catch (verifyErr) {
+                console.warn("[Water] Could not verify on-chain state:", verifyErr);
+                setV5ActionStatus("✅ Plants watered!");
+            }
+            
             setSelectedV5PlantsToWater([]);
             setV5CustomWaterAmounts({});
-            setTimeout(() => { refreshV5StakingRef.current = false; refreshV5Staking(); setV5ActionStatus(""); }, 2000);
+            
+            // Immediate refresh to show updated health
+            refreshV5StakingRef.current = false;
+            refreshV5Staking();
+            setTimeout(() => setV5ActionStatus(""), 2000);
             
         } catch (err: any) {
             const msg = err.message || String(err);
-            console.error("[Water] Error:", msg);
+            console.error("[Water] Error:", msg, err);
             
-            if (msg.includes("Already Full") || msg.includes("full")) {
-                setV5ActionStatus("Error: Plant is already at 100% health!");
-            } else if (msg.includes("!water") || msg.includes("Not enough water")) {
-                setV5ActionStatus("Error: Not enough water! Buy more from the shop.");
-            } else if (msg.includes("!yours")) {
-                setV5ActionStatus("Error: You don't own this plant!");
+            // Force refresh to show current state
+            refreshV5StakingRef.current = false;
+            refreshV5Staking();
+            
+            if (msg.includes("Already Full") || msg.includes("full") || msg.includes("!full")) {
+                setV5ActionStatus("❌ Plant is already at 100% health!");
+            } else if (msg.includes("!water") || msg.includes("Not enough water") || msg.includes("!bal")) {
+                setV5ActionStatus("❌ Not enough water! Buy more from the shop.");
+            } else if (msg.includes("!yours") || msg.includes("not staked") || msg.includes("!own")) {
+                setV5ActionStatus("❌ You don't own this plant!");
             } else if (msg.includes("rejected") || msg.includes("canceled") || msg.includes("denied") || (err as any)?.code === 4001) {
                 setV5ActionStatus("Transaction canceled");
             } else if (msg.includes("insufficient funds") || msg.includes("gas")) {
-                setV5ActionStatus("Error: Insufficient ETH for gas");
+                setV5ActionStatus("❌ Insufficient ETH for gas");
+            } else if (msg.includes("reverted") || msg.includes("revert")) {
+                setV5ActionStatus("❌ Transaction reverted - please try again");
+            } else if (msg.includes("nonce")) {
+                setV5ActionStatus("❌ Nonce error - try refreshing the page");
+            } else if (msg.includes("timeout") || msg.includes("network")) {
+                setV5ActionStatus("❌ Network error - please try again");
             } else {
-                setV5ActionStatus("Error: " + msg.slice(0, 60));
+                setV5ActionStatus("❌ Error: " + msg.slice(0, 50));
             }
+            
+            // Auto-clear error status after 3 seconds
+            setTimeout(() => setV5ActionStatus(""), 3000);
         } finally {
             setActionLoading(false);
         }
@@ -3799,12 +4421,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
             const allowance = await tokenContract.allowance(userAddress, V5_STAKING_ADDRESS);
             if (allowance.lt(cost)) {
-                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_STAKING_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_STAKING_ADDRESS, ethers.constants.MaxUint256]));
                 if (!approveTx) throw new Error("Approval rejected");
                 await waitForTx(approveTx);
             }
             setWaterStatus("Buying water...");
-            const tx = await txAction().sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("buyWater", [waterBuyAmount]));
+            const tx = await sendContractTx(V5_STAKING_ADDRESS, v4StakingInterface.encodeFunctionData("buyWater", [waterBuyAmount]), "0x1E8480"); // 2M gas
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setWaterStatus("Water purchased!");
@@ -3818,8 +4440,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const v4PlantsNeedingWater = useMemo(() => v4StakedPlants.filter(id => (v4WaterNeeded[id] || 0) > 0 || (v4PlantHealths[id] !== undefined && v4PlantHealths[id] < 100)), [v4StakedPlants, v4PlantHealths, v4WaterNeeded]);
     const v4TotalWaterNeededForSelected = useMemo(() => selectedV4PlantsToWater.reduce((sum, id) => sum + Math.max(1, v4WaterNeeded[id] || 0), 0), [selectedV4PlantsToWater, v4WaterNeeded]);
 
-    // Use environment variable or default to production URL
-    const BACKEND_API_URL = WARS_BACKEND_URL || process.env.NEXT_PUBLIC_WARS_API_URL || "https://wars.x420ponzi.com";
+    // HARDCODED to avoid constants.ts issues
+    const BACKEND_API_URL = "https://wars.x420ponzi.com";
     const [warsBackendStatus, setWarsBackendStatus] = useState<"unknown" | "online" | "offline">("unknown");
 
     // Check backend health when wars tab opens
@@ -3984,23 +4606,22 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
                 const { target, nonce, deadline, signature, stats } = data;
 
-                // V4 SIMPLIFIED: Store target data and show plants + pending immediately
-                setWarsPreviewData({ target, nonce, deadline, signature, stats });
+                setWarsPreviewData({ target, nonce, deadline, signature, stats, attacker: ctx.userAddress });
                 setWarsTarget(target);
-                setWarsTargetRevealed(true); // Show stats immediately (plants + pending only in UI)
+                setWarsTargetRevealed(true);
                 setWarsTargetLocked(false);
                 
-                // Set basic target stats for pre-attack display
                 let pendingBN = ethers.BigNumber.from(0);
                 const rawPending = stats?.pendingRewards;
                 if (rawPending !== null && rawPending !== undefined && rawPending !== "" && rawPending !== "0") {
                     try {
-                        const pendingStr = rawPending.toString().trim();
-                        if (pendingStr && !isNaN(parseFloat(pendingStr))) {
-                            pendingBN = ethers.utils.parseUnits(pendingStr, 18);
+                        const pendingNum = parseFloat(rawPending.toString());
+                        if (!isNaN(pendingNum) && pendingNum > 0) {
+                            // Use parseUnits for proper BigNumber conversion
+                            pendingBN = ethers.utils.parseUnits(pendingNum.toFixed(2), 18);
                         }
-                    } catch {
-                        try { pendingBN = ethers.BigNumber.from(rawPending); } catch {}
+                    } catch (e) {
+                        console.log("[Wars] Pending parse error:", e);
                     }
                 }
                 
@@ -4009,6 +4630,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     avgHealth: stats?.avgHealth || 100,
                     battlePower: stats?.battlePower || 0,
                     pendingRewards: pendingBN,
+                    pendingFormatted: stats?.pendingFormatted || "0",
                     hasShield: stats?.hasShield || false,
                 });
                 
@@ -4063,7 +4685,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
             if (allowance.lt(revealFee)) {
                 setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120", ctx.userAddress); // 500k gas
                 if (!approveTx) {
                     setWarsStatus("Approval rejected");
                     setWarsSearching(false);
@@ -4078,10 +4700,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             // Transfer 50K to treasury for reveal (doesn't attack yet)
             setWarsStatus("Paying reveal fee (50K - confirm in wallet)...");
             const treasuryAddress = "0x5a567898881CEf8DF767D192b74d99513CAa6e46";
-            const transferTx = await txAction().sendContractTx(
+            const transferTx = await sendContractTx(
                 FCWEED_ADDRESS,
                 erc20Interface.encodeFunctionData("transfer", [treasuryAddress, revealFee]),
-                "0x30D40" // 200k gas
+                "0x30D40", // 200k gas
+                ctx.userAddress
             );
 
             if (!transferTx) {
@@ -4102,12 +4725,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const rawPending = stats?.pendingRewards;
             if (rawPending !== null && rawPending !== undefined && rawPending !== "" && rawPending !== "0") {
                 try {
-                    const pendingStr = rawPending.toString().trim();
-                    if (pendingStr && !isNaN(parseFloat(pendingStr))) {
-                        pendingBN = ethers.utils.parseUnits(pendingStr, 18);
+                    const pendingNum = parseFloat(rawPending.toString());
+                    if (!isNaN(pendingNum) && pendingNum > 0) {
+                        const pendingWei = Math.floor(pendingNum * 1e18).toString();
+                        pendingBN = ethers.BigNumber.from(pendingWei);
                     }
-                } catch {
-                    try { pendingBN = ethers.BigNumber.from(rawPending); } catch {}
+                } catch (e) {
+                    console.log("[Wars] Pending parse error:", e);
                 }
             }
 
@@ -4156,23 +4780,49 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 return;
             }
 
-            const { target, nonce, deadline, signature, stats } = warsPreviewData;
+            const { target, nonce, deadline, signature, stats, attacker } = warsPreviewData;
             
-            // Create contracts for checks
+            const effectiveAttacker = attacker || ctx.userAddress;
+            if (attacker && ctx.userAddress.toLowerCase() !== attacker.toLowerCase()) {
+                console.error("[Wars] Address mismatch! Signature for:", attacker, "Connected:", ctx.userAddress);
+                setWarsStatus("Wallet changed since search. Please search again.");
+                setWarsSearching(false);
+                warsTransactionInProgress.current = false;
+                return;
+            }
+            
             const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
             
-            // ==================== PRE-FLIGHT AUTHORIZATION CHECKS ====================
             setWarsStatus("Checking authorization...");
             
-            // Check 1: Can user perform Cartel attacks?
-            const canAttack = await battlesContract.canCartel(ctx.userAddress);
-            console.log("[Wars] Pre-flight canCartel:", canAttack);
+            // Check 0: CRITICAL - Verify user has staked plants (prevents !p error)
+            const stakingAbi = [
+                "function getUserBattleStats(address) view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards)"
+            ];
+            const stakingContract = new ethers.Contract(V5_STAKING_ADDRESS, stakingAbi, readProvider);
+            try {
+                const battleStats = await stakingContract.getUserBattleStats(effectiveAttacker);
+                const plantCount = Number(battleStats[0]);
+                console.log("[Wars] Pre-flight plant check:", plantCount, "plants for", effectiveAttacker);
+                
+                if (plantCount === 0) {
+                    setWarsStatus("❌ You need staked plants to attack! Stake plants first.");
+                    setWarsSearching(false);
+                    warsTransactionInProgress.current = false;
+                    return;
+                }
+            } catch (e) {
+                console.error("[Wars] Plant check failed:", e);
+                // Continue anyway - let contract handle it
+            }
+            
+            const canAttack = await battlesContract.canCartel(effectiveAttacker);
+            console.log("[Wars] Pre-flight canCartel:", canAttack, "for", effectiveAttacker);
             
             if (!canAttack) {
-                // Determine why - cooldown or no battle power?
                 const [lastAttack, userPower] = await Promise.all([
-                    battlesContract.lastCartel(ctx.userAddress),
-                    battlesContract.getPower(ctx.userAddress)
+                    battlesContract.lastCartel(effectiveAttacker),
+                    battlesContract.getPower(effectiveAttacker)
                 ]);
                 
                 const cartelCD = 21600; // 6 hour cooldown
@@ -4215,16 +4865,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 }
             } catch {}
             
-            // ==================== PROCEED WITH ATTACK ====================
-            
-            // Check and request approval for attack fee
             const attackFee = await battlesContract.cartelFee();
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            let allowance = await tokenContract.allowance(ctx.userAddress, V5_BATTLES_ADDRESS);
+            let allowance = await tokenContract.allowance(effectiveAttacker, V5_BATTLES_ADDRESS);
 
             if (allowance.lt(attackFee)) {
                 setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120", effectiveAttacker);
                 if (!approveTx) {
                     setWarsStatus("Approval rejected");
                     setWarsSearching(false);
@@ -4236,34 +4883,41 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 await new Promise(resolve => setTimeout(resolve, 1500));
             }
 
-            // Check if we have an active shield - if so, remove it first
-            const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, V5_ITEMSHOP_ABI, readProvider);
-            const shieldInfo = await itemShopContract.hasActiveShield(ctx.userAddress);
-            
-            if (shieldInfo[0]) {
-                setWarsStatus("Removing your shield...");
-                const removeShieldTx = await txAction().sendContractTx(
-                    V5_ITEMSHOP_ADDRESS, 
-                    v5ItemShopInterface.encodeFunctionData("removeShieldSelf", []), 
-                    "0x4C4B40"
-                );
-                if (!removeShieldTx) {
-                    setWarsStatus("Shield removal rejected");
-                    setWarsSearching(false);
-                    warsTransactionInProgress.current = false;
-                    return;
+            // V14: Check shield but don't manually remove - Battles V4 removes it automatically in cartelAttack()
+            try {
+                const itemShopAbiForShield = [
+                    "function hasActiveShield(address) view returns (bool active, uint256 expiresAt)",
+                ];
+                const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbiForShield, readProvider);
+                const shieldInfo = await itemShopContract.hasActiveShield(effectiveAttacker);
+                
+                if (shieldInfo[0]) {
+                    // Just warn - Battles V4 automatically removes attacker's shield via _rmShield(msg.sender)
+                    setWarsStatus("⚠️ Your shield will be removed when you attack...");
+                    await new Promise(resolve => setTimeout(resolve, 1500));
                 }
-                await waitForTx(removeShieldTx, readProvider);
-                setWarsStatus("Shield removed! Attacking...");
+            } catch (e) {
+                console.log("[Wars] Shield check failed (non-critical):", e);
             }
 
             setWarsStatus("Attacking (50K fee - confirm in wallet)...");
 
-            // Execute cartelAttack - this pays 50K AND executes the battle
-            const tx = await txAction().sendContractTx(
+            // DEBUG: Log exactly what address is attacking
+            console.log("=".repeat(50));
+            console.log("[Wars] ATTACK DEBUG INFO:");
+            console.log("[Wars] effectiveAttacker:", effectiveAttacker);
+            console.log("[Wars] ctx.userAddress:", ctx.userAddress);
+            console.log("[Wars] attacker from signature:", attacker);
+            console.log("[Wars] userAddress (state):", userAddress);
+            console.log("[Wars] wagmiAddress:", wagmiAddress);
+            console.log("[Wars] usingMiniApp:", usingMiniApp);
+            console.log("=".repeat(50));
+
+            const tx = await sendContractTx(
                 V5_BATTLES_ADDRESS,
                 v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]),
-                "0x1E8480" // 2M gas - battles do multiple cross-contract calls
+                "0x3D0900", // 4M gas - matches DEA raids for cross-contract calls with weapons
+                effectiveAttacker
             );
 
             if (!tx) {
@@ -4278,7 +4932,37 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             // Check if transaction failed
             if (receipt && receipt.status === 0) {
-                setWarsStatus("Transaction failed - the attack was reverted");
+                // Transaction reverted - try to get the actual error reason
+                console.error("[Wars] Transaction reverted! TX hash:", tx.hash);
+                
+                // Try to get revert reason by simulating the failed tx
+                try {
+                    const battlesContractRead = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+                    // Try to call the function statically to get error reason
+                    await battlesContractRead.callStatic.cartelAttack(target, deadline, signature, { from: effectiveAttacker });
+                } catch (simErr: any) {
+                    const reason = simErr.reason || simErr.error?.message || simErr.message || "";
+                    console.error("[Wars] Revert reason:", reason);
+                    
+                    if (reason.includes("!shld")) {
+                        setWarsStatus("❌ Target has a shield. Search for a new target.");
+                    } else if (reason.includes("!sig") || reason.includes("!exp")) {
+                        setWarsStatus("❌ Signature expired or invalid. Please search again.");
+                    } else if (reason.includes("!cd")) {
+                        setWarsStatus("❌ You're on cooldown! Wait before attacking again.");
+                    } else if (reason.includes("!p")) {
+                        setWarsStatus("❌ You need staked NFTs to attack!");
+                    } else if (reason.includes("!tgt")) {
+                        setWarsStatus("❌ Invalid target - they may have unstaked.");
+                    } else {
+                        setWarsStatus("❌ Attack failed: " + reason.slice(0, 50) || "Transaction reverted");
+                    }
+                    setWarsSearching(false);
+                    warsTransactionInProgress.current = false;
+                    return;
+                }
+                
+                setWarsStatus("❌ Attack failed - target may have shield or immunity. Try a new target.");
                 setWarsSearching(false);
                 warsTransactionInProgress.current = false;
                 return;
@@ -4311,12 +4995,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const rawPending = stats?.pendingRewards;
             if (rawPending !== null && rawPending !== undefined && rawPending !== "" && rawPending !== "0") {
                 try {
-                    const pendingStr = rawPending.toString().trim();
-                    if (pendingStr && !isNaN(parseFloat(pendingStr))) {
-                        pendingBN = ethers.utils.parseUnits(pendingStr, 18);
+                    const pendingNum = parseFloat(rawPending.toString());
+                    if (!isNaN(pendingNum) && pendingNum > 0) {
+                        const pendingWei = Math.floor(pendingNum * 1e18).toString();
+                        pendingBN = ethers.BigNumber.from(pendingWei);
                     }
-                } catch {
-                    try { pendingBN = ethers.BigNumber.from(rawPending); } catch {}
+                } catch (e) {
+                    console.log("[Wars] Pending parse error:", e);
                 }
             }
             
@@ -4376,6 +5061,22 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 // On loss, no cooldown - can search again immediately
                 setWarsCooldown(0);
             }
+
+            // Record attack to backend for immunity tracking
+            // This grants target 2 hour immunity and removes attacker's immunity
+            try {
+                fetch(`${WARS_BACKEND_URL}/api/cartel/record-attack`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        attacker: effectiveAttacker,
+                        target: target,
+                        success: true,
+                        won: battleResult?.won || false,
+                        txHash: tx.hash
+                    })
+                }).catch(console.error);
+            } catch {}
 
             // Refresh data
             setTimeout(() => {
@@ -5959,29 +6660,38 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 flexDirection: "column",
                 gap: 6
             }}>
-                {/* Row 1: Brand + Theme */}
+                {/* Row 1: Brand + Notifications + Theme */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <span style={{ color: theme === "light" ? "#1e293b" : "#fff", fontSize: 16, fontWeight: 700 }}>FCWEED</span>
-                    <button 
-                        type="button" 
-                        onClick={toggleTheme}
-                        style={{ 
-                            width: 32,
-                            height: 32,
-                            borderRadius: 8,
-                            border: `1px solid ${theme === "light" ? "#cbd5e1" : "rgba(255,255,255,0.2)"}`,
-                            background: theme === "light" ? "#f1f5f9" : "rgba(255,255,255,0.1)",
-                            color: theme === "light" ? "#1e293b" : "#fff",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            cursor: "pointer",
-                            fontSize: 14
-                        }}
-                        title={theme === "dark" ? "Light Mode" : "Dark Mode"}
-                    >
-                        {theme === "dark" ? "☀️" : "🌙"}
-                    </button>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {/* Notification Bell */}
+                        <NotificationSettings 
+                            theme={theme} 
+                            userAddress={userAddress} 
+                            backendUrl={WARS_BACKEND_URL}
+                        />
+                        {/* Theme Toggle */}
+                        <button 
+                            type="button" 
+                            onClick={toggleTheme}
+                            style={{ 
+                                width: 32,
+                                height: 32,
+                                borderRadius: 8,
+                                border: `1px solid ${theme === "light" ? "#cbd5e1" : "rgba(255,255,255,0.2)"}`,
+                                background: theme === "light" ? "#f1f5f9" : "rgba(255,255,255,0.1)",
+                                color: theme === "light" ? "#1e293b" : "#fff",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                cursor: "pointer",
+                                fontSize: 14
+                            }}
+                            title={theme === "dark" ? "Light Mode" : "Dark Mode"}
+                        >
+                            {theme === "dark" ? "☀️" : "🌙"}
+                        </button>
+                    </div>
                 </div>
                 
                 {/* Row 2: Wallet + Radio */}
@@ -6028,23 +6738,85 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             </header>
 
             <main className={styles.main}>
+                {/* Persistent video container - all videos play continuously, stacked with absolute positioning */}
+                {(activeTab === "info" || activeTab === "mint" || activeTab === "stake") && (
+                    <section style={{ 
+                        position: "relative",
+                        width: "100%",
+                        height: 120,
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        padding: "10px 0"
+                    }}>
+                        {/* Info page video */}
+                        <video 
+                            ref={infoVideoRef}
+                            src="/videos/info-page.mp4"
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            onError={(e) => console.log("Info video error:", e)}
+                            style={{ 
+                                position: "absolute",
+                                width: 280,
+                                height: 100,
+                                borderRadius: 14, 
+                                objectFit: "cover",
+                                background: "linear-gradient(135deg, rgba(16,185,129,0.3), rgba(59,130,246,0.3))",
+                                opacity: activeTab === "info" ? 1 : 0,
+                                pointerEvents: activeTab === "info" ? "auto" : "none",
+                                transition: "opacity 0.2s ease"
+                            }} 
+                        />
+                        {/* Mint page video */}
+                        <video 
+                            ref={mintVideoRef}
+                            src="/videos/mint-page.mp4"
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            onError={(e) => console.log("Mint video error:", e)}
+                            style={{ 
+                                position: "absolute",
+                                width: 260,
+                                height: 95,
+                                borderRadius: 12, 
+                                objectFit: "cover",
+                                background: "linear-gradient(135deg, rgba(16,185,129,0.3), rgba(59,130,246,0.3))",
+                                opacity: activeTab === "mint" ? 1 : 0,
+                                pointerEvents: activeTab === "mint" ? "auto" : "none",
+                                transition: "opacity 0.2s ease"
+                            }} 
+                        />
+                        {/* Stake page video */}
+                        <video 
+                            ref={stakeVideoRef}
+                            src="/videos/staking-page.mp4"
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            onError={(e) => console.log("Stake video error:", e)}
+                            style={{ 
+                                position: "absolute",
+                                width: 260,
+                                height: 95,
+                                borderRadius: 12, 
+                                objectFit: "cover",
+                                background: "linear-gradient(135deg, rgba(16,185,129,0.3), rgba(59,130,246,0.3))",
+                                opacity: activeTab === "stake" ? 1 : 0,
+                                pointerEvents: activeTab === "stake" ? "auto" : "none",
+                                transition: "opacity 0.2s ease"
+                            }} 
+                        />
+                    </section>
+                )}
+                
                 {activeTab === "info" && (
                     <>
-                        <section style={{ textAlign: "center", padding: "10px 0", display: "flex", justifyContent: "center", minHeight: 100 }}>
-                            <Image 
-                                src={GIFS[gifIndex]} 
-                                alt="FCWEED" 
-                                width={280} 
-                                height={100} 
-                                style={{ 
-                                    borderRadius: 14, 
-                                    objectFit: "cover",
-                                    opacity: imagesLoaded ? 1 : 0,
-                                    transition: "opacity 0.3s ease"
-                                }} 
-                                priority
-                            />
-                        </section>
 
                         
                         <section style={{ display: "flex", justifyContent: "center", padding: "8px 0" }}>
@@ -6150,21 +6922,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         {activeTab === "mint" && (
             <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 20 })}>
                 <h2 style={{ fontSize: 18, margin: "0 0 12px", color: theme === "light" ? "#2563eb" : "#7cb3ff" }}>Mint NFTs</h2>
-                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, minHeight: 95 }}>
-                    <Image 
-                        src={GIFS[gifIndex]} 
-                        alt="FCWEED" 
-                        width={260} 
-                        height={95} 
-                        style={{ 
-                            borderRadius: 12, 
-                            objectFit: "cover",
-                            opacity: imagesLoaded ? 1 : 0,
-                            transition: "opacity 0.3s ease"
-                        }} 
-                    />
-                </div>
-
                 
                 <div style={{
                     display: "flex",
@@ -6228,20 +6985,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 {activeTab === "stake" && (
                     <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 20 })}>
                         <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#7cb3ff" }}>Staking</h2>
-                        <div style={{ display: "flex", justifyContent: "center", marginBottom: 16, minHeight: 95 }}>
-                            <Image 
-                                src={GIFS[gifIndex]} 
-                                alt="FCWEED" 
-                                width={260} 
-                                height={95} 
-                                style={{ 
-                                    borderRadius: 12, 
-                                    objectFit: "cover",
-                                    opacity: imagesLoaded ? 1 : 0,
-                                    transition: "opacity 0.3s ease"
-                                }} 
-                            />
-                        </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                             <button type="button" className={styles.btnPrimary} onClick={() => setV5StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #10b981, #34d399)" }}>🚀 Staking V5</button>
                             <button type="button" className={styles.btnPrimary} onClick={() => setV4StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>⬅️ Staking V4 (UNSTAKE ONLY)</button>
@@ -6506,6 +7249,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         {connected && (
                             <div style={{ background: theme === "light" ? "rgba(99,102,241,0.05)" : "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 10, padding: 10, marginBottom: 10, maxWidth: "100%", overflow: "hidden" }}>
                                 <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 700, marginBottom: 8, textAlign: "center" }}>🎒 INVENTORY</div>
+                                {isPurgeActive && (
+                                    <div style={{ background: "rgba(239,68,68,0.2)", border: "1px solid rgba(239,68,68,0.5)", borderRadius: 6, padding: "6px 8px", marginBottom: 8, textAlign: "center" }}>
+                                        <span style={{ fontSize: 9, color: "#ef4444", fontWeight: 700 }}>🔪 THE PURGE IS ACTIVE — Shields are useless!</span>
+                                    </div>
+                                )}
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>
                                     {/* AK-47 */}
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95 }}>
@@ -6564,17 +7312,19 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         </div>
                                     </div>
                                     {/* Shields */}
-                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95 }}>
+                                    <div style={{ background: isPurgeActive ? "rgba(239,68,68,0.1)" : (theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)"), borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95, opacity: isPurgeActive ? 0.6 : 1, border: isPurgeActive ? "1px solid rgba(239,68,68,0.3)" : "none" }}>
                                         <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
-                                            <img src="/images/items/shield.gif" alt="Shield" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain" }} />
+                                            <img src="/images/items/shield.gif" alt="Shield" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain", filter: isPurgeActive ? "grayscale(100%)" : "none" }} />
                                         </div>
-                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>SHIELDS</div>
-                                        <div style={{ fontSize: 14, fontWeight: 700, color: "#3b82f6", marginBottom: 4 }}>{inventoryShields}</div>
+                                        <div style={{ fontSize: 7, color: isPurgeActive ? "#ef4444" : (theme === "light" ? "#64748b" : "#9ca3af"), fontWeight: 600, marginBottom: 2 }}>{isPurgeActive ? "🔪 USELESS" : "SHIELDS"}</div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: isPurgeActive ? "#6b7280" : "#3b82f6", marginBottom: 4 }}>{inventoryShields}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
-                                            {shieldExpiry > Math.floor(Date.now() / 1000) ? (
+                                            {isPurgeActive ? (
+                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "#374151", color: "#6b7280", fontWeight: 600, textAlign: "center" }}>Purge Active</div>
+                                            ) : shieldExpiry > Math.floor(Date.now() / 1000) ? (
                                                 <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((shieldExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((shieldExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
                                             ) : (
-                                                <button onClick={handleActivateShield} disabled={inventoryShields === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryShields > 0 ? "linear-gradient(135deg, #3b82f6, #60a5fa)" : "#374151", color: "#fff", cursor: inventoryShields > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
+                                                <button onClick={handleActivateShield} disabled={inventoryShields === 0 || inventoryLoading || isPurgeActive} title={isPurgeActive ? "Shields are useless during The Purge!" : ""} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: (inventoryShields > 0 && !isPurgeActive) ? "linear-gradient(135deg, #3b82f6, #60a5fa)" : "#374151", color: (inventoryShields > 0 && !isPurgeActive) ? "#fff" : "#6b7280", cursor: (inventoryShields > 0 && !isPurgeActive) ? "pointer" : "not-allowed", fontWeight: 600 }}>{isPurgeActive ? "🔪 Locked" : "Activate"}</button>
                                             )}
                                         </div>
                                     </div>
@@ -6737,7 +7487,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     <p style={{ fontSize: 11, color: theme === "light" ? "#475569" : "#c0c9f4", margin: "0 0 12px" }}>Search for an opponent to raid their pending rewards!</p>
                                     <button
                                         type="button"
-                                        onClick={handleWarsSearch}
+                                        onClick={() => handleWarsSearch()}
                                         disabled={warsSearching || !connected || warsCooldown > 0}
                                         className={styles.btnPrimary}
                                         style={{ padding: "10px 24px", fontSize: 12, background: warsSearching ? "#374151" : "linear-gradient(135deg, #dc2626, #ef4444)" }}
@@ -6771,7 +7521,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                     <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 10, padding: 12, textAlign: "center" }}>
                                                         <div style={{ fontSize: 10, color: "#fbbf24", marginBottom: 4 }}>💰 PENDING LOOT</div>
                                                         <div style={{ fontSize: 22, fontWeight: 700, color: "#fbbf24" }}>
-                                                            {warsTargetStats.pendingRewards ? (parseFloat(ethers.utils.formatUnits(warsTargetStats.pendingRewards, 18)) / 1000).toFixed(0) + "K" : "0"}
+                                                            {warsTargetStats.pendingFormatted || "0"}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -6939,7 +7689,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         userAddress={userAddress}
                         signer={signer}
                         chainId={CHAIN_ID}
-                        backendBaseUrl={"http://localhost:3001"}
+                        backendBaseUrl={"https://api.fcweed.xyz"}
                     />
                 )}
 
@@ -6994,6 +7744,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <img src="/images/items/water.gif" alt="Water" style={{ width: 32, height: 32, objectFit: "contain" }} />
                                 <span>WATER</span>
                             </button>
+                            <button onClick={() => setUsdcShopModalOpen(true)} style={{ flex: 1, padding: "16px 12px", borderRadius: 12, border: "1px solid rgba(39,117,202,0.4)", background: "linear-gradient(135deg, rgba(39,117,202,0.15), rgba(45,156,219,0.1))", color: "#2775CA", cursor: "pointer", fontSize: 14, fontWeight: 700, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                                <span style={{ fontSize: 28 }}>💵</span>
+                                <span>USDC</span>
+                            </button>
                             <button onClick={() => setItemsModalOpen(true)} style={{ flex: 1, padding: "16px 12px", borderRadius: 12, border: "1px solid rgba(245,158,11,0.4)", background: "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.1))", color: "#f59e0b", cursor: "pointer", fontSize: 14, fontWeight: 700, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                                 <span style={{ fontSize: 28 }}>🏪</span>
                                 <span>ITEMS</span>
@@ -7021,150 +7775,48 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 ))}
             </nav>
 
-            
-            {v5StakingOpen && (
-                <div className={styles.modalBackdrop} style={{ background: theme === "light" ? "rgba(0,0,0,0.4)" : undefined }}>
-                    <div className={styles.modal} style={{ maxWidth: 520, width: "95%", maxHeight: "90vh", overflowY: "auto", background: theme === "light" ? "#ffffff" : undefined, color: theme === "light" ? "#1e293b" : undefined }}>
-                        <header className={styles.modalHeader}>
-                            <h2 className={styles.modalTitle} style={{ color: theme === "light" ? "#1e293b" : undefined }}>🚀 Staking V5</h2>
-                            <button type="button" className={styles.modalClose} onClick={() => setV5StakingOpen(false)} style={{ background: theme === "light" ? "#f1f5f9" : undefined, color: theme === "light" ? "#64748b" : undefined }}>✕</button>
-                        </header>
-
-                        {v5ClaimCooldown > 0 && (
-                            <div style={{ padding: "8px 12px", background: theme === "light" ? "rgba(251,191,36,0.08)" : "rgba(251,191,36,0.1)", borderRadius: 8, border: `1px solid ${theme === "light" ? "rgba(217,119,6,0.3)" : "rgba(251,191,36,0.3)"}`, marginBottom: 10, textAlign: "center" }}>
-                                <span style={{ fontSize: 12, color: theme === "light" ? "#d97706" : "#fbbf24", fontWeight: 600 }}>
-                                    ⏳ Claim Cooldown: {Math.floor(v5ClaimCooldown / 3600)}h {Math.floor((v5ClaimCooldown % 3600) / 60)}m {v5ClaimCooldown % 60}s
-                                </span>
-                            </div>
-                        )}
-
-                        <div style={{ padding: "8px 12px", background: theme === "light" ? "rgba(16,185,129,0.08)" : "rgba(16,185,129,0.1)", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 10 }}>
-                            <p style={{ fontSize: 10, color: "#10b981", margin: 0, fontWeight: 600 }}>🚀 V5 is LIVE! Stake your NFTs and claim your $FCWEED rewards!</p>
-                        </div>
-
-                        {!V5_STAKING_ADDRESS ? (
-                            <div style={{ padding: 20, textAlign: "center" }}>
-                                <p style={{ fontSize: 14, color: theme === "light" ? "#d97706" : "#fbbf24" }}>⏳ V5 Contract Not Yet Deployed</p>
-                            </div>
-                        ) : (
-                            <>
-                                <div id="v5-stats-card" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Plants</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats?.plants || 0}</span></div>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Lands</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats?.lands || 0}</span></div>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Super Lands</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats?.superLands || 0}</span></div>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Capacity</span><span className={styles.statValue} style={{ color: theme === "light" ? "#1e293b" : undefined }}>{v5StakingStats ? `${v5StakingStats.plants}/${v5StakingStats.capacity}` : "0/1"}</span></div>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Boost</span><span className={styles.statValue} style={{ color: "#10b981" }}>+{v5StakingStats?.boostPct?.toFixed(1) || 0}%</span></div>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Daily (Live)</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) < 100 ? (theme === "light" ? "#d97706" : "#fbbf24") : "#10b981" }}>{v5StakingStats?.dailyRewards || "0"}</span></div>
-                                    <div className={styles.statCard} style={{ background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Avg Health</span><span className={styles.statValue} style={{ color: (v5StakingStats?.avgHealth || 100) >= 80 ? "#10b981" : (v5StakingStats?.avgHealth || 100) >= 50 ? (theme === "light" ? "#d97706" : "#fbbf24") : "#ef4444" }}>{v5StakingStats?.avgHealth || 100}%</span></div>
-                                    <div className={styles.statCard} style={{ gridColumn: "span 2", background: theme === "light" ? "#f8fafc" : undefined, border: theme === "light" ? "1px solid #e2e8f0" : undefined }}><span className={styles.statLabel} style={{ color: theme === "light" ? "#64748b" : undefined }}>Water</span><span className={styles.statValue} style={{ color: "#3b82f6" }}>{v5StakingStats?.water ? (parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18))).toFixed(1) : "0"}L</span></div>
-                                    <div className={styles.statCard} style={{ gridColumn: "span 2", background: "linear-gradient(135deg, #065f46, #10b981)" }}><span className={styles.statLabel}>Pending (Live)</span><span className={styles.statValue} style={{ color: "#a7f3d0", fontSize: 16 }}>{v5RealTimePending}</span></div>
-                                    <button 
-                                        type="button"
-                                        onClick={() => {
-                                            const plants = v5StakingStats?.plants || 0;
-                                            const lands = v5StakingStats?.lands || 0;
-                                            const superLands = v5StakingStats?.superLands || 0;
-                                            const boost = v5StakingStats?.boostPct?.toFixed(1) || 0;
-                                            const daily = v5StakingStats?.dailyRewards || "0";
-                                            const text = `🌿 My FCWEED Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://x420ponzi.com`;
-                                            captureAndShare('v5-stats-card', text, composeCast);
-                                        }}
-                                        style={{ gridColumn: "span 1", padding: 8, borderRadius: 8, border: "1px solid rgba(29,161,242,0.4)", background: "rgba(29,161,242,0.15)", color: "#1da1f2", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}
-                                    >
-                                        📸 Share
-                                    </button>
-                                </div>
-
-                                <p style={{ fontSize: 10, color: theme === "light" ? "#d97706" : "#fbbf24", marginBottom: 8, textAlign: "center" }}>⏳ Please keep this tab open for 5-10 seconds to ensure NFTs load properly</p>
-
-                                {loadingV5Staking ? <p style={{ textAlign: "center", padding: 16, fontSize: 12, color: theme === "light" ? "#475569" : undefined }}>Loading NFTs…</p> : (
-                                    <>
-                                        <div style={{ marginBottom: 10 }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                                <span style={{ fontSize: 11, fontWeight: 600, color: theme === "light" ? "#1e293b" : undefined }}>Available ({v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length})</span>
-                                                <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length) > 0 && selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === (v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length)} onChange={() => { if (selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === (v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length)) { setSelectedV5AvailPlants([]); setSelectedV5AvailLands([]); setSelectedV5AvailSuperLands([]); } else { setSelectedV5AvailPlants(v5AvailablePlants); setSelectedV5AvailLands(v5AvailableLands); setSelectedV5AvailSuperLands(v5AvailableSuperLands); } }} />All</label>
-                                            </div>
-                                            <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                                {(v5AvailablePlants.length + v5AvailableLands.length + v5AvailableSuperLands.length) === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No NFTs available to stake</span> : (
-                                                    <>{v5AvailableSuperLands.map((id) => <NftCard key={"v5asl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedV5AvailSuperLands.includes(id)} onChange={() => toggleId(id, selectedV5AvailSuperLands, setSelectedV5AvailSuperLands)} />)}{v5AvailableLands.map((id) => <NftCard key={"v5al-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedV5AvailLands.includes(id)} onChange={() => toggleId(id, selectedV5AvailLands, setSelectedV5AvailLands)} />)}{v5AvailablePlants.map((id) => <NftCard key={"v5ap-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV5AvailPlants.includes(id)} onChange={() => toggleId(id, selectedV5AvailPlants, setSelectedV5AvailPlants)} />)}</>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div style={{ marginBottom: 10 }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                                <span style={{ fontSize: 11, fontWeight: 600 }}>Staked ({v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length})</span>
-                                                <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={(v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length) > 0 && selectedV5StakedPlants.length + selectedV5StakedLands.length + selectedV5StakedSuperLands.length === (v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length)} onChange={() => { if (selectedV5StakedPlants.length + selectedV5StakedLands.length + selectedV5StakedSuperLands.length === (v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length)) { setSelectedV5StakedPlants([]); setSelectedV5StakedLands([]); setSelectedV5StakedSuperLands([]); } else { setSelectedV5StakedPlants(v5StakedPlants); setSelectedV5StakedLands(v5StakedLands); setSelectedV5StakedSuperLands(v5StakedSuperLands); } }} />All</label>
-                                            </div>
-                                            <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0", minHeight: 80 }}>
-                                                {(v5StakedPlants.length + v5StakedLands.length + v5StakedSuperLands.length) === 0 ? <span style={{ fontSize: 11, opacity: 0.5, margin: "auto" }}>No staked NFTs</span> : (
-                                                    <>{v5StakedSuperLands.map((id) => <NftCard key={"v5ssl-" + id} id={id} img={superLandImages[id] || SUPER_LAND_FALLBACK_IMG} name="Super Land" checked={selectedV5StakedSuperLands.includes(id)} onChange={() => toggleId(id, selectedV5StakedSuperLands, setSelectedV5StakedSuperLands)} />)}{v5StakedLands.map((id) => <NftCard key={"v5sl-" + id} id={id} img={landImages[id] || LAND_FALLBACK_IMG} name="Land" checked={selectedV5StakedLands.includes(id)} onChange={() => toggleId(id, selectedV5StakedLands, setSelectedV5StakedLands)} />)}{v5StakedPlants.map((id) => <NftCard key={"v5sp-" + id} id={id} img={plantImages[id] || PLANT_FALLBACK_IMG} name="Plant" checked={selectedV5StakedPlants.includes(id)} onChange={() => toggleId(id, selectedV5StakedPlants, setSelectedV5StakedPlants)} health={v5PlantHealths[id]} />)}</>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {v5StakedPlants.length > 0 && (
-                                            <div style={{ marginBottom: 10, padding: 8, background: "rgba(16,185,129,0.1)", borderRadius: 8 }}>
-                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                                    <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981" }}>💧 Water Plants</span>
-                                                    <label style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 3 }}>
-                                                        <input type="checkbox" checked={selectedV5PlantsToWater.length === v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100).length && selectedV5PlantsToWater.length > 0} onChange={() => { const needsWater = v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 100); if (selectedV5PlantsToWater.length === needsWater.length) { setSelectedV5PlantsToWater([]); setV5CustomWaterAmounts({}); } else { setSelectedV5PlantsToWater(needsWater); const newAmounts: Record<number, number> = {}; needsWater.forEach(id => { newAmounts[id] = Math.max(0.1, Math.ceil((v5WaterNeeded[id] || 0.1) * 10) / 10); }); setV5CustomWaterAmounts(newAmounts); } }} />All needing water
-                                                    </label>
-                                                </div>
-                                                <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "4px 0" }}>
-                                                    {v5StakedPlants.map((id) => {
-                                                        const health = v5PlantHealths[id] ?? 100;
-                                                        const waterNeeded = v5WaterNeeded[id] ?? 0;
-                                                        const isSelected = selectedV5PlantsToWater.includes(id);
-                                                        // Use actual water needed (rounded up to 0.1L), minimum 0.1L
-                                                        const defaultWater = Math.max(0.1, Math.ceil((waterNeeded || 0.1) * 10) / 10);
-                                                        const customAmount = v5CustomWaterAmounts[id] ?? defaultWater;
-                                                        return (
-                                                            <div key={"v5w-" + id} style={{ minWidth: 70, padding: 6, borderRadius: 8, background: isSelected ? "rgba(16,185,129,0.3)" : "rgba(0,0,0,0.2)", border: isSelected ? "2px solid #10b981" : "1px solid #374151", opacity: health >= 100 ? 0.5 : 1, textAlign: "center" }}>
-                                                                <div onClick={() => { if (health < 100) { toggleId(id, selectedV5PlantsToWater, setSelectedV5PlantsToWater); if (!isSelected) { setV5CustomWaterAmounts(prev => ({ ...prev, [id]: defaultWater })); } } }} style={{ cursor: health < 100 ? "pointer" : "default" }}>
-                                                                    <div style={{ fontSize: 10, fontWeight: 600 }}>#{id}</div>
-                                                                    <div style={{ width: "100%", height: 4, background: "#1f2937", borderRadius: 2, margin: "3px 0", overflow: "hidden" }}>
-                                                                        <div style={{ height: "100%", width: `${health}%`, background: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444", transition: "width 0.3s" }} />
-                                                                    </div>
-                                                                    <div style={{ fontSize: 9, color: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444", fontWeight: 600 }}>{health}%</div>
-                                                                    {health < 100 && <div style={{ fontSize: 8, color: "#60a5fa" }}>Need: {waterNeeded.toFixed(1)}L</div>}
-                                                                </div>
-                                                                {isSelected && health < 100 && (
-                                                                    <div style={{ marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
-                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: Math.max(0.1, Math.round(((prev[id] ?? defaultWater) - 0.5) * 10) / 10) })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>-</button>
-                                                                        <input type="number" value={customAmount} onChange={(e) => { const val = Math.max(0.1, parseFloat(e.target.value) || 0.1); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: Math.round(val * 10) / 10 })); }} onClick={(e) => e.stopPropagation()} style={{ width: 32, height: 18, textAlign: "center", fontSize: 9, background: "#1f2937", border: "1px solid #374151", borderRadius: 4, color: "#fff" }} min="0.1" step="0.1" />
-                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); setV5CustomWaterAmounts(prev => ({ ...prev, [id]: Math.round(((prev[id] ?? defaultWater) + 0.5) * 10) / 10 })); }} style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #374151", background: "#1f2937", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 9, color: "#9ca3af", marginTop: 6 }}>
-                                                    <span>Your Water: {v5StakingStats?.water ? parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v5StakingStats.water.toString()), 18)).toFixed(2) : "0"}L</span>
-                                                    {selectedV5PlantsToWater.length > 0 && <span style={{ color: "#60a5fa" }}>Using: {selectedV5PlantsToWater.reduce((sum, id) => sum + (v5CustomWaterAmounts[id] ?? Math.max(0.1, Math.ceil((v5WaterNeeded[id] || 0.1) * 10) / 10)), 0).toFixed(1)}L</span>}
-                                                </div>
-                                                {selectedV5PlantsToWater.length > 0 && (
-                                                    <button type="button" className={styles.btnPrimary} disabled={actionLoading} onClick={handleV5WaterPlants} style={{ width: "100%", marginTop: 6, padding: 8, fontSize: 11, background: "linear-gradient(to right, #0ea5e9, #38bdf8)" }}>
-                                                        {actionLoading ? "Watering..." : `💧 Water ${selectedV5PlantsToWater.length} Plant${selectedV5PlantsToWater.length > 1 ? "s" : ""} (${selectedV5PlantsToWater.reduce((sum, id) => sum + (v5CustomWaterAmounts[id] ?? Math.max(0.1, Math.ceil((v5WaterNeeded[id] || 0.1) * 10) / 10)), 0).toFixed(1)}L)`}
-                                                    </button>
-                                                )}
-                                                {v5ActionStatus && <p style={{ fontSize: 9, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v5ActionStatus}</p>}
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V5_STAKING_ADDRESS || (selectedV5AvailPlants.length + selectedV5AvailLands.length + selectedV5AvailSuperLands.length === 0)} onClick={async () => { if (selectedV5AvailPlants.length > 0) await handleV5StakePlants(); if (selectedV5AvailLands.length > 0) await handleV5StakeLands(); if (selectedV5AvailSuperLands.length > 0) await handleV5StakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12, background: "linear-gradient(to right, #10b981, #34d399)" }}>{actionLoading ? "Staking..." : "Stake"}</button>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V5_STAKING_ADDRESS || (selectedV5StakedPlants.length + selectedV5StakedLands.length + selectedV5StakedSuperLands.length === 0)} onClick={async () => { if (selectedV5StakedPlants.length > 0) await handleV5UnstakePlants(); if (selectedV5StakedLands.length > 0) await handleV5UnstakeLands(); if (selectedV5StakedSuperLands.length > 0) await handleV5UnstakeSuperLands(); }} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Unstaking..." : "Unstake"}</button>
-                                    <button type="button" className={styles.btnPrimary} disabled={!connected || actionLoading || !V5_STAKING_ADDRESS || !v5StakingStats || v5StakingStats.pendingFormatted <= 0} onClick={handleV5Claim} style={{ flex: 1, padding: 10, fontSize: 12 }}>{actionLoading ? "Claiming..." : "Claim"}</button>
-                                </div>
-                                <p style={{ fontSize: 9, color: "#9ca3af", marginTop: 6, textAlign: "center" }}>⚠️ Plants must have 100% health to unstake. Water them first!</p>
-                                {v5ActionStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 4, textAlign: "center" }}>{v5ActionStatus}</p>}
-                            </>
-                        )}
-                    </div>
-                </div>
-            )}
+            {/* V5 Isometric Farm View */}
+            <IsometricFarm
+                isOpen={v5StakingOpen}
+                onClose={() => setV5StakingOpen(false)}
+                stats={v5StakingStats}
+                stakedPlants={v5StakedPlants}
+                stakedLands={v5StakedLands}
+                stakedSuperLands={v5StakedSuperLands}
+                availablePlants={v5AvailablePlants}
+                availableLands={v5AvailableLands}
+                availableSuperLands={v5AvailableSuperLands}
+                plantHealths={v5PlantHealths}
+                waterNeeded={v5WaterNeeded}
+                realTimePending={v5RealTimePending}
+                claimCooldown={v5ClaimCooldown}
+                actionStatus={v5ActionStatus}
+                loading={loadingV5Staking}
+                actionLoading={actionLoading}
+                isPurgeActive={isPurgeActive}
+                onStakePlants={async (ids) => { await handleV5StakePlants(ids); }}
+                onUnstakePlants={async (ids) => { await handleV5UnstakePlants(ids); }}
+                onStakeLands={async (ids) => { await handleV5StakeLands(ids); }}
+                onUnstakeLands={async (ids) => { await handleV5UnstakeLands(ids); }}
+                onStakeSuperLands={async (ids) => { await handleV5StakeSuperLands(ids); }}
+                onUnstakeSuperLands={async (ids) => { await handleV5UnstakeSuperLands(ids); }}
+                onClaim={handleV5Claim}
+                onWaterPlants={async (ids, amounts) => { 
+                    // Pass IDs and amounts directly from UI to handler
+                    console.log("[GrowRoom] Water request:", { ids, amounts });
+                    await handleV5WaterPlants(ids, amounts);
+                }}
+                onShare={() => {
+                    const plants = v5StakingStats?.plants || 0;
+                    const lands = v5StakingStats?.lands || 0;
+                    const superLands = v5StakingStats?.superLands || 0;
+                    const boost = v5StakingStats?.boostPct?.toFixed(1) || 0;
+                    const daily = v5StakingStats?.dailyRewards || "0";
+                    const text = `🌿 My FCWEED Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://x420ponzi.com`;
+                    captureAndShare('v5-stats-card', text, composeCast);
+                }}
+                theme={theme}
+            />
 
             {v4StakingOpen && (
                 <div className={styles.modalBackdrop}>
@@ -7774,14 +8426,22 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 )}
                                 </div>
                             </div>
-                            <div style={{ background: "linear-gradient(135deg, rgba(59,130,246,0.15), rgba(96,165,250,0.1))", border: "1px solid rgba(59,130,246,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 170 }}>
+                            <div style={{ background: isPurgeActive ? "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1))" : "linear-gradient(135deg, rgba(59,130,246,0.15), rgba(96,165,250,0.1))", border: isPurgeActive ? "1px solid rgba(239,68,68,0.4)" : "1px solid rgba(59,130,246,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 170, opacity: isPurgeActive ? 0.6 : 1 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
-                                    <img src="/images/items/shield.gif" alt="Shield" style={{ width: 36, height: 36, objectFit: "contain" }} />
+                                    <img src="/images/items/shield.gif" alt="Shield" style={{ width: 36, height: 36, objectFit: "contain", filter: isPurgeActive ? "grayscale(100%)" : "none" }} />
                                 </div>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: "#3b82f6", marginBottom: 2 }}>RAID SHIELD</div>
-                                <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>24h Protection<br/>Purge Bypasses Shields</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: isPurgeActive ? "#ef4444" : "#3b82f6", marginBottom: 2 }}>RAID SHIELD</div>
+                                {isPurgeActive ? (
+                                    <div style={{ fontSize: 8, color: "#ef4444", lineHeight: 1.3, marginBottom: 4, fontWeight: 600 }}>🔪 USELESS<br/>DURING PURGE</div>
+                                ) : (
+                                    <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>24h Protection<br/>Purge Bypasses Shields</div>
+                                )}
                                 <div style={{ marginTop: "auto" }}>
-                                {(shopSupply[5]?.remaining ?? 25) > 0 ? (
+                                {isPurgeActive ? (
+                                    <div style={{ padding: "8px 0" }}>
+                                        <div style={{ fontSize: 9, color: "#ef4444", fontWeight: 600 }}>Disabled during Purge</div>
+                                    </div>
+                                ) : (shopSupply[5]?.remaining ?? 25) > 0 ? (
                                     <>
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#3b82f6", fontWeight: 600 }}>{shopSupply[5]?.remaining ?? 25}/{shopSupply[5]?.total ?? 25}</span></div>
                                         <button onClick={() => handleBuyItem(5, "dust")} disabled={shopLoading || crateUserStats.dust < 2500} style={{ width: "100%", padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2500 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2500 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2500 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />2.5K DUST</button>
@@ -7813,6 +8473,120 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         <div style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: 8, padding: 10, marginTop: 12 }}>
                             <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600, marginBottom: 4 }}>🎁 More Items Coming Soon!</div>
                             <p style={{ fontSize: 9, color: "#9ca3af", margin: 0 }}>Fertilizers, Growth Serums, and more...</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* USDC Premium Shop Modal */}
+            {usdcShopModalOpen && (
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
+                    <div style={{ background: theme === "light" ? "#fff" : "linear-gradient(135deg, #0a1128, #1a2744)", borderRadius: 16, padding: 20, maxWidth: 420, width: "100%", maxHeight: "85vh", overflowY: "auto", border: "1px solid rgba(39,117,202,0.3)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                            <h3 style={{ margin: 0, fontSize: 18, color: "#2775CA" }}>💵 USDC Premium Shop</h3>
+                            <button onClick={() => setUsdcShopModalOpen(false)} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
+                        </div>
+                        
+                        <div style={{ background: "linear-gradient(135deg, rgba(39,117,202,0.15), rgba(45,156,219,0.1))", border: "1px solid rgba(39,117,202,0.3)", borderRadius: 10, padding: 12, marginBottom: 16, textAlign: "center" }}>
+                            <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 4 }}>YOUR USDC BALANCE</div>
+                            <div style={{ fontSize: 24, fontWeight: 700, color: "#2775CA" }}>${usdcBalance}</div>
+                        </div>
+                        
+                        <div style={{ background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 8, padding: 10, marginBottom: 16 }}>
+                            <div style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600, marginBottom: 4 }}>⏰ RESTOCK IN {Math.floor(usdcShopTimeUntilReset / 3600)}h {Math.floor((usdcShopTimeUntilReset % 3600) / 60)}m</div>
+                            <p style={{ fontSize: 9, color: "#9ca3af", margin: 0 }}>Daily reset at 7pm EST • Items credited to your inventory</p>
+                        </div>
+                        
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginBottom: 16 }}>
+                            {usdcShopItems.filter(item => item.active).map(item => {
+                                const canAfford = usdcBalanceRaw.gte(ethers.utils.parseUnits(item.price, 6));
+                                const itemColor = item.mainShopId === 3 ? "#ef4444" : item.mainShopId === 4 ? "#10b981" : "#a855f7";
+                                const itemImg = item.mainShopId === 3 ? "/images/items/nuke.gif" : item.mainShopId === 4 ? "/images/items/healthpack.gif" : "/images/items/attackboost.gif";
+                                
+                                return (
+                                    <div key={item.id} style={{ background: `linear-gradient(135deg, ${itemColor}15, ${itemColor}10)`, border: `1px solid ${itemColor}66`, borderRadius: 12, padding: 12, textAlign: "center", display: "flex", flexDirection: "column" }}>
+                                        <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+                                            <img src={itemImg} alt={item.name} style={{ width: 48, height: 48, objectFit: "contain" }} />
+                                        </div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: itemColor, marginBottom: 4 }}>{item.name.toUpperCase()}</div>
+                                        <div style={{ fontSize: 20, fontWeight: 700, color: "#2775CA", marginBottom: 4 }}>${item.price}</div>
+                                        {item.remaining > 0 ? (
+                                            <>
+                                                <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 6 }}>
+                                                    STOCK: <span style={{ color: itemColor, fontWeight: 600 }}>{item.remaining}/{item.total}</span>
+                                                </div>
+                                                <button 
+                                                    onClick={() => handleBuyUsdcItem(item.id, 1)} 
+                                                    disabled={usdcShopLoading || !canAfford}
+                                                    style={{ 
+                                                        padding: "10px", 
+                                                        borderRadius: 8, 
+                                                        border: "none", 
+                                                        background: canAfford ? "linear-gradient(135deg, #2775CA, #2d9cdb)" : "#374151", 
+                                                        color: canAfford ? "#fff" : "#9ca3af", 
+                                                        fontWeight: 700, 
+                                                        cursor: canAfford ? "pointer" : "not-allowed", 
+                                                        fontSize: 12 
+                                                    }}
+                                                >
+                                                    {usdcShopLoading ? "..." : "BUY WITH USDC"}
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <div style={{ padding: "10px 0" }}>
+                                                <div style={{ fontSize: 12, color: itemColor, fontWeight: 700 }}>SOLD OUT</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        
+                        {usdcShopItems.find(i => i.mainShopId === 4 && i.remaining >= 5) && (
+                            <div style={{ background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                                <div style={{ fontSize: 11, color: "#10b981", fontWeight: 600, marginBottom: 8, textAlign: "center" }}>🎁 BULK BUY HEALTH PACKS</div>
+                                <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                                    {[5, 10].map(qty => {
+                                        const hpItem = usdcShopItems.find(i => i.mainShopId === 4);
+                                        if (!hpItem || hpItem.remaining < qty) return null;
+                                        const totalPrice = parseFloat(hpItem.price) * qty;
+                                        const canAfford = usdcBalanceRaw.gte(ethers.utils.parseUnits(String(totalPrice), 6));
+                                        return (
+                                            <button 
+                                                key={qty}
+                                                onClick={() => handleBuyUsdcItem(hpItem.id, qty)} 
+                                                disabled={usdcShopLoading || !canAfford}
+                                                style={{ 
+                                                    padding: "8px 16px", 
+                                                    borderRadius: 6, 
+                                                    border: "none", 
+                                                    background: canAfford ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", 
+                                                    color: canAfford ? "#fff" : "#9ca3af", 
+                                                    fontWeight: 600, 
+                                                    cursor: canAfford ? "pointer" : "not-allowed", 
+                                                    fontSize: 11 
+                                                }}
+                                            >
+                                                {qty}x (${totalPrice})
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {usdcShopStatus && (
+                            <p style={{ fontSize: 11, color: "#2775CA", marginTop: 8, textAlign: "center", fontWeight: 600 }}>{usdcShopStatus}</p>
+                        )}
+                        
+                        <div style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 8, padding: 10, marginTop: 12 }}>
+                            <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600, marginBottom: 4 }}>ℹ️ How It Works</div>
+                            <p style={{ fontSize: 9, color: "#9ca3af", margin: 0, lineHeight: 1.4 }}>
+                                • Pay with USDC on Base network<br/>
+                                • Items delivered to your Item Shop inventory<br/>
+                                • Daily supply resets at 7pm EST<br/>
+                                • Limited supply - once sold out, wait for restock!
+                            </p>
                         </div>
                     </div>
                 </div>

@@ -6,40 +6,25 @@ import { QuestsPanel } from "./QuestsPanel";
 
 type HubTab = "quests" | "referrals";
 
-const tabConfig = {
-  quests: { icon: "🎯", label: "QUESTS", color: "#60a5fa", border: "rgba(59,130,246,0.5)" },
-  referrals: { icon: "👥", label: "REFERRALS", color: "#fbbf24", border: "rgba(251,191,36,0.5)" },
-};
-
-function TabButton(props: { tab: HubTab; active: boolean; onClick: () => void }) {
-  const cfg = tabConfig[props.tab];
+function TabButton(props: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={props.onClick}
       style={{
         flex: 1,
-        padding: "12px 8px",
-        borderRadius: 14,
-        border: props.active ? `1px solid ${cfg.border}` : "1px solid rgba(107,114,128,0.25)",
-        background: props.active 
-          ? `linear-gradient(135deg, ${cfg.color}25, ${cfg.color}10)` 
-          : "rgba(5,8,20,0.4)",
-        color: props.active ? cfg.color : "#6b7280",
+        padding: "10px 6px",
+        borderRadius: 12,
+        border: props.active ? "1px solid rgba(59,130,246,0.7)" : "1px solid rgba(107,114,128,0.35)",
+        background: props.active ? "rgba(59,130,246,0.18)" : "rgba(5,8,20,0.25)",
+        color: props.active ? "#3b82f6" : "#9ca3af",
         fontWeight: 800,
         fontSize: 11,
         cursor: "pointer",
-        letterSpacing: 0.5,
-        transition: "all 0.2s ease",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 5,
-        boxShadow: props.active ? `0 0 20px ${cfg.color}20` : "none",
+        letterSpacing: 0.3,
       }}
     >
-      <span style={{ fontSize: 13 }}>{cfg.icon}</span>
-      <span>{cfg.label}</span>
+      {props.label}
     </button>
   );
 }
@@ -55,55 +40,41 @@ export function QuestHubPanel(props: {
   const [tab, setTab] = useState<HubTab>("quests");
 
   return (
-    <section style={{ maxWidth: 540, margin: "0 auto" }}>
-      {/* Tab Navigation */}
+    <section style={{ maxWidth: 520, margin: "0 auto" }}>
       <div
         style={{
           display: "flex",
           gap: 8,
-          marginBottom: 16,
-          padding: 8,
-          borderRadius: 18,
-          border: "1px solid rgba(107,114,128,0.2)",
-          background: "linear-gradient(145deg, rgba(15,23,42,0.9), rgba(5,8,20,0.95))",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.03)",
+          marginBottom: 12,
+          padding: 10,
+          borderRadius: 16,
+          border: "1px solid rgba(59,130,246,0.25)",
+          background: "linear-gradient(135deg, rgba(15,23,42,0.8), rgba(5,8,20,0.75))",
         }}
       >
-        <TabButton tab="quests" active={tab === "quests"} onClick={() => setTab("quests")} />
-        <TabButton tab="referrals" active={tab === "referrals"} onClick={() => setTab("referrals")} />
+        <TabButton label="🎯 QUESTS" active={tab === "quests"} onClick={() => setTab("quests")} />
+        <TabButton label="👥 REFERRALS" active={tab === "referrals"} onClick={() => setTab("referrals")} />
       </div>
 
-      {/* Tab Content */}
-      <div style={{ 
-        animation: "fadeIn 0.2s ease",
-      }}>
-        {tab === "quests" && (
-          <QuestsPanel
-            connected={props.connected}
-            userAddress={props.userAddress}
-            signer={props.signer}
-            chainId={props.chainId}
-            backendBaseUrl={props.backendBaseUrl}
-          />
-        )}
+      {tab === "quests" && (
+        <QuestsPanel
+          connected={props.connected}
+          userAddress={props.userAddress}
+          signer={props.signer}
+          chainId={props.chainId}
+          backendBaseUrl={props.backendBaseUrl}
+        />
+      )}
 
-        {tab === "referrals" && (
-          <ReferralsPanel
-            connected={props.connected}
-            userAddress={props.userAddress}
-            signer={props.signer}
-            chainId={props.chainId}
-            backendBaseUrl={props.backendBaseUrl}
-          />
-        )}
-      </div>
-
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(4px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+      {tab === "referrals" && (
+        <ReferralsPanel
+          connected={props.connected}
+          userAddress={props.userAddress}
+          signer={props.signer}
+          chainId={props.chainId}
+          backendBaseUrl={props.backendBaseUrl}
+        />
+      )}
     </section>
   );
 }

@@ -1,9 +1,20 @@
 "use client";
 
 import type { ethers } from "ethers";
-import { authedFetch } from "../lib/referralAuth";
+import { authedFetch } from "./referralAuth";
 
 export type MissionKind = "DAILY" | "WEEKLY" | "MONTHLY" | "ONCE";
+
+export type MissionRow = {
+    id: string;
+    title: string;
+    kind: MissionKind;
+    event_key: string;
+    target: number;
+    points: number;
+    enabled: boolean;
+    max_completions?: number;
+};
 
 export type MissionProgress = {
     missionId?: string;
@@ -15,17 +26,6 @@ export type MissionProgress = {
     reset_at?: string | null;
 };
 
-type MissionProgressResponse = {
-    missions: MissionProgress[];
-};
-
-export type MissionProgress = {
-    missionId: string;
-    progress: number;
-    completions: number;
-    completed?: boolean;
-    resetAt: string | null;
-};
 export type PointBalances = {
     total_points: number;
     weekly_points: number;
@@ -35,42 +35,34 @@ export type PointBalances = {
 export type RewardType = "water" | "dust";
 
 export type AuthCtx = {
-    backendBaseUrl: string; // e.g. https://wars.x420ponzi.com
+    backendBaseUrl: string;
     address: string;
     signer: ethers.Signer;
     chainId: number;
     domain?: string;
 };
 
-function v1(baseUrl: string): string
-{
+function v1(baseUrl: string): string {
     const b = baseUrl.replace(/\/$/, "");
     return `${b}/v1`;
 }
 
-async function readJson(res: Response): Promise<any>
-{
+async function readJson(res: Response): Promise<any> {
     const text = await res.text();
 
-    if (!text)
-    {
+    if (!text) {
         return null;
     }
 
-    try
-    {
+    try {
         return JSON.parse(text);
-    }
-    catch
-    {
+    } catch {
         throw new Error(text);
     }
 }
 
-function missionKindFromReset(reset?: string): MissionKind
-{
-    switch ((reset || "").toLowerCase())
-    {
+function missionKindFromReset(reset?: string): MissionKind {
+    switch ((reset || "").toLowerCase()) {
         case "daily": return "DAILY";
         case "weekly": return "WEEKLY";
         case "monthly": return "MONTHLY";
@@ -78,15 +70,11 @@ function missionKindFromReset(reset?: string): MissionKind
     }
 }
 
-function normalizeCatalogItem(raw: any): MissionRow
-{
-    // Supports both your DB-ish shape and earlier UI shape.
+function normalizeCatalogItem(raw: any): MissionRow {
     const id = String(raw.id ?? raw.mission_id ?? raw.code ?? "");
     const points = Number(raw.points ?? 0);
     const enabled = raw.active === undefined ? (raw.enabled ?? true) : Boolean(raw.active);
 
-    // Your backend mission shape (from missions table):
-    // { id, code, category, reset_period, requirement: {event,count}, points, max_completions, active }
     const reset = raw.reset_period ?? raw.resetPeriod;
     const kind = raw.kind ?? missionKindFromReset(reset);
 
@@ -114,8 +102,7 @@ function normalizeCatalogItem(raw: any): MissionRow
     };
 }
 
-export async function fetchMissionCatalog(baseUrl: string, signal?: AbortSignal): Promise<MissionRow[]>
-{
+export async function fetchMissionCatalog(baseUrl: string, signal?: AbortSignal): Promise<MissionRow[]> {
     const res = await fetch(`${v1(baseUrl)}/missions/catalog`, {
         method: "GET",
         credentials: "include",
@@ -123,22 +110,19 @@ export async function fetchMissionCatalog(baseUrl: string, signal?: AbortSignal)
     });
 
     const data = await readJson(res);
-    if (!res.ok || data?.success === false)
-    {
+    if (!res.ok || data?.success === false) {
         throw new Error(data?.error || `missions/catalog failed (${res.status})`);
     }
 
     const list = (data?.missions ?? data?.catalog ?? data?.data ?? data) || [];
-    if (!Array.isArray(list))
-    {
+    if (!Array.isArray(list)) {
         return [];
     }
 
     return list.map(normalizeCatalogItem);
 }
 
-export async function fetchMyMissionProgress(ctx: AuthCtx, signal?: AbortSignal): Promise<MissionProgress[]>
-{
+export async function fetchMyMissionProgress(ctx: AuthCtx, signal?: AbortSignal): Promise<MissionProgress[]> {
     const url = `${v1(ctx.backendBaseUrl)}/missions/progress`;
 
     const res = await authedFetch({
@@ -152,8 +136,7 @@ export async function fetchMyMissionProgress(ctx: AuthCtx, signal?: AbortSignal)
     });
 
     const data = await readJson(res);
-    if (!res.ok || data?.success === false)
-    {
+    if (!res.ok || data?.success === false) {
         throw new Error(data?.error || `missions/progress failed (${res.status})`);
     }
 
@@ -165,15 +148,13 @@ export async function fetchMyMissionProgress(ctx: AuthCtx, signal?: AbortSignal)
             Array.isArray(raw?.data) ? raw.data :
             []) as any[];
 
-    // Normalize to use mission_id for consistency with catalog matching
     return list.map(item => ({
         ...item,
         mission_id: item.missionId || item.mission_id || item.id || "",
     }));
 }
 
-export async function fetchMyPointsBalance(ctx: AuthCtx, signal?: AbortSignal): Promise<PointBalances>
-{
+export async function fetchMyPointsBalance(ctx: AuthCtx, signal?: AbortSignal): Promise<PointBalances> {
     const url = `${v1(ctx.backendBaseUrl)}/points/balance`;
 
     const res = await authedFetch({
@@ -187,8 +168,7 @@ export async function fetchMyPointsBalance(ctx: AuthCtx, signal?: AbortSignal): 
     });
 
     const data = await readJson(res);
-    if (!res.ok || data?.success === false)
-    {
+    if (!res.ok || data?.success === false) {
         throw new Error(data?.error || `points/balance failed (${res.status})`);
     }
 
@@ -203,8 +183,7 @@ export async function fetchMyPointsBalance(ctx: AuthCtx, signal?: AbortSignal): 
 export async function convertPoints(
     ctx: AuthCtx,
     payload: { points: number; reward: RewardType },
-): Promise<{ rewardAmount: number; reward: RewardType }>
-{
+): Promise<{ rewardAmount: number; reward: RewardType }> {
     const url = `${v1(ctx.backendBaseUrl)}/points/convert`;
 
     const res = await authedFetch({
@@ -222,8 +201,7 @@ export async function convertPoints(
     });
 
     const data = await readJson(res);
-    if (!res.ok || data?.success === false)
-    {
+    if (!res.ok || data?.success === false) {
         throw new Error(data?.error || `points/convert failed (${res.status})`);
     }
 
@@ -238,8 +216,7 @@ export async function emitOffchainEvent(
     eventType: string,
     quantity: number = 1,
     meta: Record<string, any> = {},
-): Promise<any>
-{
+): Promise<any> {
     const url = `${v1(ctx.backendBaseUrl)}/missions/event`;
 
     const res = await authedFetch({
@@ -257,8 +234,7 @@ export async function emitOffchainEvent(
     });
 
     const data = await readJson(res);
-    if (!res.ok || data?.success === false)
-    {
+    if (!res.ok || data?.success === false) {
         throw new Error(data?.error || `missions/event failed (${res.status})`);
     }
 

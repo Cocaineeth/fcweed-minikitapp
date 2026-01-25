@@ -5,7 +5,6 @@ import type { ethers } from "ethers";
 import {
   type AuthCtx,
   convertPoints,
-  emitOffchainEvent,
   fetchMissionCatalog,
   fetchMyMissionProgress,
   fetchMyPointsBalance,
@@ -102,7 +101,6 @@ export function QuestsPanel(props: {
   const progById = useMemo(() => {
     const map = new Map<string, MissionProgress>();
     for (const pr of progress) {
-      // Handle both camelCase (missionId) and snake_case (mission_id)
       const id = (pr as any).mission_id || (pr as any).missionId || (pr as any).id || "";
       if (id) map.set(id, pr);
     }
@@ -152,23 +150,19 @@ export function QuestsPanel(props: {
   }
 
 return (
-    <div style={{ display: "grid", gap: 14 }}>
-        {/* Header Card */}
+    <div style={{ display: "grid", gap: 12 }}>
         <section
             style={{
-                borderRadius: 18,
-                border: "1px solid rgba(59,130,246,0.3)",
-                background: "linear-gradient(145deg, rgba(5,8,20,0.7), rgba(15,23,42,0.9))",
-                padding: 16,
-                boxShadow: "0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)",
+                borderRadius: 16,
+                border: "1px solid rgba(59,130,246,0.25)",
+                background: "linear-gradient(135deg, rgba(5,8,20,0.6), rgba(15,23,42,0.8))",
+                padding: 12,
             }}
         >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                 <div>
-                    <div style={{ fontSize: 14, color: "#60a5fa", fontWeight: 800, display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 18 }}>🎯</span> QUEST HUB
-                    </div>
-                    <div style={{ fontSize: 10, color: "#6b7280", marginTop: 3 }}>
+                    <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 800 }}>🎯 QUESTS</div>
+                    <div style={{ fontSize: 10, color: "#6b7280" }}>
                         {props.userAddress ? `${props.userAddress.slice(0, 6)}…${props.userAddress.slice(-4)}` : "Not connected"}
                     </div>
                 </div>
@@ -178,105 +172,44 @@ return (
                     onClick={refresh}
                     disabled={!canLoad || loading}
                     style={{
-                        padding: "10px 16px",
+                        padding: "8px 10px",
                         borderRadius: 12,
-                        border: "1px solid rgba(59,130,246,0.4)",
-                        background: loading 
-                            ? "rgba(59,130,246,0.1)" 
-                            : "linear-gradient(135deg, rgba(59,130,246,0.25), rgba(59,130,246,0.1))",
+                        border: "1px solid rgba(59,130,246,0.35)",
+                        background: loading ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.15)",
                         color: "#60a5fa",
-                        fontWeight: 700,
+                        fontWeight: 800,
                         cursor: canLoad && !loading ? "pointer" : "not-allowed",
                         fontSize: 12,
-                        transition: "all 0.2s ease",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
                     }}
                 >
-                    <span style={{ 
-                        display: "inline-block",
-                        animation: loading ? "spin 1s linear infinite" : "none",
-                    }}>🔄</span>
-                    {loading ? "Loading" : "Refresh"}
+                    {loading ? "Loading…" : "Refresh"}
                 </button>
             </div>
 
-            {/* Stats Grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginTop: 14 }}>
-                <div style={{ 
-                    borderRadius: 14, 
-                    border: "1px solid rgba(16,185,129,0.35)", 
-                    background: "linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05))", 
-                    padding: "12px 10px",
-                    textAlign: "center",
-                }}>
-                    <div style={{ fontSize: 9, color: "#6b7280", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5 }}>Total Points</div>
-                    <div style={{ fontSize: 20, color: "#10b981", fontWeight: 900, marginTop: 4 }}>{points?.total_points ?? "-"}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 12 }}>
+                <div style={{ borderRadius: 12, border: "1px solid rgba(16,185,129,0.25)", background: "rgba(16,185,129,0.08)", padding: 10 }}>
+                    <div style={{ fontSize: 9, color: "#6b7280", fontWeight: 800 }}>TOTAL POINTS</div>
+                    <div style={{ fontSize: 16, color: "#10b981", fontWeight: 900 }}>{points?.total_points ?? "-"}</div>
                 </div>
 
-                <div style={{ 
-                    borderRadius: 14, 
-                    border: "1px solid rgba(251,191,36,0.35)", 
-                    background: "linear-gradient(135deg, rgba(251,191,36,0.15), rgba(251,191,36,0.05))", 
-                    padding: "12px 10px",
-                    textAlign: "center",
-                }}>
-                    <div style={{ fontSize: 9, color: "#6b7280", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5 }}>Weekly</div>
-                    <div style={{ fontSize: 20, color: "#fbbf24", fontWeight: 900, marginTop: 4 }}>{weeklyPoints || 0}</div>
+                <div style={{ borderRadius: 12, border: "1px solid rgba(251,191,36,0.25)", background: "rgba(251,191,36,0.08)", padding: 10 }}>
+                    <div style={{ fontSize: 9, color: "#6b7280", fontWeight: 800 }}>WEEKLY POINTS</div>
+                    <div style={{ fontSize: 16, color: "#fbbf24", fontWeight: 900 }}>{weeklyPoints || 0}</div>
                 </div>
 
-                <div style={{ 
-                    borderRadius: 14, 
-                    border: "1px solid rgba(139,92,246,0.35)", 
-                    background: "linear-gradient(135deg, rgba(139,92,246,0.15), rgba(139,92,246,0.05))", 
-                    padding: "12px 10px",
-                    textAlign: "center",
-                }}>
-                    <div style={{ fontSize: 9, color: "#6b7280", fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5 }}>Multiplier</div>
-                    <div style={{ fontSize: 20, color: "#a78bfa", fontWeight: 900, marginTop: 4 }}>{mult.toFixed(2)}x</div>
+                <div style={{ borderRadius: 12, border: "1px solid rgba(139,92,246,0.25)", background: "rgba(139,92,246,0.08)", padding: 10 }}>
+                    <div style={{ fontSize: 9, color: "#6b7280", fontWeight: 800 }}>MULTIPLIER</div>
+                    <div style={{ fontSize: 16, color: "#a78bfa", fontWeight: 900 }}>{mult.toFixed(2)}x</div>
                 </div>
             </div>
 
-            {err && (
-                <div style={{ 
-                    marginTop: 12, 
-                    fontSize: 11, 
-                    color: "#ef4444", 
-                    fontWeight: 700,
-                    background: "rgba(239,68,68,0.1)",
-                    border: "1px solid rgba(239,68,68,0.3)",
-                    borderRadius: 10,
-                    padding: "10px 12px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                }}>
-                    ⚠️ {err}
-                </div>
-            )}
-            {convertStatus && (
-                <div style={{ 
-                    marginTop: 12, 
-                    fontSize: 11, 
-                    color: "#10b981", 
-                    fontWeight: 700,
-                    background: "rgba(16,185,129,0.1)",
-                    border: "1px solid rgba(16,185,129,0.3)",
-                    borderRadius: 10,
-                    padding: "10px 12px",
-                }}>
-                    {convertStatus}
-                </div>
-            )}
+            {err && <div style={{ marginTop: 10, fontSize: 11, color: "#ef4444", fontWeight: 700 }}>{err}</div>}
+            {convertStatus && <div style={{ marginTop: 10, fontSize: 11, color: "#10b981", fontWeight: 800 }}>{convertStatus}</div>}
 
-            {/* Convert Section */}
-            <div style={{ marginTop: 14, borderTop: "1px solid rgba(107,114,128,0.15)", paddingTop: 14 }}>
-                <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 800, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span>💰</span> Convert Points
-                </div>
+            <div style={{ marginTop: 12, borderTop: "1px solid rgba(107,114,128,0.2)", paddingTop: 12 }}>
+                <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 900, marginBottom: 8 }}>💰 Convert Points</div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     <input
                         inputMode="numeric"
                         value={convertPts}
@@ -286,13 +219,12 @@ return (
                             width: "100%",
                             borderRadius: 12,
                             border: "1px solid rgba(107,114,128,0.3)",
-                            background: "rgba(5,8,20,0.6)",
+                            background: "rgba(5,8,20,0.35)",
                             color: "#e5e7eb",
-                            padding: "12px 14px",
-                            fontSize: 13,
-                            fontWeight: 700,
+                            padding: "10px 10px",
+                            fontSize: 12,
+                            fontWeight: 800,
                             outline: "none",
-                            boxSizing: "border-box",
                         }}
                     />
 
@@ -303,18 +235,16 @@ return (
                             width: "100%",
                             borderRadius: 12,
                             border: "1px solid rgba(107,114,128,0.3)",
-                            background: "rgba(5,8,20,0.6)",
+                            background: "rgba(5,8,20,0.35)",
                             color: "#e5e7eb",
-                            padding: "12px 14px",
-                            fontSize: 13,
-                            fontWeight: 700,
+                            padding: "10px 10px",
+                            fontSize: 12,
+                            fontWeight: 800,
                             outline: "none",
-                            boxSizing: "border-box",
-                            cursor: "pointer",
                         }}
                     >
-                        <option value="water">💧 Water</option>
-                        <option value="dust">✨ Dust</option>
+                        <option value="water">Water</option>
+                        <option value="dust">Dust</option>
                     </select>
                 </div>
 
@@ -324,61 +254,35 @@ return (
                     disabled={!canLoad || loading}
                     style={{
                         width: "100%",
-                        marginTop: 12,
-                        padding: "14px",
+                        marginTop: 10,
+                        padding: "12px 12px",
                         borderRadius: 14,
-                        border: "none",
-                        background: !canLoad || loading 
-                            ? "rgba(107,114,128,0.2)" 
-                            : "linear-gradient(135deg, #10b981, #059669)",
-                        color: !canLoad || loading ? "#6b7280" : "#fff",
-                        fontWeight: 800,
+                        border: "1px solid rgba(16,185,129,0.35)",
+                        background: loading ? "rgba(16,185,129,0.08)" : "rgba(16,185,129,0.15)",
+                        color: "#10b981",
+                        fontWeight: 900,
                         cursor: canLoad && !loading ? "pointer" : "not-allowed",
-                        fontSize: 13,
-                        transition: "all 0.2s ease",
-                        boxShadow: canLoad && !loading ? "0 4px 15px rgba(16,185,129,0.25)" : "none",
+                        fontSize: 12,
                     }}
                 >
-                    {loading ? "Converting..." : "Convert Points"}
+                    Convert
                 </button>
             </div>
         </section>
 
-        {[...groups.entries()].map(([kind, ms]) => {
-            const kindColors: Record<string, { color: string; border: string; icon: string }> = {
-                DAILY: { color: "#60a5fa", border: "rgba(59,130,246,0.3)", icon: "📅" },
-                WEEKLY: { color: "#a78bfa", border: "rgba(139,92,246,0.3)", icon: "📆" },
-                MONTHLY: { color: "#fbbf24", border: "rgba(251,191,36,0.3)", icon: "🗓️" },
-                ONCE: { color: "#10b981", border: "rgba(16,185,129,0.3)", icon: "⭐" },
-            };
-            const kc = kindColors[kind] || kindColors.DAILY;
-
-            return (
+        {[...groups.entries()].map(([kind, ms]) => (
             <section
                 key={kind}
                 style={{
-                    borderRadius: 18,
-                    border: `1px solid ${kc.border}`,
-                    background: "linear-gradient(145deg, rgba(5,8,20,0.6), rgba(15,23,42,0.8))",
-                    padding: 14,
-                    boxShadow: "0 2px 12px rgba(0,0,0,0.2)",
+                    borderRadius: 16,
+                    border: "1px solid rgba(107,114,128,0.25)",
+                    background: "rgba(5,8,20,0.3)",
+                    padding: 12,
                 }}
             >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 16 }}>{kc.icon}</span>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: kc.color }}>{kindLabel(kind)}</span>
-                    </div>
-                    <div style={{ 
-                        fontSize: 10, 
-                        color: "#6b7280", 
-                        fontWeight: 700,
-                        background: "rgba(107,114,128,0.15)",
-                        padding: "4px 10px",
-                        borderRadius: 20,
-                    }}>
-                        {ms.length} mission{ms.length !== 1 ? "s" : ""}
-                    </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: "#e5e7eb" }}>{kindLabel(kind)}</div>
+                    <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 800 }}>{ms.length} missions</div>
                 </div>
 
                 <div style={{ display: "grid", gap: 10 }}>
@@ -400,117 +304,58 @@ return (
                                 key={m.id}
                                 style={{
                                     borderRadius: 14,
-                                    border: done 
-                                        ? "1px solid rgba(16,185,129,0.4)" 
-                                        : "1px solid rgba(107,114,128,0.2)",
-                                    padding: 12,
-                                    background: done 
-                                        ? "linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.04))"
-                                        : "rgba(15,23,42,0.5)",
-                                    transition: "all 0.2s ease",
+                                    border: "1px solid rgba(107,114,128,0.25)",
+                                    padding: 10,
+                                    background: "rgba(15,23,42,0.35)",
                                 }}
                             >
-                                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                                    <div style={{ minWidth: 0 }}>
                                         <div
                                             style={{
-                                                fontSize: 13,
-                                                fontWeight: 800,
+                                                fontSize: 12,
+                                                fontWeight: 900,
                                                 color: done ? "#10b981" : "#e5e7eb",
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: 6,
-                                            }}
-                                        >
-                                            <span style={{ fontSize: 14 }}>{done ? "✅" : "⬜"}</span>
-                                            <span style={{
+                                                whiteSpace: "nowrap",
                                                 overflow: "hidden",
                                                 textOverflow: "ellipsis",
-                                                whiteSpace: "nowrap",
-                                            }}>
-                                                {m.title}
-                                            </span>
+                                            }}
+                                        >
+                                            {done ? "✅ " : "🎯 "}
+                                            {m.title}
                                         </div>
 
-                                        <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 600, marginTop: 4 }}>
-                                            <span style={{ color: "#fbbf24", fontWeight: 700 }}>+{m.points} pts</span>
-                                            <span style={{ margin: "0 6px", opacity: 0.4 }}>•</span>
-                                            <span>{shownCur}/{m.target}</span>
-                                            {m.max_completions ? (
-                                                <>
-                                                    <span style={{ margin: "0 6px", opacity: 0.4 }}>•</span>
-                                                    <span>{comps}/{m.max_completions} done</span>
-                                                </>
-                                            ) : null}
+                                        <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700 }}>
+                                            {shownCur}/{m.target} • {m.points} pts
+                                            {m.max_completions ? ` • ${comps}/${m.max_completions} completions` : ""}
                                         </div>
                                     </div>
 
-                                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                                        <div style={{ 
-                                            fontSize: 9, 
-                                            fontWeight: 700, 
-                                            color: kc.color,
-                                            background: `${kc.color}15`,
-                                            padding: "3px 8px",
-                                            borderRadius: 6,
-                                        }}>
-                                            {m.event_key}
-                                        </div>
+                                    <div style={{ textAlign: "right" }}>
+                                        <div style={{ fontSize: 11, fontWeight: 900, color: "#60a5fa" }}>{m.event_key}</div>
                                         {pr?.resetAt ? (
-                                            <div style={{ fontSize: 9, color: "#6b7280", fontWeight: 600, marginTop: 4 }}>
-                                                ⏱️ {new Date(pr.resetAt).toLocaleDateString()}
+                                            <div style={{ fontSize: 9, color: "#6b7280", fontWeight: 700 }}>
+                                                resets {new Date(pr.resetAt).toLocaleString()}
                                             </div>
                                         ) : null}
                                     </div>
                                 </div>
 
-                                {/* Progress Bar */}
-                                <div style={{ 
-                                    height: 6, 
-                                    borderRadius: 999, 
-                                    background: "rgba(107,114,128,0.2)", 
-                                    marginTop: 10, 
-                                    overflow: "hidden" 
-                                }}>
-                                    <div style={{ 
-                                        width: `${pct}%`, 
-                                        height: "100%", 
-                                        background: done 
-                                            ? "linear-gradient(90deg, #10b981, #34d399)" 
-                                            : `linear-gradient(90deg, ${kc.color}, ${kc.color}99)`,
-                                        transition: "width 0.3s ease",
-                                        borderRadius: 999,
-                                    }} />
+                                <div style={{ height: 8, borderRadius: 999, background: "rgba(107,114,128,0.25)", marginTop: 10, overflow: "hidden" }}>
+                                    <div style={{ width: `${pct}%`, height: "100%", background: done ? "rgba(16,185,129,0.7)" : "rgba(59,130,246,0.7)" }} />
                                 </div>
                             </div>
                         );
                     })}
                 </div>
             </section>
-        )})}
+        ))}
 
         {!canLoad && (
-            <div style={{ 
-                textAlign: "center", 
-                padding: 32,
-                background: "linear-gradient(145deg, rgba(5,8,20,0.6), rgba(15,23,42,0.8))",
-                borderRadius: 18,
-                border: "1px solid rgba(107,114,128,0.2)",
-            }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>🔗</div>
-                <div style={{ fontSize: 13, color: "#9ca3af", fontWeight: 700 }}>
-                    Connect your wallet to view quests
-                </div>
+            <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 800, textAlign: "center", padding: 8 }}>
+                Connect your wallet to view quests.
             </div>
         )}
-
-        {/* Spinner Animation */}
-        <style>{`
-            @keyframes spin {
-                from { transform: rotate(0deg); }
-                to { transform: rotate(360deg); }
-            }
-        `}</style>
     </div>
 );
 }
