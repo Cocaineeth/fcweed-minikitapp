@@ -3,13 +3,11 @@
 import { useState } from "react";
 import { ReferralsPanel } from "./ReferralsPanel";
 import { QuestsPanel } from "./QuestsPanel";
-import { SocialTasksPanel } from "./SocialTasksPanel";
 
-type HubTab = "quests" | "social" | "referrals";
+type HubTab = "quests" | "referrals";
 
 const tabConfig = {
   quests: { icon: "🎯", label: "QUESTS", color: "#60a5fa", border: "rgba(59,130,246,0.5)" },
-  social: { icon: "📱", label: "SOCIAL", color: "#a78bfa", border: "rgba(139,92,246,0.5)" },
   referrals: { icon: "👥", label: "REFERRALS", color: "#fbbf24", border: "rgba(251,191,36,0.5)" },
 };
 
@@ -72,7 +70,6 @@ export function QuestHubPanel(props: {
         }}
       >
         <TabButton tab="quests" active={tab === "quests"} onClick={() => setTab("quests")} />
-        <TabButton tab="social" active={tab === "social"} onClick={() => setTab("social")} />
         <TabButton tab="referrals" active={tab === "referrals"} onClick={() => setTab("referrals")} />
       </div>
 
@@ -87,17 +84,6 @@ export function QuestHubPanel(props: {
             signer={props.signer}
             chainId={props.chainId}
             backendBaseUrl={props.backendBaseUrl}
-          />
-        )}
-
-        {tab === "social" && (
-          <SocialTasksPanel
-            connected={props.connected}
-            userAddress={props.userAddress}
-            signer={props.signer}
-            chainId={props.chainId}
-            backendBaseUrl={props.backendBaseUrl}
-            theme={props.theme}
           />
         )}
 
