@@ -40,6 +40,14 @@ function kindLabel(k: string) {
   }
 }
 
+function formatTitle(title: string): string {
+  // Replace underscores with spaces and convert to title case
+  return title
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 export function QuestsPanel(props: {
   connected: boolean;
   userAddress?: string;
@@ -322,7 +330,7 @@ return (
                                             }}
                                         >
                                             {done ? "✅ " : "🎯 "}
-                                            {m.title}
+                                            {formatTitle(m.title)}
                                         </div>
 
                                         <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700 }}>
@@ -332,7 +340,7 @@ return (
                                     </div>
 
                                     <div style={{ textAlign: "right" }}>
-                                        <div style={{ fontSize: 11, fontWeight: 900, color: "#60a5fa" }}>{m.event_key}</div>
+                                        <div style={{ fontSize: 11, fontWeight: 900, color: "#60a5fa" }}>{formatTitle(m.event_key)}</div>
                                         {pr?.resetAt ? (
                                             <div style={{ fontSize: 9, color: "#6b7280", fontWeight: 700 }}>
                                                 resets {new Date(pr.resetAt).toLocaleString()}
