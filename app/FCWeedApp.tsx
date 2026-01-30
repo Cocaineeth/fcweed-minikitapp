@@ -25,6 +25,7 @@ import { NotificationSettings } from "./components/NotificationSettings";
 import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS } from "./lib/constants";
 import IsometricFarm from "./components/GrowRoomV3";
 import { XFcweedConverter } from "./components/XFcweedConverter";
+import { DroughtButton } from "./components/DroughtButton";
 
 import {
     CHAIN_ID,
@@ -48,13 +49,13 @@ import {
     SUPER_LAND_IDS,
     MULTICALL3_ADDRESS,
     METADATA_MODE,
-    CRATE_VAULT_ADDRESS,
+    V6_CRATE_VAULT_ADDRESS,
     CRATE_COST,
     V4_ITEMSHOP_ADDRESS,
     V4_STAKING_ADDRESS,     
-    V5_BATTLES_ADDRESS,
+    V6_BATTLES_ADDRESS,
     V5_STAKING_ADDRESS,
-    V5_ITEMSHOP_ADDRESS,
+    V6_ITEMSHOP_ADDRESS,
     CRATE_REWARDS,
     CRATE_PROBS,
     RewardCategory,
@@ -7695,13 +7696,28 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     </div>
                                 </div>
                             </div>
-                        </div>
+                                                    </div>
+
+                                                {/* 🌵 DROUGHT ATTACK BUTTON */}
+                                                {connected && (
+                                                    <DroughtButton
+                                                        address={userAddress}
+                                                        signer={signer}
+                                                        provider={readProvider}
+                                                        xFcweedBalance={v6XFcweedBalance}
+                                                        fcweedBalance={fcweedBalanceRaw}
+                                                        usdcBalance={usdcBalanceRaw}
+                                                        onSuccess={() => {
+                                                            loadV6StakingData();
+                                                            loadBalances();
+                                                        }}
+                                                    />
+                                                )}
 
 
-                        
-                        {connected && (
-                            <div style={{ background: theme === "light" ? "rgba(99,102,241,0.05)" : "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 10, padding: 10, marginBottom: 10, maxWidth: "100%", overflow: "hidden" }}>
-                                <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 700, marginBottom: 8, textAlign: "center" }}>🎒 INVENTORY</div>
+                                                {connected && (
+                                                    <div style={{ background: theme === "light" ? "rgba(99,102,241,0.05)" : "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 10, padding: 10, marginBottom: 10, maxWidth: "100%", overflow: "hidden" }}>
+                                                        <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 700, marginBottom: 8, textAlign: "center" }}>🎒 INVENTORY</div>
                                 {isPurgeActive && (
                                     <div style={{ background: "rgba(239,68,68,0.2)", border: "1px solid rgba(239,68,68,0.5)", borderRadius: 6, padding: "6px 8px", marginBottom: 8, textAlign: "center" }}>
                                         <span style={{ fontSize: 9, color: "#ef4444", fontWeight: 700 }}>🔪 THE PURGE IS ACTIVE — Shields are useless!</span>

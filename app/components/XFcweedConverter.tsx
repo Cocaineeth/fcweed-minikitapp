@@ -431,7 +431,7 @@ export function XFcweedConverter({
                 }}>
                     <div style={{ fontSize: 11, color: "#a5b4fc" }}>
                         💡 <strong>Tip:</strong> xFCWEED is earned by staking in V6. Convert it to FCWEED 
-                        to trade or use for purchases. Conversion has a {conversionCooldown / 3600}h cooldown.
+                        to trade. Conversion has a {conversionCooldown / 3600}h cooldown.
                     </div>
                 </div>
             </div>

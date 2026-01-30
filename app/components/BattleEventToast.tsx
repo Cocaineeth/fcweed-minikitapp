@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { ethers } from "ethers";
 
 // Battle contract address (same as V5_BATTLES_ADDRESS)
-const BATTLE_CONTRACT = "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00";
+const BATTLE_CONTRACT = "0xB0e2D0d5794C2e86A57C77EdCD962191670B0dcE";
 
 // WebSocket RPC for reliable real-time events (free)
 const WSS_RPC_URL = "wss://base.publicnode.com";
