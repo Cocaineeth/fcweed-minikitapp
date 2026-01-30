@@ -4836,68 +4836,48 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 "function users(address) view returns (uint64, uint32, uint32, uint32, uint256, uint256, uint256, uint256, uint256, uint256)",
                 "function totalPlantsStaked() view returns (uint256)",
                 "function dailyWaterSold(uint256) view returns (uint256)",
-                // New view functions (after upgrade)
-                "function getDailyWaterSupply() view returns (uint256)",
-                "function getDailyWaterRemaining() view returns (uint256)",
-                "function getWalletWaterLimit(address) view returns (uint256)",
-                "function getWalletWaterRemaining(address) view returns (uint256)",
             ], readProvider);
             
             // Calculate current day number (days since epoch, UTC)
             const currentDay = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
             
-            // Try new view functions first, fallback to manual calculation
-            let dailySupply = 0, dailyRemaining = 0, walletLimit = 0, walletRemaining = 0;
-            let stakedPlantsCount = 0, waterBalance = 0;
-            
-            const [shopEnabled, pricePerLiter, stakedPlantIds, userTuple, totalPlantsStaked] = await Promise.all([
+            const [shopEnabled, pricePerLiter, stakedPlantIds, userTuple, totalPlantsStaked, dailyWaterSoldToday] = await Promise.all([
                 v6Contract.waterShopEnabled(),
                 v6Contract.waterPricePerLiter(),
                 userAddress ? v6Contract.getUserStakedPlants(userAddress) : [],
                 userAddress ? v6Contract.users(userAddress) : null,
                 v6Contract.totalPlantsStaked(),
+                v6Contract.dailyWaterSold(currentDay),
             ]);
+
+            // Use array length for accurate plant count
+            const stakedPlantsCount = stakedPlantIds ? stakedPlantIds.length : 0;
             
-            stakedPlantsCount = stakedPlantIds ? stakedPlantIds.length : 0;
-            waterBalance = userTuple ? Number(userTuple[7] || 0) : 0;
-            
-            // Try to use new contract view functions
-            try {
-                const [supply, remaining, limit, walletRem] = await Promise.all([
-                    v6Contract.getDailyWaterSupply(),
-                    v6Contract.getDailyWaterRemaining(),
-                    userAddress ? v6Contract.getWalletWaterLimit(userAddress) : ethers.BigNumber.from(0),
-                    userAddress ? v6Contract.getWalletWaterRemaining(userAddress) : ethers.BigNumber.from(0),
-                ]);
-                dailySupply = Number(supply);
-                dailyRemaining = Number(remaining);
-                walletLimit = Number(limit);
-                walletRemaining = Number(walletRem);
-                console.log("[WaterShop] Using contract view functions");
-            } catch (e) {
-                // Fallback to manual calculation (pre-upgrade)
-                console.log("[WaterShop] Fallback to manual calc:", e.message);
-                const totalStaked = Number(totalPlantsStaked);
-                dailySupply = Math.floor(totalStaked / 2);
-                const dailyWaterSoldToday = await v6Contract.dailyWaterSold(currentDay);
-                const dailySold = Number(dailyWaterSoldToday);
-                dailyRemaining = Math.max(0, dailySupply - dailySold);
-                
-                walletLimit = stakedPlantsCount;
-                const userWaterPurchasedToday = userTuple ? Number(userTuple[8] || 0) : 0;
-                const userLastWaterPurchaseDay = userTuple ? Number(userTuple[9] || 0) : 0;
-                const purchasedToday = userLastWaterPurchaseDay === currentDay ? userWaterPurchasedToday : 0;
-                walletRemaining = Math.max(0, walletLimit - purchasedToday);
-            }
+            // Parse user tuple: [last, plants, lands, superLands, accrued, bonusBoostBps, lastClaimTime, waterBalance, waterPurchasedToday, lastWaterPurchaseDay]
+            const waterBalance = userTuple ? Number(userTuple[7] || 0) : 0;
+            const userWaterPurchasedToday = userTuple ? Number(userTuple[8] || 0) : 0;
+            const userLastWaterPurchaseDay = userTuple ? Number(userTuple[9] || 0) : 0;
             
             // Calculate shop open status (12PM - 6PM EST = 17:00 - 23:00 UTC in winter)
             const now = new Date();
             const utcHour = now.getUTCHours();
             const isShopOpen = shopEnabled && utcHour >= 17 && utcHour < 23;
             
+            // Daily supply = half of total staked plants
+            const totalStaked = Number(totalPlantsStaked);
+            const dailySupply = Math.floor(totalStaked / 2);
+            const dailySold = Number(dailyWaterSoldToday);
+            const dailyRemaining = Math.max(0, dailySupply - dailySold);
+            
+            // Wallet limit: 1L per staked plant
+            const walletLimit = stakedPlantsCount;
+            // Check if user purchased today (same day number)
+            const purchasedToday = userLastWaterPurchaseDay === currentDay ? userWaterPurchasedToday : 0;
+            const walletRemaining = Math.max(0, walletLimit - purchasedToday);
+            
             console.log("[WaterShop] V6 Data:", { 
-                shopEnabled, dailySupply, dailyRemaining,
-                stakedPlantsCount, walletLimit, walletRemaining, 
+                shopEnabled, totalStaked, dailySupply, dailySold, dailyRemaining,
+                stakedPlantsCount, walletLimit, purchasedToday, walletRemaining, 
                 utcHour, isShopOpen, currentDay 
             });
             
@@ -4906,7 +4886,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 shopEnabled: shopEnabled,
                 opensAt: 12,
                 closesAt: 18,
-                totalPlantsStaked: Number(totalPlantsStaked),
+                totalPlantsStaked: totalStaked,
                 dailySupply: dailySupply,
                 dailyRemaining: dailyRemaining,
                 walletRemaining: walletRemaining,
