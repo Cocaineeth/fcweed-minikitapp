@@ -1483,8 +1483,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setInventoryLoading(true);
         setInventoryStatus("Activating shield...");
         try {
-            const iface = new ethers.utils.Interface(["function activateShield() external"]);
-            const data = iface.encodeFunctionData("activateShield", []);
+            // Shield is item ID 5 in ItemShopV15
+            const iface = new ethers.utils.Interface(["function activateItem(uint256 itemId) external"]);
+            const data = iface.encodeFunctionData("activateItem", [5]);
             const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
@@ -1506,8 +1507,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setInventoryLoading(true);
         setInventoryStatus("Activating boost...");
         try {
-            const iface = new ethers.utils.Interface(["function activateAttackBoost() external"]);
-            const data = iface.encodeFunctionData("activateAttackBoost", []);
+            // Attack Boost is item ID 6 in ItemShopV15
+            const iface = new ethers.utils.Interface(["function activateItem(uint256 itemId) external"]);
+            const data = iface.encodeFunctionData("activateItem", [6]);
             const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
@@ -1529,9 +1531,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setInventoryLoading(true);
         setInventoryStatus("Activating AK-47...");
         try {
-            // V14 uses activateWeapon(itemId) instead of activateAK47()
-            const iface = new ethers.utils.Interface(["function activateWeapon(uint256 itemId) external"]);
-            const data = iface.encodeFunctionData("activateWeapon", [1]); // 1 = AK47_ID
+            // ItemShopV15 uses activateItem(itemId)
+            const iface = new ethers.utils.Interface(["function activateItem(uint256 itemId) external"]);
+            const data = iface.encodeFunctionData("activateItem", [1]); // 1 = AK47_ID
             const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
@@ -1553,9 +1555,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setInventoryLoading(true);
         setInventoryStatus("Activating RPG...");
         try {
-            // V14 uses activateWeapon(itemId) instead of activateRPG()
-            const iface = new ethers.utils.Interface(["function activateWeapon(uint256 itemId) external"]);
-            const data = iface.encodeFunctionData("activateWeapon", [2]); // 2 = RPG_ID
+            // ItemShopV15 uses activateItem(itemId)
+            const iface = new ethers.utils.Interface(["function activateItem(uint256 itemId) external"]);
+            const data = iface.encodeFunctionData("activateItem", [2]); // 2 = RPG_ID
             const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
@@ -1578,9 +1580,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setInventoryLoading(true);
         setInventoryStatus("Launching Tactical Nuke...");
         try {
-            // V14 uses activateWeapon(itemId) instead of activateNuke()
-            const iface = new ethers.utils.Interface(["function activateWeapon(uint256 itemId) external"]);
-            const data = iface.encodeFunctionData("activateWeapon", [3]); // 3 = NUKE_ID
+            // ItemShopV15 uses activateItem(itemId)
+            const iface = new ethers.utils.Interface(["function activateItem(uint256 itemId) external"]);
+            const data = iface.encodeFunctionData("activateItem", [3]); // 3 = NUKE_ID
             const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
@@ -1601,30 +1603,40 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function handleUseHealthPack() {
         if (!userAddress || selectedPlantsForHealthPack.length === 0) return;
         setInventoryLoading(true);
-        setInventoryStatus("Using health pack...");
-        try {
-            const iface = new ethers.utils.Interface(["function useHealthPackBatch(uint256[] plantIds)"]);
-            const data = iface.encodeFunctionData("useHealthPackBatch", [selectedPlantsForHealthPack]);
-            // Gas scales with number of plants - high base due to _processExpiredPlantBoosts iteration
-            // First _settle call loops through each hour since last interaction (~5k gas each)
-            // Base 1.2M covers ~240 hours (10 days) of inactivity + 250k per plant for healPlantInstant overhead
-            const gasLimit = 1200000 + (selectedPlantsForHealthPack.length * 250000);
-            const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x" + gasLimit.toString(16));
-            if (tx) {
-                await tx.wait();
-                setInventoryStatus("Health pack used! Plants healed to 80%");
-                setHealthPackModalOpen(false);
-                setSelectedPlantsForHealthPack([]);
-                fetchInventory();
-                refreshAllData();
-            } else {
-                setInventoryStatus("Transaction rejected");
+        
+        // ItemShopV15 only has useHealthPack(plantId) for single plants
+        // Process each plant one at a time
+        const plantIds = [...selectedPlantsForHealthPack];
+        let successCount = 0;
+        
+        for (let i = 0; i < plantIds.length; i++) {
+            const plantId = plantIds[i];
+            setInventoryStatus(`Healing plant ${plantId} (${i + 1}/${plantIds.length})...`);
+            try {
+                const iface = new ethers.utils.Interface(["function useHealthPack(uint256 plantId) external"]);
+                const data = iface.encodeFunctionData("useHealthPack", [plantId]);
+                const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
+                if (tx) {
+                    await tx.wait();
+                    successCount++;
+                } else {
+                    setInventoryStatus(`Transaction rejected for plant ${plantId}`);
+                    break;
+                }
+            } catch (e: any) {
+                setInventoryStatus(e?.reason || e?.message || `Failed to heal plant ${plantId}`);
+                break;
             }
-        } catch (e: any) {
-            setInventoryStatus(e?.reason || e?.message || "Failed to use health pack");
-        } finally {
-            setInventoryLoading(false);
         }
+        
+        if (successCount > 0) {
+            setInventoryStatus(`Healed ${successCount} plant(s) to 80%!`);
+            setHealthPackModalOpen(false);
+            setSelectedPlantsForHealthPack([]);
+            fetchInventory();
+            refreshAllData();
+        }
+        setInventoryLoading(false);
     }
 
     // V5 Legacy Health Pack Functions
@@ -6076,18 +6088,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             } catch {}
 
 
-            const openCrateAbi = ["function openCrate() external"];
+            const openCrateAbi = ["function openCrateFcweed() external"];
             const openCrateInterface = new ethers.utils.Interface(openCrateAbi);
-            const openCrateData = openCrateInterface.encodeFunctionData("openCrate", []);
+            const openCrateData = openCrateInterface.encodeFunctionData("openCrateFcweed", []);
 
-            console.log("[Crate] openCrate encoded data:", openCrateData);
+            console.log("[Crate] openCrateFcweed encoded data:", openCrateData);
             console.log("[Crate] Target contract:", CRATE_VAULT_ADDRESS);
 
             setCrateStatus("Confirm in wallet...");
 
             if (isMiniAppWallet && miniAppProvider) {
 
-                console.log("[Crate] Using mini app wallet for openCrate");
+                console.log("[Crate] Using mini app wallet for openCrateFcweed");
                 tx = await txAction().sendWalletCalls(
                     ctx.userAddress,
                     CRATE_VAULT_ADDRESS,
@@ -6096,7 +6108,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 );
             } else {
 
-                console.log("[Crate] Using external wallet for openCrate via sendContractTx");
+                console.log("[Crate] Using external wallet for openCrateFcweed via sendContractTx");
                 try {
                     // Use sendContractTx which properly handles wagmi walletClient for Phantom/Base App
                     tx = await sendContractTx(CRATE_VAULT_ADDRESS, openCrateData, "0x4C4B40");
