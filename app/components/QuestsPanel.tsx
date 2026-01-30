@@ -62,7 +62,7 @@ export function QuestsPanel(props: {
   const [points, setPoints] = useState<PointBalances | null>(null);
 
   const [convertPts, setConvertPts] = useState<number>(10);
-  const [convertReward, setConvertReward] = useState<"water" | "dust">("water");
+  const [convertReward, setConvertReward] = useState<"water">("water");
   const [convertStatus, setConvertStatus] = useState<string | null>(null);
 
   const canLoad = props.connected && !!props.userAddress;
@@ -242,7 +242,7 @@ return (
 
                     <select
                         value={convertReward}
-                        onChange={(e) => setConvertReward(e.target.value as any)}
+                        disabled
                         style={{
                             width: "100%",
                             borderRadius: 12,
@@ -256,7 +256,6 @@ return (
                         }}
                     >
                         <option value="water">Water</option>
-                        <option value="dust">Dust</option>
                     </select>
                 </div>
 

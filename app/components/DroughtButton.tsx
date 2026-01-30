@@ -122,21 +122,25 @@ export function DroughtButton({
             if (paymentType === 1) {
                 // FCWEED payment
                 setTxStatus("Checking FCWEED approval...");
-                const fcweed = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, signer);
-                const allowance = await fcweed.allowance(address, V6_BATTLES_ADDRESS);
+                // Use provider for read calls (allowance), signer for write calls (approve)
+                const fcweedRead = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, provider);
+                const allowance = await fcweedRead.allowance(address, V6_BATTLES_ADDRESS);
                 if (allowance.lt(DROUGHT_COST_FCWEED)) {
                     setTxStatus("Approving FCWEED...");
-                    const approveTx = await fcweed.approve(V6_BATTLES_ADDRESS, ethers.constants.MaxUint256);
+                    const fcweedWrite = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, signer);
+                    const approveTx = await fcweedWrite.approve(V6_BATTLES_ADDRESS, ethers.constants.MaxUint256);
                     await approveTx.wait();
                 }
             } else if (paymentType === 2) {
                 // USDC payment
                 setTxStatus("Checking USDC approval...");
-                const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, signer);
-                const allowance = await usdc.allowance(address, V6_BATTLES_ADDRESS);
+                // Use provider for read calls (allowance), signer for write calls (approve)
+                const usdcRead = new ethers.Contract(USDC_ADDRESS, USDC_ABI, provider);
+                const allowance = await usdcRead.allowance(address, V6_BATTLES_ADDRESS);
                 if (allowance.lt(DROUGHT_COST_USDC)) {
                     setTxStatus("Approving USDC...");
-                    const approveTx = await usdc.approve(V6_BATTLES_ADDRESS, ethers.constants.MaxUint256);
+                    const usdcWrite = new ethers.Contract(USDC_ADDRESS, USDC_ABI, signer);
+                    const approveTx = await usdcWrite.approve(V6_BATTLES_ADDRESS, ethers.constants.MaxUint256);
                     await approveTx.wait();
                 }
             }
