@@ -11,34 +11,71 @@ export const SUPER_LAND_ADDRESS = "0xAcd70377fF1aaF4E1aE76398C678CBE6ECc35e7d";
 export const METADATA_MODE: "local-only" | "hybrid" | "remote-all" = "hybrid";
 export const TOKEN_SYMBOL = "FCWEED";
 
-export const CRATE_VAULT_ADDRESS = "0xC46cEF723767AcCeb3C7ad2513B9c997eACEcff4";
-export const CRATE_COST = ethers.utils.parseUnits("200000", 18);
+// ===============================
+// V6 CONTRACT ADDRESSES (NEW - USE THESE!)
+// ===============================
+export const V6_STAKING_ADDRESS = "0xF1c619ad86e7a9C83502D4200DFD6263B5e2E020";
+export const V6_CRATE_VAULT_ADDRESS = "0xEf273E227B3e6e1d560BC17170eFF99A94686786";
+export const V6_ITEMSHOP_ADDRESS = "0xa11A61B2A8E8822a468d82bF404e122a87b2251a";
+export const V6_BATTLES_ADDRESS = "0xB0e2D0d5794C2e86A57C77EdCD962191670B0dcE";
+
+// Primary contract aliases (V6)
+export const STAKING_ADDRESS = V6_STAKING_ADDRESS;
+export const CRATE_VAULT_ADDRESS = V6_CRATE_VAULT_ADDRESS;
+export const ITEM_SHOP_ADDRESS = V6_ITEMSHOP_ADDRESS;
+export const BATTLE_SYSTEM_ADDRESS = V6_BATTLES_ADDRESS;
+export const DEA_RAIDS_ADDRESS = V6_BATTLES_ADDRESS;
+export const PURGE_ADDRESS = V6_BATTLES_ADDRESS;
 
 // ===============================
-// V5 CONTRACT ADDRESSES (CURRENT)
+// V5 CONTRACT ADDRESSES (LEGACY - UNSTAKE ONLY)
 // ===============================
 export const V5_STAKING_ADDRESS = "0xAF335bd7c4DaA6DC137815bA0d6141534CEB75D4";
-export const V5_ITEMSHOP_ADDRESS = "0xAE7E20CD1f7736B29B756b36754C9f408faeF2cC";  // V14 ItemShop
-export const V5_BATTLES_ADDRESS = "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00";   // Battles V4
-export const ITEM_SHOP_ADDRESS = "0xAE7E20CD1f7736B29B756b36754C9f408faeF2cC";    // V14 ItemShop
-
-export const BATTLE_SYSTEM_ADDRESS = "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00"; // NEW V3
-export const DEA_RAIDS_ADDRESS = "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00";     // NEW V3
-export const PURGE_ADDRESS = "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00";         // NEW V3
+export const V5_ITEMSHOP_ADDRESS = "0xAE7E20CD1f7736B29B756b36754C9f408faeF2cC";
+export const V5_BATTLES_ADDRESS = "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00";
 
 // ===============================
-// USDC ITEM SHOP (NEW!)
+// V4 CONTRACT ADDRESSES (LEGACY - UNSTAKE ONLY)
+// ===============================
+export const V4_STAKING_ADDRESS = "0x0A79278b0017Aa90DF59696F0aA4e0648c45bb92";
+export const V4_BATTLES_ADDRESS = "0xaea874795C4368B446c8da1A3EA90dB134349Ce3";
+export const V4_ITEMSHOP_ADDRESS = "0x2aBa0B4F7DCe039c170ec9347DDC634d95E79ee8";
+
+// ===============================
+// USDC ITEM SHOP
 // ===============================
 export const USDC_ITEM_SHOP_ADDRESS = "0xA69646f43bD0a620A18F3c4c29cf3489b73ca7b3";
 
-// OLD CONTRACTS (for reference/migration)
+// ===============================
+// DROUGHT SYSTEM CONFIG
+// ===============================
+export const DROUGHT_COOLDOWN = 48 * 60 * 60; // 48 hours in seconds
+export const DROUGHT_COST_XFCWEED = ethers.utils.parseUnits("100000000", 18); // 100M xFCWEED
+export const DROUGHT_COST_FCWEED = ethers.utils.parseUnits("100000000", 18);  // 100M FCWEED
+export const DROUGHT_COST_USDC = ethers.utils.parseUnits("300", 6);           // $300 USDC
+export const DROUGHT_TAKE_PERCENT = 30;
+export const DROUGHT_DAMAGE_PERCENT = 30;
+export const DROUGHT_REWARD_PERCENT = 50;
+
+// ===============================
+// CROP DUSTER CONFIG
+// ===============================
+export const CROP_DUSTER_COST_USDC = ethers.utils.parseUnits("100", 6);  // $100 USDC
+export const CROP_DUSTER_DAILY_SUPPLY = 3;
+export const CROP_DUSTER_STEAL_PERCENT = 50;
+export const CROP_DUSTER_DAMAGE_PERCENT = 50;
+export const CROP_DUSTER_TARGET_COUNT = 3;
+
+// ===============================
+// CRATE CONFIG
+// ===============================
+export const CRATE_COST = ethers.utils.parseUnits("200000", 18);
+
+// OLD CONTRACTS (for reference)
 export const OLD_STAKING_ADDRESS = "0x9dA6B01BFcbf5ab256B7B1d46F316e946da85507";
 export const NEW_STAKING_ADDRESS = "0xe876f175AcD484b0F502cEA38FC9215913FCDCdb";
-export const V4_ITEMSHOP_ADDRESS = "0x2aBa0B4F7DCe039c170ec9347DDC634d95E79ee8";
-export const V4_STAKING_ADDRESS = "0x0A79278b0017Aa90DF59696F0aA4e0648c45bb92";
-export const V4_BATTLES_ADDRESS = "0xaea874795C4368B446c8da1A3EA90dB134349Ce3";
 export const OLD_V5_BATTLES = "0xa944070DE111045B9e0F31266Fc39604cDe5FBD4";
-export const OLD_V5_ITEMSHOP = "0x16e897f2dbB51b409b2Ae4aeAc782BD5178D0e05";  // Old V11
+export const OLD_V5_ITEMSHOP = "0x16e897f2dbB51b409b2Ae4aeAc782BD5178D0e05";
 
 export const WARS_BACKEND_URL = process.env.NEXT_PUBLIC_WARS_BACKEND_URL || "https://wars.x420ponzi.com";
 
@@ -74,7 +111,6 @@ export const CRATE_REWARDS = [
 ];
 export const CRATE_PROBS = [2800, 1800, 1200, 600, 1400, 900, 400, 180, 50, 10, 300, 150, 50, 20, 5, 80, 40, 15];
 
-
 export const PLANT_FALLBACK_IMG = "/hero.png";
 export const LAND_FALLBACK_IMG  = "/land.png";
 export const SUPER_LAND_FALLBACK_IMG = "/superland.png";
@@ -91,7 +127,6 @@ export const ERC721_TRANSFER_TOPIC = ethers.utils.id(
 );
 
 export const MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
-
 
 export const GIFS = [
   "/fcweed-radio.gif",
@@ -110,5 +145,4 @@ export const PLAYLIST = [
 ];
 
 export const SUPER_PLANT_IDS = new Set<number>([]);
-
 export const SUPER_LAND_IDS = new Set<number>([]);

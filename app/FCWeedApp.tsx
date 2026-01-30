@@ -24,6 +24,7 @@ import { BattleEventToast } from "./components/BattleEventToast";
 import { NotificationSettings } from "./components/NotificationSettings";
 import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS } from "./lib/constants";
 import IsometricFarm from "./components/GrowRoomV3";
+import { XFcweedConverter } from "./components/XFcweedConverter";
 
 import {
     CHAIN_ID,
@@ -59,6 +60,7 @@ import {
     RewardCategory,
     WARS_BACKEND_URL,
     USDC_ITEM_SHOP_ADDRESS,
+    V6_STAKING_ADDRESS,
 } from "./lib/constants";
 
 import {
@@ -426,6 +428,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
     // Close all modals/popups when switching tabs
     useEffect(() => {
+        setV6StakingOpen(false);
+        setXFcweedConverterOpen(false);
         setV5StakingOpen(false);
         setV4StakingOpen(false);
         setItemsModalOpen(false);
@@ -486,6 +490,27 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [v5ActionStatus, setV5ActionStatus] = useState("");
     const [v5AverageHealth, setV5AverageHealth] = useState<number>(100);
     const [isPurgeActive, setIsPurgeActive] = useState(false);
+
+    // V6 Staking State (xFCWEED rewards)
+    const [v6StakingOpen, setV6StakingOpen] = useState(false);
+    const [v6StakingStats, setV6StakingStats] = useState<any>(null);
+    const [v6StakedPlants, setV6StakedPlants] = useState<number[]>([]);
+    const [v6StakedLands, setV6StakedLands] = useState<number[]>([]);
+    const [v6StakedSuperLands, setV6StakedSuperLands] = useState<number[]>([]);
+    const [v6AvailablePlants, setV6AvailablePlants] = useState<number[]>([]);
+    const [v6AvailableLands, setV6AvailableLands] = useState<number[]>([]);
+    const [v6AvailableSuperLands, setV6AvailableSuperLands] = useState<number[]>([]);
+    const [loadingV6Staking, setLoadingV6Staking] = useState(false);
+    const [v6RealTimePending, setV6RealTimePending] = useState<string>("0.00");
+    const [v6XFcweedBalance, setV6XFcweedBalance] = useState<ethers.BigNumber>(ethers.BigNumber.from(0));
+    const [v6XFcweedBalanceFormatted, setV6XFcweedBalanceFormatted] = useState<string>("0.00");
+    const [v6PlantHealths, setV6PlantHealths] = useState<Record<number, number>>({});
+    const [v6WaterNeeded, setV6WaterNeeded] = useState<Record<number, number>>({});
+    const [v6ActionStatus, setV6ActionStatus] = useState("");
+    const [v6ClaimCooldown, setV6ClaimCooldown] = useState<number>(0);
+    
+    // xFCWEED Converter modal
+    const [xFcweedConverterOpen, setXFcweedConverterOpen] = useState(false);
 
     const [waterShopInfo, setWaterShopInfo] = useState<any>(null);
     const [waterBuyAmount, setWaterBuyAmount] = useState(1);
@@ -4373,6 +4398,328 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
     // ==================== END V5 STAKING ====================
 
+    // ==================== V6 STAKING (xFCWEED) ====================
+    // V6 Staking ABI for loading data
+    const V6_STAKING_READ_ABI = [
+        "function pending(address) view returns (uint256)",
+        "function xFcweedBalance(address) view returns (uint256)",
+        "function users(address) view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 totalPower, uint256 lastClaim, uint256 waterBalance)",
+        "function getUserStakedPlants(address) view returns (uint256[])",
+        "function getUserStakedLands(address) view returns (uint256[])",
+        "function getUserStakedSuperLands(address) view returns (uint256[])",
+        "function getPlantHealth(uint256) view returns (uint256)",
+        "function getWaterNeeded(uint256) view returns (uint256)",
+        "function getAverageHealth(address) view returns (uint256)",
+        "function conversionRate() view returns (uint256)",
+    ];
+
+    const V6_STAKING_WRITE_ABI = [
+        "function claimXFcweed()",
+        "function convertToFcweed(uint256 amount)",
+        "function stakePlants(uint256[] tokenIds)",
+        "function unstakePlants(uint256[] tokenIds)",
+        "function stakeLands(uint256[] tokenIds)",
+        "function unstakeLands(uint256[] tokenIds)",
+        "function stakeSuperLands(uint256[] tokenIds)",
+        "function unstakeSuperLands(uint256[] tokenIds)",
+        "function waterPlant(uint256 tokenId)",
+        "function waterPlants(uint256[] tokenIds, uint256[] amounts)",
+    ];
+
+    async function loadV6StakingData() {
+        if (!userAddress || !readProvider) return;
+        
+        setLoadingV6Staking(true);
+        try {
+            const v6Contract = new ethers.Contract(V6_STAKING_ADDRESS, V6_STAKING_READ_ABI, readProvider);
+            
+            const [
+                pending,
+                xBalance,
+                userData,
+                stakedPlants,
+                stakedLands,
+                stakedSuperLands,
+            ] = await Promise.all([
+                v6Contract.pending(userAddress).catch(() => ethers.BigNumber.from(0)),
+                v6Contract.xFcweedBalance(userAddress).catch(() => ethers.BigNumber.from(0)),
+                v6Contract.users(userAddress).catch(() => null),
+                v6Contract.getUserStakedPlants(userAddress).catch(() => []),
+                v6Contract.getUserStakedLands(userAddress).catch(() => []),
+                v6Contract.getUserStakedSuperLands(userAddress).catch(() => []),
+            ]);
+            
+            // Format pending rewards
+            const pendingNum = parseFloat(ethers.utils.formatEther(pending));
+            setV6RealTimePending(pendingNum >= 1000000 ? (pendingNum / 1000000).toFixed(2) + "M" : pendingNum >= 1000 ? (pendingNum / 1000).toFixed(2) + "K" : pendingNum.toFixed(2));
+            
+            // Format xFCWEED balance
+            setV6XFcweedBalance(xBalance);
+            const xBalanceNum = parseFloat(ethers.utils.formatEther(xBalance));
+            setV6XFcweedBalanceFormatted(xBalanceNum >= 1000000 ? (xBalanceNum / 1000000).toFixed(2) + "M" : xBalanceNum >= 1000 ? (xBalanceNum / 1000).toFixed(2) + "K" : xBalanceNum.toFixed(2));
+            
+            // Convert to arrays
+            const plantIds = stakedPlants.map((id: ethers.BigNumber) => id.toNumber());
+            const landIds = stakedLands.map((id: ethers.BigNumber) => id.toNumber());
+            const superLandIds = stakedSuperLands.map((id: ethers.BigNumber) => id.toNumber());
+            
+            setV6StakedPlants(plantIds);
+            setV6StakedLands(landIds);
+            setV6StakedSuperLands(superLandIds);
+            
+            // Build stats object
+            const waterBal = userData?.waterBalance ? parseFloat(ethers.utils.formatEther(userData.waterBalance)) : 0;
+            setV6StakingStats({
+                plants: plantIds.length,
+                lands: landIds.length,
+                superLands: superLandIds.length,
+                capacity: 1 + (landIds.length * 3) + (superLandIds.length * 10),
+                boostPct: (landIds.length * 10) + (superLandIds.length * 50),
+                avgHealth: 100,
+                dailyRewards: "~",
+                water: userData?.waterBalance?.toString() || "0",
+                pendingRaw: pending,
+                pendingFormatted: pendingNum,
+            });
+            
+            // Load plant healths
+            const healthPromises = plantIds.map(async (id: number) => {
+                try {
+                    const health = await v6Contract.getPlantHealth(id);
+                    const waterNeeded = await v6Contract.getWaterNeeded(id);
+                    return { id, health: health.toNumber(), waterNeeded: parseFloat(ethers.utils.formatEther(waterNeeded)) };
+                } catch {
+                    return { id, health: 100, waterNeeded: 0 };
+                }
+            });
+            
+            const healthResults = await Promise.all(healthPromises);
+            const healths: Record<number, number> = {};
+            const waters: Record<number, number> = {};
+            healthResults.forEach(r => {
+                healths[r.id] = r.health;
+                waters[r.id] = r.waterNeeded;
+            });
+            setV6PlantHealths(healths);
+            setV6WaterNeeded(waters);
+            
+            // Calculate available NFTs (not staked anywhere)
+            const allStakedPlants = new Set([...plantIds, ...v4StakedPlants, ...v5StakedPlants]);
+            const allStakedLands = new Set([...landIds, ...v4StakedLands, ...v5StakedLands]);
+            const allStakedSuperLands = new Set([...superLandIds, ...v4StakedSuperLands, ...v5StakedSuperLands]);
+            
+            const availPlants = ownedState.plants.filter(id => !allStakedPlants.has(id));
+            const availLands = ownedState.lands.filter(id => !allStakedLands.has(id));
+            const availSuperLands = ownedState.superLands.filter(id => !allStakedSuperLands.has(id));
+            
+            setV6AvailablePlants(availPlants);
+            setV6AvailableLands(availLands);
+            setV6AvailableSuperLands(availSuperLands);
+            
+            console.log("[V6] Loaded:", { plantIds, landIds, superLandIds, pendingNum, xBalanceNum });
+        } catch (err) {
+            console.error("[V6] Load failed:", err);
+        } finally {
+            setLoadingV6Staking(false);
+        }
+    }
+
+    async function handleV6Claim() {
+        if (!userAddress || !signer) return;
+        setV6ActionStatus("Harvesting xFCWEED...");
+        try {
+            const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
+            const data = iface.encodeFunctionData("claimXFcweed", []);
+            const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
+            if (tx) {
+                setV6ActionStatus("Waiting for confirmation...");
+                await tx.wait();
+                setV6ActionStatus("✅ Harvested xFCWEED!");
+                await loadV6StakingData();
+            }
+        } catch (err: any) {
+            setV6ActionStatus(err?.reason || err?.message || "Harvest failed");
+        }
+        setTimeout(() => setV6ActionStatus(""), 3000);
+    }
+
+    async function handleV6StakePlants(ids: number[]) {
+        if (!userAddress || !signer || ids.length === 0) return;
+        setV6ActionStatus("Staking plants...");
+        try {
+            // Check approval
+            const plantContract = new ethers.Contract(PLANT_ADDRESS, ["function isApprovedForAll(address,address) view returns (bool)", "function setApprovalForAll(address,bool)"], signer);
+            const isApproved = await plantContract.isApprovedForAll(userAddress, V6_STAKING_ADDRESS);
+            if (!isApproved) {
+                setV6ActionStatus("Approving plants...");
+                const approveTx = await plantContract.setApprovalForAll(V6_STAKING_ADDRESS, true);
+                await approveTx.wait();
+            }
+            
+            const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
+            const data = iface.encodeFunctionData("stakePlants", [ids]);
+            const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
+            if (tx) {
+                setV6ActionStatus("Waiting for confirmation...");
+                await tx.wait();
+                setV6ActionStatus(`✅ Staked ${ids.length} plant(s)!`);
+                await loadV6StakingData();
+            }
+        } catch (err: any) {
+            setV6ActionStatus(err?.reason || err?.message || "Stake failed");
+        }
+        setTimeout(() => setV6ActionStatus(""), 3000);
+    }
+
+    async function handleV6UnstakePlants(ids: number[]) {
+        if (!userAddress || !signer || ids.length === 0) return;
+        setV6ActionStatus("Unstaking plants...");
+        try {
+            const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
+            const data = iface.encodeFunctionData("unstakePlants", [ids]);
+            const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
+            if (tx) {
+                await tx.wait();
+                setV6ActionStatus(`✅ Unstaked ${ids.length} plant(s)!`);
+                await loadV6StakingData();
+            }
+        } catch (err: any) {
+            setV6ActionStatus(err?.reason || err?.message || "Unstake failed");
+        }
+        setTimeout(() => setV6ActionStatus(""), 3000);
+    }
+
+    async function handleV6StakeLands(ids: number[]) {
+        if (!userAddress || !signer || ids.length === 0) return;
+        setV6ActionStatus("Staking lands...");
+        try {
+            const landContract = new ethers.Contract(LAND_ADDRESS, ["function isApprovedForAll(address,address) view returns (bool)", "function setApprovalForAll(address,bool)"], signer);
+            const isApproved = await landContract.isApprovedForAll(userAddress, V6_STAKING_ADDRESS);
+            if (!isApproved) {
+                setV6ActionStatus("Approving lands...");
+                const approveTx = await landContract.setApprovalForAll(V6_STAKING_ADDRESS, true);
+                await approveTx.wait();
+            }
+            
+            const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
+            const data = iface.encodeFunctionData("stakeLands", [ids]);
+            const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
+            if (tx) {
+                await tx.wait();
+                setV6ActionStatus(`✅ Staked ${ids.length} land(s)!`);
+                await loadV6StakingData();
+            }
+        } catch (err: any) {
+            setV6ActionStatus(err?.reason || err?.message || "Stake failed");
+        }
+        setTimeout(() => setV6ActionStatus(""), 3000);
+    }
+
+    async function handleV6UnstakeLands(ids: number[]) {
+        if (!userAddress || !signer || ids.length === 0) return;
+        setV6ActionStatus("Unstaking lands...");
+        try {
+            const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
+            const data = iface.encodeFunctionData("unstakeLands", [ids]);
+            const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
+            if (tx) {
+                await tx.wait();
+                setV6ActionStatus(`✅ Unstaked ${ids.length} land(s)!`);
+                await loadV6StakingData();
+            }
+        } catch (err: any) {
+            setV6ActionStatus(err?.reason || err?.message || "Unstake failed");
+        }
+        setTimeout(() => setV6ActionStatus(""), 3000);
+    }
+
+    async function handleV6StakeSuperLands(ids: number[]) {
+        if (!userAddress || !signer || ids.length === 0) return;
+        setV6ActionStatus("Staking super lands...");
+        try {
+            const slContract = new ethers.Contract(SUPER_LAND_ADDRESS, ["function isApprovedForAll(address,address) view returns (bool)", "function setApprovalForAll(address,bool)"], signer);
+            const isApproved = await slContract.isApprovedForAll(userAddress, V6_STAKING_ADDRESS);
+            if (!isApproved) {
+                setV6ActionStatus("Approving super lands...");
+                const approveTx = await slContract.setApprovalForAll(V6_STAKING_ADDRESS, true);
+                await approveTx.wait();
+            }
+            
+            const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
+            const data = iface.encodeFunctionData("stakeSuperLands", [ids]);
+            const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
+            if (tx) {
+                await tx.wait();
+                setV6ActionStatus(`✅ Staked ${ids.length} super land(s)!`);
+                await loadV6StakingData();
+            }
+        } catch (err: any) {
+            setV6ActionStatus(err?.reason || err?.message || "Stake failed");
+        }
+        setTimeout(() => setV6ActionStatus(""), 3000);
+    }
+
+    async function handleV6UnstakeSuperLands(ids: number[]) {
+        if (!userAddress || !signer || ids.length === 0) return;
+        setV6ActionStatus("Unstaking super lands...");
+        try {
+            const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
+            const data = iface.encodeFunctionData("unstakeSuperLands", [ids]);
+            const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
+            if (tx) {
+                await tx.wait();
+                setV6ActionStatus(`✅ Unstaked ${ids.length} super land(s)!`);
+                await loadV6StakingData();
+            }
+        } catch (err: any) {
+            setV6ActionStatus(err?.reason || err?.message || "Unstake failed");
+        }
+        setTimeout(() => setV6ActionStatus(""), 3000);
+    }
+
+    async function handleV6WaterPlants(ids: number[], amounts: Record<number, number>) {
+        if (!userAddress || !signer || ids.length === 0) return;
+        setV6ActionStatus("Watering plants...");
+        try {
+            const amountArray = ids.map(id => ethers.utils.parseEther(String(amounts[id] || 0)));
+            const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
+            const data = iface.encodeFunctionData("waterPlants", [ids, amountArray]);
+            const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
+            if (tx) {
+                await tx.wait();
+                setV6ActionStatus(`✅ Watered ${ids.length} plant(s)!`);
+                await loadV6StakingData();
+            }
+        } catch (err: any) {
+            setV6ActionStatus(err?.reason || err?.message || "Water failed");
+        }
+        setTimeout(() => setV6ActionStatus(""), 3000);
+    }
+
+    // Load V6 data when modal opens
+    useEffect(() => {
+        if (v6StakingOpen && userAddress) {
+            loadV6StakingData();
+        }
+    }, [v6StakingOpen, userAddress]);
+
+    // Also load V6 xFCWEED balance on connect for display
+    useEffect(() => {
+        if (userAddress && readProvider && V6_STAKING_ADDRESS) {
+            const loadXBalance = async () => {
+                try {
+                    const v6Contract = new ethers.Contract(V6_STAKING_ADDRESS, ["function xFcweedBalance(address) view returns (uint256)"], readProvider);
+                    const xBalance = await v6Contract.xFcweedBalance(userAddress);
+                    setV6XFcweedBalance(xBalance);
+                    const xBalanceNum = parseFloat(ethers.utils.formatEther(xBalance));
+                    setV6XFcweedBalanceFormatted(xBalanceNum >= 1000000 ? (xBalanceNum / 1000000).toFixed(2) + "M" : xBalanceNum >= 1000 ? (xBalanceNum / 1000).toFixed(2) + "K" : xBalanceNum.toFixed(2));
+                } catch {}
+            };
+            loadXBalance();
+        }
+    }, [userAddress, readProvider]);
+    // ==================== END V6 STAKING ====================
+
     async function loadWaterShopInfo() {
         try {
             // Use V5 staking for water shop
@@ -6985,12 +7332,118 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 {activeTab === "stake" && (
                     <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 20 })}>
                         <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#7cb3ff" }}>Staking</h2>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setV5StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #10b981, #34d399)" }}>🚀 Staking V5</button>
-                            <button type="button" className={styles.btnPrimary} onClick={() => setV4StakingOpen(true)} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #6b7280, #9ca3af)" }}>⬅️ Staking V4 (UNSTAKE ONLY)</button>
+                        
+                        {/* V6 Migration Banner */}
+                        <div style={{ 
+                            marginBottom: 16, 
+                            padding: 14, 
+                            background: "linear-gradient(135deg, rgba(16,185,129,0.2), rgba(52,211,153,0.1))", 
+                            borderRadius: 12, 
+                            border: "2px solid rgba(16,185,129,0.5)" 
+                        }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                                <span style={{ fontSize: 28 }}>🚀</span>
+                                <div>
+                                    <div style={{ color: "#10b981", fontWeight: 700, fontSize: 15 }}>V6 STAKING IS LIVE!</div>
+                                    <div style={{ color: "#9ca3af", fontSize: 11 }}>Earn xFCWEED rewards • Convert 3:1 to FCWEED</div>
+                                </div>
+                            </div>
+                            <div style={{ color: "#fbbf24", fontSize: 11, background: "rgba(251,191,36,0.15)", padding: 10, borderRadius: 8, border: "1px solid rgba(251,191,36,0.3)" }}>
+                                ⚠️ <strong>MIGRATION REQUIRED:</strong> Unstake from V4/V5 below and restake in V6 to continue earning rewards!
+                            </div>
                         </div>
-                        <div style={{ marginTop: 12, padding: 10, background: "rgba(16,185,129,0.1)", borderRadius: 10, border: "1px solid rgba(16,185,129,0.3)" }}>
-                            <p style={{ fontSize: 11, color: "#10b981", margin: 0, fontWeight: 600 }}>🚀 V5 is LIVE! Claim enabled 12/25 @ Midnight EST. Migrate from V4 now!</p>
+                        
+                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                            {/* V6 Staking Button - PRIMARY */}
+                            <button 
+                                type="button" 
+                                className={styles.btnPrimary} 
+                                onClick={() => setV6StakingOpen(true)} 
+                                style={{ 
+                                    width: "100%", 
+                                    padding: 16, 
+                                    background: "linear-gradient(135deg, #059669, #10b981, #34d399)", 
+                                    fontSize: 16,
+                                    fontWeight: 700,
+                                    boxShadow: "0 4px 20px rgba(16, 185, 129, 0.4)"
+                                }}
+                            >
+                                🌿 Staking V6 (NEW!)
+                            </button>
+                            
+                            {/* xFCWEED Converter Button */}
+                            <button 
+                                type="button" 
+                                className={styles.btnPrimary} 
+                                onClick={() => setXFcweedConverterOpen(true)} 
+                                style={{ 
+                                    width: "100%", 
+                                    padding: 14, 
+                                    background: "linear-gradient(135deg, #7c3aed, #8b5cf6, #a78bfa)", 
+                                    fontSize: 14,
+                                    fontWeight: 700,
+                                    boxShadow: "0 4px 15px rgba(139, 92, 246, 0.3)",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: 8,
+                                }}
+                            >
+                                💎 xFCWEED Converter → 🌿 FCWEED
+                            </button>
+                            
+                            {/* Show xFCWEED balance */}
+                            {!v6XFcweedBalance.isZero() && (
+                                <div style={{
+                                    background: "rgba(139, 92, 246, 0.15)",
+                                    border: "1px solid rgba(139, 92, 246, 0.3)",
+                                    borderRadius: 10,
+                                    padding: 12,
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                }}>
+                                    <span style={{ fontSize: 13, color: "#a78bfa", fontWeight: 600 }}>💎 Your xFCWEED:</span>
+                                    <span style={{ fontSize: 16, fontWeight: 700, color: "#e9d5ff" }}>{v6XFcweedBalanceFormatted}</span>
+                                </div>
+                            )}
+                            
+                            {/* Divider */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0" }}>
+                                <div style={{ flex: 1, height: 1, background: "rgba(107,114,128,0.3)" }} />
+                                <span style={{ fontSize: 10, color: "#6b7280", fontWeight: 600 }}>LEGACY VERSIONS</span>
+                                <div style={{ flex: 1, height: 1, background: "rgba(107,114,128,0.3)" }} />
+                            </div>
+                            
+                            {/* V5 Button - LEGACY */}
+                            <button 
+                                type="button" 
+                                className={styles.btnPrimary} 
+                                onClick={() => setV5StakingOpen(true)} 
+                                style={{ 
+                                    width: "100%", 
+                                    padding: 14, 
+                                    background: "linear-gradient(to right, #6b7280, #9ca3af)",
+                                    opacity: 0.85
+                                }}
+                            >
+                                ⬅️ Staking V5 (UNSTAKE ONLY)
+                            </button>
+                            
+                            {/* V4 Button - LEGACY */}
+                            <button 
+                                type="button" 
+                                className={styles.btnPrimary} 
+                                onClick={() => setV4StakingOpen(true)} 
+                                style={{ 
+                                    width: "100%", 
+                                    padding: 14, 
+                                    background: "linear-gradient(to right, #4b5563, #6b7280)",
+                                    opacity: 0.7
+                                }}
+                            >
+                                ⬅️ Staking V4 (UNSTAKE ONLY)
+                            </button>
                         </div>
                     </section>
                 )}
@@ -7775,7 +8228,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 ))}
             </nav>
 
-            {/* V5 Isometric Farm View */}
+            {/* V5 Isometric Farm View - LEGACY */}
             <IsometricFarm
                 isOpen={v5StakingOpen}
                 onClose={() => setV5StakingOpen(false)}
@@ -7816,6 +8269,62 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     captureAndShare('v5-stats-card', text, composeCast);
                 }}
                 theme={theme}
+                isLegacy={true}
+                legacyMessage="V5 is deprecated. Unstake and migrate to V6 to continue earning rewards!"
+            />
+
+            {/* V6 Isometric Farm View - NEW */}
+            <IsometricFarm
+                isOpen={v6StakingOpen}
+                onClose={() => setV6StakingOpen(false)}
+                stats={v6StakingStats}
+                stakedPlants={v6StakedPlants}
+                stakedLands={v6StakedLands}
+                stakedSuperLands={v6StakedSuperLands}
+                availablePlants={v6AvailablePlants}
+                availableLands={v6AvailableLands}
+                availableSuperLands={v6AvailableSuperLands}
+                plantHealths={v6PlantHealths}
+                waterNeeded={v6WaterNeeded}
+                realTimePending={v6RealTimePending}
+                claimCooldown={v6ClaimCooldown}
+                actionStatus={v6ActionStatus}
+                loading={loadingV6Staking}
+                actionLoading={actionLoading}
+                isPurgeActive={isPurgeActive}
+                onStakePlants={async (ids) => { await handleV6StakePlants(ids); }}
+                onUnstakePlants={async (ids) => { await handleV6UnstakePlants(ids); }}
+                onStakeLands={async (ids) => { await handleV6StakeLands(ids); }}
+                onUnstakeLands={async (ids) => { await handleV6UnstakeLands(ids); }}
+                onStakeSuperLands={async (ids) => { await handleV6StakeSuperLands(ids); }}
+                onUnstakeSuperLands={async (ids) => { await handleV6UnstakeSuperLands(ids); }}
+                onClaim={handleV6Claim}
+                onWaterPlants={async (ids, amounts) => { await handleV6WaterPlants(ids, amounts); }}
+                onShare={() => {
+                    const plants = v6StakingStats?.plants || 0;
+                    const lands = v6StakingStats?.lands || 0;
+                    const superLands = v6StakingStats?.superLands || 0;
+                    const text = `🌿 My FCWEED V6 Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n💎 ${v6RealTimePending} xFCWEED pending\n\nStart farming: https://x420ponzi.com`;
+                    captureAndShare('v6-stats-card', text, composeCast);
+                }}
+                theme={theme}
+                showXFcweed={true}
+                xFcweedBalance={v6XFcweedBalanceFormatted}
+            />
+
+            {/* xFCWEED Converter Modal */}
+            <XFcweedConverter
+                isOpen={xFcweedConverterOpen}
+                onClose={() => setXFcweedConverterOpen(false)}
+                address={userAddress}
+                signer={signer}
+                provider={readProvider}
+                xFcweedBalance={v6XFcweedBalance}
+                conversionRate={3}
+                onSuccess={() => {
+                    loadV6StakingData();
+                    refreshAllData();
+                }}
             />
 
             {v4StakingOpen && (

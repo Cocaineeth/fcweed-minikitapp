@@ -61,7 +61,7 @@ export function QuestsPanel(props: {
   const [progress, setProgress] = useState<MissionProgress[]>([]);
   const [points, setPoints] = useState<PointBalances | null>(null);
 
-  const [convertPts, setConvertPts] = useState<number>(25);
+  const [convertPts, setConvertPts] = useState<number>(10);
   const [convertReward, setConvertReward] = useState<"water" | "dust">("water");
   const [convertStatus, setConvertStatus] = useState<string | null>(null);
 
@@ -218,11 +218,9 @@ return (
                 <div style={{ fontSize: 11, color: "#9ca3af", fontWeight: 900, marginBottom: 8 }}>💰 Convert Points</div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                    <input
-                        inputMode="numeric"
+                    <select
                         value={convertPts}
-                        onChange={(e) => setConvertPts(Number(e.target.value) || 0)}
-                        placeholder="Points"
+                        onChange={(e) => setConvertPts(Number(e.target.value))}
                         style={{
                             width: "100%",
                             borderRadius: 12,
@@ -233,8 +231,14 @@ return (
                             fontSize: 12,
                             fontWeight: 800,
                             outline: "none",
+                            cursor: "pointer",
                         }}
-                    />
+                    >
+                        <option value={10}>10 points</option>
+                        <option value={25}>25 points</option>
+                        <option value={50}>50 points</option>
+                        <option value={100}>100 points</option>
+                    </select>
 
                     <select
                         value={convertReward}
@@ -259,21 +263,22 @@ return (
                 <button
                     type="button"
                     onClick={onConvert}
-                    disabled={!canLoad || loading}
+                    disabled={!canLoad || loading || convertPts > (points?.total_points || 0)}
                     style={{
                         width: "100%",
                         marginTop: 10,
                         padding: "12px 12px",
                         borderRadius: 14,
                         border: "1px solid rgba(16,185,129,0.35)",
-                        background: loading ? "rgba(16,185,129,0.08)" : "rgba(16,185,129,0.15)",
-                        color: "#10b981",
+                        background: loading || convertPts > (points?.total_points || 0) ? "rgba(107,114,128,0.15)" : "rgba(16,185,129,0.15)",
+                        color: convertPts > (points?.total_points || 0) ? "#6b7280" : "#10b981",
                         fontWeight: 900,
-                        cursor: canLoad && !loading ? "pointer" : "not-allowed",
+                        cursor: canLoad && !loading && convertPts <= (points?.total_points || 0) ? "pointer" : "not-allowed",
                         fontSize: 12,
+                        opacity: convertPts > (points?.total_points || 0) ? 0.5 : 1,
                     }}
                 >
-                    Convert
+                    {convertPts > (points?.total_points || 0) ? "Not enough points" : "Convert"}
                 </button>
             </div>
         </section>

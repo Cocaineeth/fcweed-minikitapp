@@ -57,6 +57,12 @@ interface IsometricFarmProps {
     onShare: () => void;
     theme?: string;
     isPurgeActive?: boolean;
+    // V6 Legacy Mode
+    isLegacy?: boolean;
+    legacyMessage?: string;
+    // V6 xFCWEED display
+    xFcweedBalance?: string;
+    showXFcweed?: boolean;
 }
 
 // Plant slot with water amount controls
@@ -323,7 +329,7 @@ export default function IsometricFarm({
     actionStatus, loading, actionLoading,
     onStakePlants, onUnstakePlants, onStakeLands, onUnstakeLands,
     onStakeSuperLands, onUnstakeSuperLands, onClaim, onWaterPlants, onShare,
-    theme, isPurgeActive,
+    theme, isPurgeActive, isLegacy, legacyMessage, xFcweedBalance, showXFcweed,
 }: IsometricFarmProps) {
     const [selectedStakedPlants, setSelectedStakedPlants] = useState<number[]>([]);
     const [selectedStakedLands, setSelectedStakedLands] = useState<number[]>([]);
@@ -653,6 +659,28 @@ export default function IsometricFarm({
                 </div>
             )}
             
+            {/* LEGACY MODE BANNER - V5 Migration */}
+            {isLegacy && (
+                <div style={{
+                    background: "linear-gradient(90deg, rgba(251,191,36,0.25), rgba(245,158,11,0.15), rgba(251,191,36,0.25))",
+                    padding: "10px 14px",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 4,
+                    borderBottom: "2px solid rgba(251,191,36,0.5)",
+                    flexShrink: 0
+                }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 16 }}>⚠️</span>
+                        <span style={{ fontSize: 12, color: "#fbbf24", fontWeight: 800 }}>LEGACY MODE - UNSTAKE ONLY</span>
+                    </div>
+                    <span style={{ fontSize: 10, color: "#fcd34d", textAlign: "center" }}>
+                        {legacyMessage || "This version is deprecated. Unstake your NFTs and migrate to V6 to continue earning!"}
+                    </span>
+                </div>
+            )}
+            
             {/* MAIN CONTENT - Takes remaining space */}
             <div style={{ flex: 1, position: "relative", overflow: "hidden", minHeight: 0 }}>
                 {/* ISOMETRIC ROOM SVG */}
@@ -739,7 +767,13 @@ export default function IsometricFarm({
                     <div style={{ width: 1, background: "rgba(34,197,94,0.3)" }} />
                     <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b" }}>{stats?.superLands || 0}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>SUPER</div></div>
                     <div style={{ width: 1, background: "rgba(34,197,94,0.3)" }} />
-                    <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{realTimePending}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>PENDING</div></div>
+                    <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{realTimePending}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>{showXFcweed ? "xFCWEED" : "PENDING"}</div></div>
+                    {showXFcweed && xFcweedBalance && (
+                        <>
+                            <div style={{ width: 1, background: "rgba(139,92,246,0.3)" }} />
+                            <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>{xFcweedBalance}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>💎 BALANCE</div></div>
+                        </>
+                    )}
                 </div>
                 
                 {/* PLANT GRID - Fixed size, scrollable, no shrink */}
@@ -892,7 +926,7 @@ export default function IsometricFarm({
                             </div>
                         )}
                         
-                        {activeTab === "available" && totalSelectedForStaking > 0 && (
+                        {activeTab === "available" && totalSelectedForStaking > 0 && !isLegacy && (
                             <div style={{ padding: "10px 12px", borderTop: "1px solid #22c55e40", display: "flex", flexDirection: "column", gap: 6 }}>
                                 {selectedAvailablePlants.length > 0 && !stakeCapacity.canStake && (
                                     <div style={{ background: "rgba(239,68,68,0.2)", padding: "6px 10px", borderRadius: 6, textAlign: "center", border: "1px solid rgba(239,68,68,0.4)" }}>
@@ -904,6 +938,15 @@ export default function IsometricFarm({
                                     <button onClick={handleStakeSelected} disabled={actionLoading || (selectedAvailablePlants.length > 0 && !stakeCapacity.canStake)} style={{ padding: "8px 20px", background: actionLoading || (selectedAvailablePlants.length > 0 && !stakeCapacity.canStake) ? "#374151" : "linear-gradient(135deg, #22c55e, #16a34a)", border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>🌱 STAKE</button>
                                     <button onClick={() => { setSelectedAvailablePlants([]); setSelectedAvailableLands([]); setSelectedAvailableSuperLands([]); }} style={{ padding: "8px 12px", background: "transparent", border: "1px solid #6b7280", borderRadius: 6, color: "#9ca3af", fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Clear</button>
                                 </div>
+                            </div>
+                        )}
+                        
+                        {/* Legacy mode message in available tab */}
+                        {activeTab === "available" && isLegacy && (
+                            <div style={{ padding: "16px 12px", textAlign: "center" }}>
+                                <div style={{ fontSize: 32, marginBottom: 8 }}>🚫</div>
+                                <div style={{ fontSize: 12, color: "#fbbf24", fontWeight: 700 }}>Staking Disabled</div>
+                                <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>Migrate to V6 to stake new NFTs</div>
                             </div>
                         )}
                     </div>
@@ -979,7 +1022,7 @@ export default function IsometricFarm({
                 {/* Main buttons - always visible */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: "auto" }}>
                     <button onClick={() => { setShowStats(!showStats); setShowInventory(false); }} style={{ flex: 1, padding: "14px 12px", background: showStats ? "#22c55e30" : "#22c55e15", border: `2px solid ${showStats ? "#22c55e" : "#22c55e80"}`, borderRadius: 10, color: "#22c55e", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>📊 STATS</button>
-                    <button onClick={onClaim} disabled={actionLoading || claimCooldown > 0 || !stats || stats.pendingFormatted <= 0} style={{ flex: 1.3, padding: "14px 16px", background: actionLoading || claimCooldown > 0 || !stats || stats.pendingFormatted <= 0 ? "#374151" : "linear-gradient(135deg, #22c55e, #16a34a)", border: "none", borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", boxShadow: "0 0 20px rgba(34,197,94,0.3)" }}>🌾 HARVEST</button>
+                    <button onClick={onClaim} disabled={actionLoading || claimCooldown > 0 || !stats || stats.pendingFormatted <= 0 || isLegacy} style={{ flex: 1.3, padding: "14px 16px", background: actionLoading || claimCooldown > 0 || !stats || stats.pendingFormatted <= 0 || isLegacy ? "#374151" : "linear-gradient(135deg, #22c55e, #16a34a)", border: "none", borderRadius: 10, color: isLegacy ? "#9ca3af" : "#fff", fontSize: 14, fontWeight: 700, cursor: isLegacy ? "not-allowed" : "pointer", boxShadow: isLegacy ? "none" : "0 0 20px rgba(34,197,94,0.3)" }}>{isLegacy ? "🚫 DISABLED" : "🌾 HARVEST"}</button>
                     <button onClick={() => { setShowInventory(!showInventory); setShowStats(false); }} style={{ flex: 1, padding: "14px 12px", background: showInventory ? "#22c55e30" : "#22c55e15", border: `2px solid ${showInventory ? "#22c55e" : "#22c55e80"}`, borderRadius: 10, color: "#22c55e", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>📦 INVENTORY</button>
                 </div>
             </div>

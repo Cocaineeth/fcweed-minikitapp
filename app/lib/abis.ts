@@ -50,6 +50,89 @@ export const STAKING_ABI = [
     "event UnstakedLands(address indexed user, uint256[] tokenIds)",
 ];
 
+// ===============================
+// V6 STAKING ABI (xFCWEED REWARDS)
+// ===============================
+export const V6_STAKING_ABI = [
+    // Core staking functions
+    "function stakePlants(uint256[] calldata ids) external",
+    "function unstakePlants(uint256[] calldata ids) external",
+    "function stakeLands(uint256[] calldata ids) external",
+    "function unstakeLands(uint256[] calldata ids) external",
+    "function stakeSuperLands(uint256[] calldata ids) external",
+    "function unstakeSuperLands(uint256[] calldata ids) external",
+    
+    // xFCWEED claim/convert
+    "function claimXFcweed() external",
+    "function convertToFcweed(uint256 xAmount) external",
+    "function canHarvest(address user) view returns (bool)",
+    
+    // View functions
+    "function pending(address account) view returns (uint256)",
+    "function xFcweedBalance(address) view returns (uint256)",
+    "function getXFcweedBalance(address) view returns (uint256)",
+    "function getPendingRewards(address) view returns (uint256)",
+    "function getUserStakedPlants(address) view returns (uint256[])",
+    "function getUserStakedLands(address) view returns (uint256[])",
+    "function getUserStakedSuperLands(address) view returns (uint256[])",
+    
+    // User struct
+    "function users(address) view returns (uint64 last, uint32 plants, uint32 lands, uint32 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay, uint256 stakedTokens, uint256 tokenStakeTime, address referrer, uint256 referralEarnings, uint32 referralCount, uint256 guildId, uint256 earningBoostBps, uint256 earningBoostExpiry, uint256 capacityBoost, uint256 capacityBoostExpiry, uint256 raidShieldExpiry, uint256 raidAttackBoostBps, uint256 raidAttackBoostExpiry, uint256 plantEarningBoostBpsTotal, uint64 lastPlantBoostBucketProcessed)",
+    
+    // Plant health
+    "function getPlantHealth(uint256 tokenId) view returns (uint256)",
+    "function getAverageHealth(address user) view returns (uint256)",
+    "function getWaterNeeded(uint256 tokenId) view returns (uint256)",
+    
+    // Water functions
+    "function buyWaterWithXFcweed(uint256 liters) external",
+    "function buyWaterWithFcweed(uint256 liters) external",
+    "function waterPlant(uint256 tokenId) external",
+    "function waterAllPlants(uint256[] calldata tokenIds) external",
+    "function waterPlantWithAmount(uint256 tokenId, uint256 amount) external",
+    
+    // Config
+    "function waterPricePerLiter() view returns (uint256)",
+    "function tokensPerPlantPerDay() view returns (uint256)",
+    "function landBoostBps() view returns (uint256)",
+    "function superLandBoostBps() view returns (uint256)",
+    "function claimEnabled() view returns (bool)",
+    "function waterShopEnabled() view returns (bool)",
+    "function plantStakingEnabled() view returns (bool)",
+    "function landStakingEnabled() view returns (bool)",
+    "function superLandStakingEnabled() view returns (bool)",
+    "function conversionRate() view returns (uint256)",
+    "function conversionCooldown() view returns (uint256)",
+    "function claimCooldown() view returns (uint256)",
+    "function lastConvertTime(address) view returns (uint256)",
+    
+    // Battle stats
+    "function getUserBattleStats(address) view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards)",
+    "function hasRaidShield(address) view returns (bool)",
+    "function calculateBattlePower(address) view returns (uint256)",
+    "function canUnstake(address) view returns (bool)",
+    
+    // Global stats
+    "function totalPlantsStaked() view returns (uint256)",
+    "function totalLandsStaked() view returns (uint256)",
+    "function totalSuperLandsStaked() view returns (uint256)",
+    "function getTotalStakers() view returns (uint256)",
+    "function getStakerAtIndex(uint256) view returns (address)",
+    
+    // Events
+    "event StakedPlants(address indexed user, uint256[] tokenIds)",
+    "event UnstakedPlants(address indexed user, uint256[] tokenIds)",
+    "event StakedLands(address indexed user, uint256[] tokenIds)",
+    "event UnstakedLands(address indexed user, uint256[] tokenIds)",
+    "event StakedSuperLands(address indexed user, uint256[] tokenIds)",
+    "event UnstakedSuperLands(address indexed user, uint256[] tokenIds)",
+    "event XFcweedClaimed(address indexed user, uint256 amount)",
+    "event XFcweedConverted(address indexed user, uint256 xAmount, uint256 fcweedAmount)",
+    "event WaterPurchased(address indexed user, uint256 liters, uint256 cost)",
+    "event PlantWatered(address indexed user, uint256 tokenId, uint256 litersUsed)",
+    "event PlantsWatered(address indexed user, uint256[] tokenIds, uint256 totalLitersUsed)",
+];
+
 export const V4_STAKING_ABI = [
     "function stakePlants(uint256[] calldata ids) external",
     "function unstakePlants(uint256[] calldata ids) external",
@@ -101,14 +184,30 @@ export const V4_STAKING_ABI = [
 ];
 
 // ===============================
-// V3 BATTLES ABI (SLIM CONTRACT)
+// V5 BATTLES ABI (WITH DROUGHT)
 // ===============================
-export const V3_BATTLES_ABI = [
+export const V5_BATTLES_ABI = [
     // Core battle functions
     "function cartelAttack(address target, uint256 deadline, bytes calldata sig) external",
     "function deaRaid(address target) external",
     "function purgeAttack(address target) external",
     "function flagWithSig(address sus, uint256 amt, uint256 dl, bytes calldata sig) external",
+    
+    // Drought system
+    "function activateDrought(uint8 paymentType) external",
+    "function canDrought() view returns (bool)",
+    "function timeToDrought() view returns (uint256)",
+    "function lastDrought() view returns (uint256)",
+    "function droughtOn() view returns (bool)",
+    "function droughtCD() view returns (uint256)",
+    "function droughtCost() view returns (uint256)",
+    "function droughtTake() view returns (uint256)",
+    "function droughtDmg() view returns (uint256)",
+    "function droughtReward() view returns (uint256)",
+    
+    // Cartel skip fee
+    "function skipCartelWithFee(address target, uint256 deadline, bytes calldata sig) external",
+    "function cartelSkipFee() view returns (uint256)",
     
     // State variables
     "function cartelOn() view returns (bool)",
@@ -148,21 +247,58 @@ export const V3_BATTLES_ABI = [
     "event DeaResult(address indexed a, address indexed t, bool w, uint256 ap, uint256 dp, uint256 s, uint256 dmg)",
     "event PurgeResult(address indexed a, address indexed t, bool w, uint256 ap, uint256 dp, uint256 s, uint256 dmg)",
     "event Flagged(address indexed s, uint256 amt, uint256 exp)",
+    "event DroughtActivated(address indexed activator, uint256 totalTaken, uint256 activatorReward)",
     "event NukeUsed(address indexed a, address indexed t)",
 ];
 
-// Alias for backwards compatibility
+// V3 Battles (backwards compatibility alias)
+export const V3_BATTLES_ABI = [
+    "function cartelAttack(address target, uint256 deadline, bytes calldata sig) external",
+    "function deaRaid(address target) external",
+    "function purgeAttack(address target) external",
+    "function flagWithSig(address sus, uint256 amt, uint256 dl, bytes calldata sig) external",
+    "function cartelOn() view returns (bool)",
+    "function deaOn() view returns (bool)",
+    "function purgeManual() view returns (bool)",
+    "function cartelFee() view returns (uint256)",
+    "function deaFee() view returns (uint256)",
+    "function purgeFee() view returns (uint256)",
+    "function minPending() view returns (uint256)",
+    "function searchNonce(address) view returns (uint256)",
+    "function flagNonce(address) view returns (uint256)",
+    "function canCartel(address) view returns (bool)",
+    "function canDea(address) view returns (bool)",
+    "function canDeaTarget(address,address) view returns (bool)",
+    "function canPurge(address) view returns (bool)",
+    "function canRaid(address) view returns (bool)",
+    "function isPurgeActive() view returns (bool)",
+    "function getAtkStats(address) view returns (uint256 wins, uint256 losses, uint256 stolen, uint256 nukes)",
+    "function getDefStats(address) view returns (uint256 wins, uint256 losses, uint256 lost, bool hasShield)",
+    "function getSuspect(address) view returns (bool isSuspect, uint256 expiresAt, uint256 raids, uint256 lost, uint256 sold, uint256 cnt)",
+    "function getGlobal() view returns (uint256 cartel, uint256 dea, uint256 purge, uint256 flagged, uint256 redist, uint256 fees, uint256 burned)",
+    "function getPower(address) view returns (uint256 base, uint256 atk, uint256 def)",
+    "function getSuspectList() view returns (address[])",
+    "function lastCartel(address) view returns (uint256)",
+    "function lastDea(address) view returns (uint256)",
+    "function lastDeaOn(address,address) view returns (uint256)",
+    "function lastPurge(address) view returns (uint256)",
+    "event CartelResult(address indexed a, address indexed d, bool w, uint256 ap, uint256 dp, uint256 s, uint256 dmg)",
+    "event DeaResult(address indexed a, address indexed t, bool w, uint256 ap, uint256 dp, uint256 s, uint256 dmg)",
+    "event PurgeResult(address indexed a, address indexed t, bool w, uint256 ap, uint256 dp, uint256 s, uint256 dmg)",
+    "event Flagged(address indexed s, uint256 amt, uint256 exp)",
+    "event NukeUsed(address indexed a, address indexed t)",
+];
+
 export const BATTLE_SYSTEM_V3_ABI = V3_BATTLES_ABI;
 
 // ===============================
-// V11 ITEMSHOP ABI (WITH INVENTORY)
+// V11/V14/V15 ITEMSHOP ABI
 // ===============================
 export const V11_ITEMSHOP_ABI = [
-    // Purchase functions
     "function purchaseWithFcweed(uint256 itemId) external",
     "function purchaseWithDust(uint256 itemId) external",
-    
-    // Activation functions (NEW - inventory system)
+    "function purchaseWithXFcweed(uint256 itemId) external",
+    "function purchaseWithUsdc(uint256 itemId) external",
     "function activateAK47() external",
     "function activateRPG() external",
     "function activateAttackBoost() external",
@@ -171,27 +307,17 @@ export const V11_ITEMSHOP_ABI = [
     "function useHealthPack(uint256 plantId) external",
     "function useHealthPackBatch(uint256[] calldata plantIds) external",
     "function removeShieldSelf() external",
-    
-    // Inventory view functions
     "function inventory(address,uint256) view returns (uint256)",
     "function getUserInventory(address) view returns (uint256 ak47, uint256 rpg, uint256 nuke, uint256 healthPack, uint256 shield, uint256 attackBoost)",
     "function getUserActiveBoosts(address) view returns (uint256 ak47Boost, uint256 ak47Expires, uint256 rpgBoost, uint256 rpgExpires, uint256 attackBoostBps, uint256 attackBoostExpires, bool nukeReady, uint256 nukeExpires, bool shieldActive, uint256 shieldExpires, uint256 totalBoost)",
-    
-    // Item info
     "function getItemConfig(uint256 itemId) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, uint256 soldToday, bool isWeapon)",
     "function getDailyStock(uint256 itemId) view returns (uint256 remaining, uint256 total)",
     "function getTimeUntilReset() view returns (uint256)",
-    
-    // Shield/boost checks
     "function hasActiveShield(address) view returns (bool active, uint256 expiresAt)",
     "function hasActiveNukeReady(address) view returns (bool)",
     "function getTotalAttackBoost(address) view returns (uint256)",
-    
-    // State
     "function shopEnabled() view returns (bool)",
     "function purgeActive() view returns (bool)",
-    
-    // Events
     "event ItemPurchased(address indexed buyer, uint256 indexed itemId, bool withDust)",
     "event ItemActivated(address indexed user, uint256 indexed itemId, uint256 expiresAt)",
     "event HealthPackUsed(address indexed user, uint256 plantId, uint256 healAmount)",
@@ -199,10 +325,11 @@ export const V11_ITEMSHOP_ABI = [
     "event NukeConsumed(address indexed user, address indexed target)",
 ];
 
-// Alias for backwards compatibility
 export const V5_ITEMSHOP_ABI = V11_ITEMSHOP_ABI;
+export const V14_ITEMSHOP_ABI = V11_ITEMSHOP_ABI;
+export const V15_ITEMSHOP_ABI = V11_ITEMSHOP_ABI;
 
-// Old V2 battles ABI (for reference during migration)
+// V4 battles (legacy)
 export const V4_BATTLES_ABI = [
     "function searchForTarget(address target, uint256 deadline, bytes calldata signature) external",
     "function cartelAttack() external",
@@ -280,13 +407,14 @@ export const CRATE_VAULT_ABI = [
 ];
 
 // ===============================
-// USDC ITEM SHOP ABI (NEW!)
+// USDC ITEM SHOP ABI
 // ===============================
 export const USDC_ITEM_SHOP_ABI = [
     "function buyItem(uint256 itemId, uint256 quantity) external",
     "function buyNuke() external",
     "function buyHealthPack() external",
     "function buyHealthPacks(uint256 quantity) external",
+    "function buyCropDuster() external",
     "function getRemainingSupply(uint256 itemId) external view returns (uint256)",
     "function getItemInfo(uint256 itemId) external view returns (string name, uint256 price, uint256 remaining, uint256 total, uint256 mainShopId, bool active)",
     "function getAllItems() external view returns (uint256[] ids, string[] names, uint256[] prices, uint256[] remaining, uint256[] totals, uint256[] mainShopIds, bool[] actives)",
@@ -316,10 +444,12 @@ export const erc721Interface = new ethers.utils.Interface(ERC721_VIEW_ABI);
 export const superLandInterface = new ethers.utils.Interface(SUPER_LAND_ABI);
 export const erc20Interface = new ethers.utils.Interface(ERC20_ABI);
 export const v4StakingInterface = new ethers.utils.Interface(V4_STAKING_ABI);
+export const v6StakingInterface = new ethers.utils.Interface(V6_STAKING_ABI);
 export const v4BattlesInterface = new ethers.utils.Interface(V4_BATTLES_ABI);
 export const battleSystemV2Interface = new ethers.utils.Interface(BATTLE_SYSTEM_V2_ABI);
 export const v3BattlesInterface = new ethers.utils.Interface(V3_BATTLES_ABI);
+export const v5BattlesInterface = new ethers.utils.Interface(V5_BATTLES_ABI);
 export const v11ItemShopInterface = new ethers.utils.Interface(V11_ITEMSHOP_ABI);
-export const v5ItemShopInterface = v11ItemShopInterface; // Alias
+export const v5ItemShopInterface = v11ItemShopInterface;
 export const crateVaultInterface = new ethers.utils.Interface(CRATE_VAULT_ABI);
 export const usdcItemShopInterface = new ethers.utils.Interface(USDC_ITEM_SHOP_ABI);
