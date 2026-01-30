@@ -55,9 +55,7 @@ import {
     V4_ITEMSHOP_ADDRESS,
     V4_STAKING_ADDRESS,     
     V6_BATTLES_ADDRESS,
-    V5_BATTLES_ADDRESS,
     V5_STAKING_ADDRESS,
-    V5_ITEMSHOP_ADDRESS,
     V6_ITEMSHOP_ADDRESS,
     CRATE_REWARDS,
     CRATE_PROBS,
@@ -1240,7 +1238,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             // Check purge status first
             try {
-                const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, [
+                const battlesContract = new ethers.Contract(V6_BATTLES_ADDRESS, [
                     "function isPurgeActive() view returns (bool)"
                 ], readProvider);
                 const purgeActive = await battlesContract.isPurgeActive();
@@ -1259,7 +1257,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 "function hasActiveShield(address) view returns (bool active, uint256 expiresAt)",
                 "function getActiveBoosts(address) view returns (uint256 ak47Boost, uint256 ak47Expires, uint256 rpgBoost, uint256 rpgExpires, uint256 attackBoost, uint256 attackBoostExpires, bool nukeActive, uint256 nukeExpires, uint256 shieldExpires)",
             ];
-            const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
+            const itemShop = new ethers.Contract(V6_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
             
             // V14 uses getUserFullInventory which returns uint256[] array
             let inv = { ak47: 0, rpg: 0, nuke: 0, healthPack: 0, shield: 0, attackBoost: 0, cropDuster: 0 };
@@ -1350,7 +1348,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active)",
                 "function getCurrentDay() view returns (uint256)",
             ];
-            const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
+            const itemShop = new ethers.Contract(V6_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
             const supplyData: Record<number, {remaining: number, total: number}> = {};
             const itemIds = [1, 2, 3, 4, 5, 6];
             
@@ -1478,7 +1476,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             const iface = new ethers.utils.Interface(["function activateShield() external"]);
             const data = iface.encodeFunctionData("activateShield", []);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
+            const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("Shield activated! 24h protection.");
@@ -1501,7 +1499,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             const iface = new ethers.utils.Interface(["function activateAttackBoost() external"]);
             const data = iface.encodeFunctionData("activateAttackBoost", []);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
+            const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("Attack boost activated!");
@@ -1525,7 +1523,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             // V14 uses activateWeapon(itemId) instead of activateAK47()
             const iface = new ethers.utils.Interface(["function activateWeapon(uint256 itemId) external"]);
             const data = iface.encodeFunctionData("activateWeapon", [1]); // 1 = AK47_ID
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
+            const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("AK-47 activated! +100% combat power for 12h");
@@ -1549,7 +1547,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             // V14 uses activateWeapon(itemId) instead of activateRPG()
             const iface = new ethers.utils.Interface(["function activateWeapon(uint256 itemId) external"]);
             const data = iface.encodeFunctionData("activateWeapon", [2]); // 2 = RPG_ID
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
+            const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("RPG activated! +500% combat power for 6h");
@@ -1574,7 +1572,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             // V14 uses activateWeapon(itemId) instead of activateNuke()
             const iface = new ethers.utils.Interface(["function activateWeapon(uint256 itemId) external"]);
             const data = iface.encodeFunctionData("activateWeapon", [3]); // 3 = NUKE_ID
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
+            const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("☢️ TACTICAL NUKE ACTIVATED! +10000% combat power for 10min");
@@ -1602,7 +1600,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             // First _settle call loops through each hour since last interaction (~5k gas each)
             // Base 1.2M covers ~240 hours (10 days) of inactivity + 250k per plant for healPlantInstant overhead
             const gasLimit = 1200000 + (selectedPlantsForHealthPack.length * 250000);
-            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x" + gasLimit.toString(16));
+            const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x" + gasLimit.toString(16));
             if (tx) {
                 await tx.wait();
                 setInventoryStatus("Health pack used! Plants healed to 80%");
@@ -1640,7 +1638,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 "function shopEnabled() view returns (bool)",
             ];
             const itemShopInterface = new ethers.utils.Interface(itemShopAbi);
-            const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
+            const itemShop = new ethers.Contract(V6_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
             
             const item = await itemShop.itemConfigs(itemId);
             
@@ -1652,7 +1650,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     return;
                 }
                 setShopStatus("Checking allowance...");
-                const approved = await ensureFcweedAllowance(V5_ITEMSHOP_ADDRESS, fcweedPrice);
+                const approved = await ensureFcweedAllowance(V6_ITEMSHOP_ADDRESS, fcweedPrice);
                 if (!approved) {
                     setShopStatus("Approval canceled or failed");
                     setShopLoading(false);
@@ -1662,7 +1660,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 setShopStatus("Confirming purchase...");
                 // V14: buyItem(itemId, false) for FCWEED payment
                 const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, false]);
-                const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
+                const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
                 if (!tx) {
                     setShopStatus("Transaction canceled");
                     setShopLoading(false);
@@ -1706,7 +1704,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 setShopStatus("Confirming purchase...");
                 // V14: buyItem(itemId, true) for Dust payment
                 const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, true]);
-                const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
+                const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
                 if (!tx) {
                     setShopStatus("Transaction canceled");
                     setShopLoading(false);
@@ -3660,13 +3658,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
             // Fetch combat power from Battles contract (includes ItemShop boosts)
             try {
-                const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, [
+                const battlesContract = new ethers.Contract(V6_BATTLES_ADDRESS, [
                     "function getPower(address) view returns (uint256 base, uint256 atk, uint256 def)",
                     "function canCartel(address) view returns (bool)",
                     "function lastCartel(address) view returns (uint256)",
                     "function isPurgeActive() view returns (bool)"
                 ], readProvider);
-                const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, [
+                const itemShopContract = new ethers.Contract(V6_ITEMSHOP_ADDRESS, [
                     "function canBypassShield(address) view returns (bool)"
                 ], readProvider);
                 
@@ -4838,7 +4836,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function loadWarsPlayerStats() {
         if (!userAddress) return;
         try {
-            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V6_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
             
             // V3 uses getAtkStats and getDefStats instead of getCartelPlayerStats
             // getAtkStats returns: (wins, losses, stolen, nukes)
@@ -5036,14 +5034,14 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const { target, stats } = warsPreviewData;
             
             // Check and request approval for reveal fee (50K)
-            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V6_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
             const revealFee = await battlesContract.cartelFee();
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            let allowance = await tokenContract.allowance(ctx.userAddress, V5_BATTLES_ADDRESS);
+            let allowance = await tokenContract.allowance(ctx.userAddress, V6_BATTLES_ADDRESS);
 
             if (allowance.lt(revealFee)) {
                 setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120", ctx.userAddress); // 500k gas
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V6_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120", ctx.userAddress); // 500k gas
                 if (!approveTx) {
                     setWarsStatus("Approval rejected");
                     setWarsSearching(false);
@@ -5149,7 +5147,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 return;
             }
             
-            const battlesContract = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+            const battlesContract = new ethers.Contract(V6_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
             
             setWarsStatus("Checking authorization...");
             
@@ -5225,11 +5223,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             const attackFee = await battlesContract.cartelFee();
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            let allowance = await tokenContract.allowance(effectiveAttacker, V5_BATTLES_ADDRESS);
+            let allowance = await tokenContract.allowance(effectiveAttacker, V6_BATTLES_ADDRESS);
 
             if (allowance.lt(attackFee)) {
                 setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V5_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120", effectiveAttacker);
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V6_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120", effectiveAttacker);
                 if (!approveTx) {
                     setWarsStatus("Approval rejected");
                     setWarsSearching(false);
@@ -5246,7 +5244,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 const itemShopAbiForShield = [
                     "function hasActiveShield(address) view returns (bool active, uint256 expiresAt)",
                 ];
-                const itemShopContract = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbiForShield, readProvider);
+                const itemShopContract = new ethers.Contract(V6_ITEMSHOP_ADDRESS, itemShopAbiForShield, readProvider);
                 const shieldInfo = await itemShopContract.hasActiveShield(effectiveAttacker);
                 
                 if (shieldInfo[0]) {
@@ -5272,7 +5270,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             console.log("=".repeat(50));
 
             const tx = await sendContractTx(
-                V5_BATTLES_ADDRESS,
+                V6_BATTLES_ADDRESS,
                 v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]),
                 "0x3D0900", // 4M gas - matches DEA raids for cross-contract calls with weapons
                 effectiveAttacker
@@ -5295,7 +5293,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 
                 // Try to get revert reason by simulating the failed tx
                 try {
-                    const battlesContractRead = new ethers.Contract(V5_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
+                    const battlesContractRead = new ethers.Contract(V6_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
                     // Try to call the function statically to get error reason
                     await battlesContractRead.callStatic.cartelAttack(target, deadline, signature, { from: effectiveAttacker });
                 } catch (simErr: any) {
@@ -5376,7 +5374,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             let attackerPower = contractCombatPower;
             let defenderPower = 0;
             try {
-                const battlesContractPower = new ethers.Contract(V5_BATTLES_ADDRESS, [
+                const battlesContractPower = new ethers.Contract(V6_BATTLES_ADDRESS, [
                     "function getPower(address) view returns (uint256 base, uint256 atk, uint256 def)"
                 ], readProvider);
                 const defPowerResult = await battlesContractPower.getPower(target);
@@ -8611,8 +8609,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     refreshAllData();
                 }}
                 theme={theme}
-                itemShopAddress={V5_ITEMSHOP_ADDRESS}
-                battlesAddress={V5_BATTLES_ADDRESS}
+                itemShopAddress={V6_ITEMSHOP_ADDRESS}
+                battlesAddress={V6_BATTLES_ADDRESS}
             />
 
             
