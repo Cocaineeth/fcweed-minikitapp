@@ -63,6 +63,9 @@ interface IsometricFarmProps {
     // V6 xFCWEED display
     xFcweedBalance?: string;
     showXFcweed?: boolean;
+    // V5 Health Pack support
+    onUseHealthPack?: () => void;
+    healthPackInventory?: number;
 }
 
 // Plant slot with water amount controls
@@ -330,6 +333,7 @@ export default function IsometricFarm({
     onStakePlants, onUnstakePlants, onStakeLands, onUnstakeLands,
     onStakeSuperLands, onUnstakeSuperLands, onClaim, onWaterPlants, onShare,
     theme, isPurgeActive, isLegacy, legacyMessage, xFcweedBalance, showXFcweed,
+    onUseHealthPack, healthPackInventory,
 }: IsometricFarmProps) {
     const [selectedStakedPlants, setSelectedStakedPlants] = useState<number[]>([]);
     const [selectedStakedLands, setSelectedStakedLands] = useState<number[]>([]);
@@ -830,6 +834,27 @@ export default function IsometricFarm({
                             </div>
                             <button onClick={() => setShowInventory(false)} style={{ width: 24, height: 24, background: "rgba(239,68,68,0.2)", border: "1px solid #ef4444", borderRadius: 4, color: "#ef4444", fontSize: 12, cursor: "pointer" }}>✕</button>
                         </div>
+                        
+                        {/* V5 Health Pack button - only show in legacy mode with health packs available */}
+                        {isLegacy && onUseHealthPack && healthPackInventory !== undefined && healthPackInventory > 0 && activeTab === "staked" && (
+                            <div style={{ padding: "6px 12px", borderBottom: "1px solid #f59e0b40", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(245,158,11,0.1)" }}>
+                                <span style={{ fontSize: 9, color: "#f59e0b", display: "flex", alignItems: "center", gap: 4 }}>
+                                    <img src="/images/items/healthpack.gif" alt="HP" style={{ width: 16, height: 16 }} />
+                                    V5 Health Packs: <strong>{healthPackInventory}</strong>
+                                </span>
+                                <button 
+                                    onClick={onUseHealthPack}
+                                    style={{ 
+                                        padding: "4px 10px", 
+                                        background: "linear-gradient(135deg, #f59e0b, #ea580c)", 
+                                        border: "none", borderRadius: 4, 
+                                        color: "#fff", fontSize: 9, fontWeight: 600, cursor: "pointer"
+                                    }}
+                                >
+                                    💊 USE HEALTH PACK
+                                </button>
+                            </div>
+                        )}
                         
                         {/* WATER ALL button - only in staked tab */}
                         {activeTab === "staked" && plantsNeedingWater.length > 0 && (

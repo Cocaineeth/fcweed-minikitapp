@@ -55,8 +55,9 @@ import {
     CRATE_COST,
     V4_ITEMSHOP_ADDRESS,
     V4_STAKING_ADDRESS,     
-    V6_BATTLES_ADDRESS,
     V5_STAKING_ADDRESS,
+    V5_ITEMSHOP_ADDRESS,
+    V6_BATTLES_ADDRESS,
     V6_ITEMSHOP_ADDRESS,
     CRATE_REWARDS,
     CRATE_PROBS,
@@ -551,6 +552,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [inventoryStatus, setInventoryStatus] = useState<string>("");
     const [waterModalOpen, setWaterModalOpen] = useState<boolean>(false);
     const [itemsModalOpen, setItemsModalOpen] = useState<boolean>(false);
+    
+    // V5 Legacy Health Pack state
+    const [v5HealthPackModalOpen, setV5HealthPackModalOpen] = useState<boolean>(false);
+    const [v5HealthPackInventory, setV5HealthPackInventory] = useState<number>(0);
+    const [v5SelectedPlantsForHealthPack, setV5SelectedPlantsForHealthPack] = useState<number[]>([]);
+    const [v5HealthPackStatus, setV5HealthPackStatus] = useState<string>("");
+    const [v5HealthPackLoading, setV5HealthPackLoading] = useState<boolean>(false);
     
     // USDC Item Shop state
     const [usdcShopModalOpen, setUsdcShopModalOpen] = useState<boolean>(false);
@@ -1618,6 +1626,58 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setInventoryLoading(false);
         }
     }
+
+    // V5 Legacy Health Pack Functions
+    async function fetchV5HealthPackInventory() {
+        if (!userAddress || !readProvider) return;
+        try {
+            const v5ItemShopAbi = [
+                "function inventory(address user, uint256 itemId) view returns (uint256)",
+            ];
+            const v5ItemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, v5ItemShopAbi, readProvider);
+            // Item ID 4 = Health Pack in V5 ItemShop
+            const healthPackCount = await v5ItemShop.inventory(userAddress, 4);
+            setV5HealthPackInventory(Number(healthPackCount));
+            console.log("[V5 ItemShop] Health pack inventory:", Number(healthPackCount));
+        } catch (err) {
+            console.error("[V5 ItemShop] Failed to fetch inventory:", err);
+        }
+    }
+
+    async function handleV5UseHealthPack() {
+        if (!userAddress || v5SelectedPlantsForHealthPack.length === 0) return;
+        setV5HealthPackLoading(true);
+        setV5HealthPackStatus("Using V5 health pack...");
+        try {
+            // V5 ItemShop uses useHealthPackBatch for batch healing
+            const iface = new ethers.utils.Interface(["function useHealthPackBatch(uint256[] plantIds)"]);
+            const data = iface.encodeFunctionData("useHealthPackBatch", [v5SelectedPlantsForHealthPack]);
+            const gasLimit = 1200000 + (v5SelectedPlantsForHealthPack.length * 250000);
+            const tx = await sendContractTx(V5_ITEMSHOP_ADDRESS, data, "0x" + gasLimit.toString(16));
+            if (tx) {
+                await tx.wait();
+                setV5HealthPackStatus("✅ V5 Health pack used! Plants healed to 80%");
+                setV5HealthPackModalOpen(false);
+                setV5SelectedPlantsForHealthPack([]);
+                fetchV5HealthPackInventory();
+                refreshV5Staking();
+            } else {
+                setV5HealthPackStatus("Transaction rejected");
+            }
+        } catch (e: any) {
+            setV5HealthPackStatus(e?.reason || e?.message || "Failed to use V5 health pack");
+        } finally {
+            setV5HealthPackLoading(false);
+            setTimeout(() => setV5HealthPackStatus(""), 3000);
+        }
+    }
+
+    // Fetch V5 health pack inventory when V5 staking opens
+    useEffect(() => {
+        if (v5StakingOpen && userAddress) {
+            fetchV5HealthPackInventory();
+        }
+    }, [v5StakingOpen, userAddress]);
 
     async function handleBuyItem(itemId: number, currency: "dust" | "fcweed" | "xfcweed") {
         if (!userAddress) return;
@@ -4468,6 +4528,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         
         setLoadingV6Staking(true);
         try {
+            // First, get owned NFTs
+            const owned = await getOwnedState(userAddress, true);
+            
             const v6Contract = new ethers.Contract(V6_STAKING_ADDRESS, V6_STAKING_READ_ABI, readProvider);
             
             const [
@@ -4545,9 +4608,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const allStakedLands = new Set([...landIds, ...v4StakedLands, ...v5StakedLands]);
             const allStakedSuperLands = new Set([...superLandIds, ...v4StakedSuperLands, ...v5StakedSuperLands]);
             
-            const availPlants = ownedState.plants.filter(id => !allStakedPlants.has(id));
-            const availLands = ownedState.lands.filter(id => !allStakedLands.has(id));
-            const availSuperLands = ownedState.superLands.filter(id => !allStakedSuperLands.has(id));
+            // Filter owned NFTs - owned.plants/lands/superLands contain objects with tokenId
+            const availPlants = owned.plants
+                .map((t: any) => Number(t.tokenId))
+                .filter((id: number) => !allStakedPlants.has(id));
+            const availLands = owned.lands
+                .map((t: any) => Number(t.tokenId))
+                .filter((id: number) => !allStakedLands.has(id));
+            const availSuperLands = owned.superLands
+                .map((t: any) => Number(t.tokenId))
+                .filter((id: number) => !allStakedSuperLands.has(id));
             
             setV6AvailablePlants(availPlants);
             setV6AvailableLands(availLands);
@@ -8328,6 +8398,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     console.log("[GrowRoom] Water request:", { ids, amounts });
                     await handleV5WaterPlants(ids, amounts);
                 }}
+                onUseHealthPack={() => setV5HealthPackModalOpen(true)}
+                healthPackInventory={v5HealthPackInventory}
                 onShare={() => {
                     const plants = v5StakingStats?.plants || 0;
                     const lands = v5StakingStats?.lands || 0;
@@ -8804,6 +8876,159 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             </button>
                             <button
                                 onClick={() => { setHealthPackModalOpen(false); setSelectedPlantsForHealthPack([]); setInventoryStatus(""); }}
+                                style={{
+                                    padding: "14px 20px",
+                                    borderRadius: 10,
+                                    border: "1px solid #374151",
+                                    background: "transparent",
+                                    color: theme === "light" ? "#1e293b" : "#fff",
+                                    cursor: "pointer",
+                                    fontWeight: 600
+                                }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* V5 Legacy Health Pack Modal */}
+            {v5HealthPackModalOpen && (
+                <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 72, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+                    <div style={{ background: theme === "light" ? "#fff" : "#0f172a", borderRadius: 16, padding: 20, maxWidth: 520, width: "100%", maxHeight: "calc(100vh - 100px)", overflow: "auto", border: "1px solid rgba(245,158,11,0.3)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                            <h3 style={{ margin: 0, fontSize: 18, color: "#f59e0b", display: "flex", alignItems: "center", gap: 8 }}>
+                                <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ width: 28, height: 28, objectFit: "contain" }} />
+                                V5 Health Packs (Legacy)
+                            </h3>
+                            <button onClick={() => { setV5HealthPackModalOpen(false); setV5SelectedPlantsForHealthPack([]); setV5HealthPackStatus(""); }} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
+                        </div>
+                        
+                        <div style={{ background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 8, padding: 10, marginBottom: 16 }}>
+                            <p style={{ fontSize: 11, color: "#f59e0b", margin: 0, textAlign: "center" }}>⚠️ This uses your V5 ItemShop inventory to heal V5 staked plants</p>
+                        </div>
+                        
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16, background: "rgba(245,158,11,0.08)", borderRadius: 12, padding: 12 }}>
+                            <div style={{ textAlign: "center" }}>
+                                <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>V5 Health Packs</div>
+                                <div style={{ fontSize: 20, fontWeight: 700, color: "#f59e0b" }}>{v5HealthPackInventory}</div>
+                            </div>
+                            <div style={{ textAlign: "center" }}>
+                                <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>V5 Staked Plants</div>
+                                <div style={{ fontSize: 20, fontWeight: 700, color: "#a78bfa" }}>{v5StakedPlants.length}</div>
+                            </div>
+                            <div style={{ textAlign: "center" }}>
+                                <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>Avg Health</div>
+                                <div style={{ fontSize: 20, fontWeight: 700, color: v5StakedPlants.length > 0 ? (v5StakedPlants.reduce((acc, id) => acc + (v5PlantHealths[id] ?? 100), 0) / v5StakedPlants.length >= 70 ? "#10b981" : v5StakedPlants.reduce((acc, id) => acc + (v5PlantHealths[id] ?? 100), 0) / v5StakedPlants.length >= 40 ? "#fbbf24" : "#ef4444") : "#10b981" }}>
+                                    {v5StakedPlants.length > 0 ? Math.round(v5StakedPlants.reduce((acc, id) => acc + (v5PlantHealths[id] ?? 100), 0) / v5StakedPlants.length) : 100}%
+                                </div>
+                            </div>
+                        </div>
+
+                        <p style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 12, textAlign: "center" }}>Select V5 plants to heal to 80% health. Each plant uses 1 health pack.</p>
+                        
+                        <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <label style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 6, color: "#f59e0b", cursor: "pointer" }}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={v5SelectedPlantsForHealthPack.length === v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 80).length && v5SelectedPlantsForHealthPack.length > 0}
+                                    onChange={() => {
+                                        const needsHealing = v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 80).slice(0, v5HealthPackInventory);
+                                        if (v5SelectedPlantsForHealthPack.length === needsHealing.length && needsHealing.length > 0) {
+                                            setV5SelectedPlantsForHealthPack([]);
+                                        } else {
+                                            setV5SelectedPlantsForHealthPack(needsHealing);
+                                        }
+                                    }}
+                                    style={{ accentColor: "#f59e0b" }}
+                                />
+                                Select all below 80%
+                            </label>
+                            <div style={{ fontSize: 10, color: v5SelectedPlantsForHealthPack.length > v5HealthPackInventory ? "#ef4444" : "#9ca3af" }}>
+                                Selected: {v5SelectedPlantsForHealthPack.length} / {v5HealthPackInventory} packs
+                            </div>
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 16, maxHeight: 300, overflow: "auto", padding: 4 }}>
+                            {v5StakedPlants.map((id) => {
+                                const health = v5PlantHealths[id] ?? 100;
+                                const isSelected = v5SelectedPlantsForHealthPack.includes(id);
+                                const needsHeal = health < 80;
+                                return (
+                                    <div 
+                                        key={id}
+                                        onClick={() => {
+                                            if (isSelected) {
+                                                setV5SelectedPlantsForHealthPack(prev => prev.filter(p => p !== id));
+                                            } else if (v5SelectedPlantsForHealthPack.length < v5HealthPackInventory) {
+                                                setV5SelectedPlantsForHealthPack(prev => [...prev, id]);
+                                            }
+                                        }}
+                                        style={{
+                                            background: isSelected ? "rgba(245,158,11,0.15)" : theme === "light" ? "#f8fafc" : "rgba(15,23,42,0.8)",
+                                            border: isSelected ? "2px solid #f59e0b" : "1px solid rgba(100,116,139,0.2)",
+                                            borderRadius: 10,
+                                            padding: 10,
+                                            textAlign: "center",
+                                            cursor: needsHeal || isSelected ? "pointer" : "default",
+                                            opacity: !needsHeal && !isSelected ? 0.6 : 1,
+                                            transition: "all 0.15s ease"
+                                        }}
+                                    >
+                                        <div style={{ fontSize: 11, color: theme === "light" ? "#475569" : "#94a3b8", marginBottom: 4, fontWeight: 600 }}>Plant #{id}</div>
+                                        <div style={{ 
+                                            fontSize: 14, 
+                                            fontWeight: 700, 
+                                            color: health >= 80 ? "#22c55e" : health >= 50 ? "#eab308" : "#ef4444" 
+                                        }}>
+                                            {health}% HP
+                                        </div>
+                                        {health >= 80 && (
+                                            <div style={{ fontSize: 8, color: "#22c55e", marginTop: 2 }}>✓ Healthy</div>
+                                        )}
+                                        {isSelected && (
+                                            <div style={{ fontSize: 8, color: "#f59e0b", marginTop: 2, fontWeight: 600 }}>✓ Selected</div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {v5StakedPlants.length === 0 && (
+                            <div style={{ textAlign: "center", padding: 20 }}>
+                                <div style={{ fontSize: 40, marginBottom: 8 }}>🌱</div>
+                                <p style={{ fontSize: 12, color: theme === "light" ? "#64748b" : "#9ca3af" }}>No V5 staked plants found</p>
+                            </div>
+                        )}
+
+                        {v5HealthPackStatus && <p style={{ fontSize: 11, color: "#fbbf24", marginBottom: 12, textAlign: "center" }}>{v5HealthPackStatus}</p>}
+
+                        <div style={{ display: "flex", gap: 10 }}>
+                            <button
+                                onClick={handleV5UseHealthPack}
+                                disabled={v5SelectedPlantsForHealthPack.length === 0 || v5SelectedPlantsForHealthPack.length > v5HealthPackInventory || v5HealthPackLoading}
+                                style={{
+                                    flex: 1,
+                                    padding: 14,
+                                    borderRadius: 10,
+                                    border: "none",
+                                    background: v5SelectedPlantsForHealthPack.length > 0 && v5SelectedPlantsForHealthPack.length <= v5HealthPackInventory ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151",
+                                    color: v5SelectedPlantsForHealthPack.length > 0 && v5SelectedPlantsForHealthPack.length <= v5HealthPackInventory ? "#000" : "#9ca3af",
+                                    fontWeight: 700,
+                                    fontSize: 13,
+                                    cursor: v5SelectedPlantsForHealthPack.length > 0 && v5SelectedPlantsForHealthPack.length <= v5HealthPackInventory ? "pointer" : "not-allowed",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: 8
+                                }}
+                            >
+                                <img src="/images/items/healthpack.gif" alt="" style={{ width: 20, height: 20, objectFit: "contain" }} />
+                                {v5HealthPackLoading ? "Healing..." : `Heal ${v5SelectedPlantsForHealthPack.length} V5 Plant${v5SelectedPlantsForHealthPack.length !== 1 ? "s" : ""}`}
+                            </button>
+                            <button
+                                onClick={() => { setV5HealthPackModalOpen(false); setV5SelectedPlantsForHealthPack([]); setV5HealthPackStatus(""); }}
                                 style={{
                                     padding: "14px 20px",
                                     borderRadius: 10,
