@@ -26,6 +26,7 @@ import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS } from "./lib/constants";
 import IsometricFarm from "./components/GrowRoomV3";
 import { XFcweedConverter } from "./components/XFcweedConverter";
 import { DroughtButton } from "./components/DroughtButton";
+import { CropDusterModal } from "./components/CropDusterModal";
 
 import {
     CHAIN_ID,
@@ -54,6 +55,7 @@ import {
     V4_ITEMSHOP_ADDRESS,
     V4_STAKING_ADDRESS,     
     V6_BATTLES_ADDRESS,
+    V5_BATTLES_ADDRESS,
     V5_STAKING_ADDRESS,
     V6_ITEMSHOP_ADDRESS,
     CRATE_REWARDS,
@@ -437,6 +439,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setWaterModalOpen(false);
         setHealthPackModalOpen(false);
         setNukeConfirmOpen(false);
+        setCropDusterModalOpen(false);
         setCrateConfirmOpen(false);
     }, [activeTab]);
 
@@ -534,6 +537,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [inventoryAK47, setInventoryAK47] = useState<number>(0);
     const [inventoryRPG, setInventoryRPG] = useState<number>(0);
     const [inventoryNuke, setInventoryNuke] = useState<number>(0);
+    const [inventoryCropDuster, setInventoryCropDuster] = useState<number>(0);
+    const [cropDusterModalOpen, setCropDusterModalOpen] = useState<boolean>(false);
     const [shieldExpiry, setShieldExpiry] = useState<number>(0);
     const [boostExpiry, setBoostExpiry] = useState<number>(0);
     const [ak47Expiry, setAk47Expiry] = useState<number>(0);
@@ -1256,12 +1261,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const itemShop = new ethers.Contract(V5_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
             
             // V14 uses getUserFullInventory which returns uint256[] array
-            let inv = { ak47: 0, rpg: 0, nuke: 0, healthPack: 0, shield: 0, attackBoost: 0 };
+            let inv = { ak47: 0, rpg: 0, nuke: 0, healthPack: 0, shield: 0, attackBoost: 0, cropDuster: 0 };
             let boosts = { ak47Expires: 0, rpgExpires: 0, attackBoostExpires: 0, nukeExpires: 0, shieldExpires: 0 };
             
             try {
                 const invResult = await itemShop.getUserFullInventory(userAddress);
-                // V14 returns array: [ak47, rpg, nuke, healthPack, shield, attackBoost]
+                // V15 returns array: [ak47, rpg, nuke, healthPack, shield, attackBoost, waterPack, cropDuster]
+                // Item IDs: 1=AK47, 2=RPG, 3=Nuke, 4=HealthPack, 5=Shield, 6=AttackBoost, 7=WaterPack, 8=CropDuster
                 inv = {
                     ak47: Number(invResult[0]),
                     rpg: Number(invResult[1]),
@@ -1269,12 +1275,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     healthPack: Number(invResult[3]),
                     shield: Number(invResult[4]),
                     attackBoost: Number(invResult[5]),
+                    cropDuster: invResult[7] ? Number(invResult[7]) : 0,
                 };
-                console.log("[Inventory] V14 fetched:", inv);
+                console.log("[Inventory] V15 fetched:", inv);
             } catch (e) {
                 console.log("[Inventory] getUserFullInventory failed, trying individual calls:", e);
                 // Fallback to individual inventory calls
-                for (let i = 1; i <= 6; i++) {
+                for (let i = 1; i <= 8; i++) {
                     try {
                         const count = await itemShop.inventory(userAddress, i);
                         const num = Number(count);
@@ -1284,6 +1291,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         if (i === 4) inv.healthPack = num;
                         if (i === 5) inv.shield = num;
                         if (i === 6) inv.attackBoost = num;
+                        if (i === 8) inv.cropDuster = num;
                     } catch {}
                 }
             }
@@ -1300,13 +1308,14 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 };
             } catch (e) { console.log("[Inventory] getActiveBoosts failed:", e); }
 
-            // V11 item IDs: 1=AK47, 2=RPG, 3=Nuke, 4=HealthPack, 5=Shield, 6=AttackBoost
+            // V15 item IDs: 1=AK47, 2=RPG, 3=Nuke, 4=HealthPack, 5=Shield, 6=AttackBoost, 7=WaterPack, 8=CropDuster
             setInventoryAK47(inv.ak47);
             setInventoryRPG(inv.rpg);
             setInventoryNuke(inv.nuke);
             setInventoryHealthPacks(inv.healthPack);
             setInventoryShields(inv.shield);
             setInventoryBoosts(inv.attackBoost);
+            setInventoryCropDuster(inv.cropDuster);
             setAk47Expiry(boosts.ak47Expires);
             setRpgExpiry(boosts.rpgExpires);
             setBoostExpiry(boosts.attackBoostExpires);
@@ -7714,6 +7723,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                     />
                                                 )}
 
+                                                {/* Spacer between drought and inventory */}
+                                                {connected && <div style={{ height: 10 }} />}
 
                                                 {connected && (
                                                     <div style={{ background: theme === "light" ? "rgba(99,102,241,0.05)" : "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 10, padding: 10, marginBottom: 10, maxWidth: "100%", overflow: "hidden" }}>
@@ -7810,6 +7821,17 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                             ) : (
                                                 <button onClick={handleActivateBoost} disabled={inventoryBoosts === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryBoosts > 0 ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151", color: inventoryBoosts > 0 ? "#000" : "#fff", cursor: inventoryBoosts > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
                                             )}
+                                        </div>
+                                    </div>
+                                    {/* Crop Duster */}
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(245,158,11,0.1)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", border: "1px solid rgba(245,158,11,0.3)", minHeight: 95 }}>
+                                        <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
+                                            <span style={{ fontSize: 28 }}>✈️</span>
+                                        </div>
+                                        <div style={{ fontSize: 6, color: "#f59e0b", fontWeight: 600, marginBottom: 2 }}>CROP DUSTER</div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b", marginBottom: 4 }}>{inventoryCropDuster}</div>
+                                        <div style={{ marginTop: "auto", width: "100%" }}>
+                                            <button onClick={() => setCropDusterModalOpen(true)} disabled={inventoryCropDuster === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryCropDuster > 0 ? "linear-gradient(135deg, #f59e0b, #ea580c)" : "#374151", color: "#fff", cursor: inventoryCropDuster > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
                                         </div>
                                     </div>
                                 </div>
@@ -8206,6 +8228,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     <img src="/images/items/attackboost.gif" alt="Attack Boost" style={{ width: 32, height: 32, objectFit: "contain" }} />
                                     <div style={{ fontSize: 13, fontWeight: 700, color: "#f59e0b" }}>{inventoryBoosts}</div>
                                 </div>
+                                <div style={{ textAlign: "center", background: inventoryCropDuster > 0 ? "rgba(245,158,11,0.15)" : "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 10px", minWidth: 50, border: inventoryCropDuster > 0 ? "1px solid rgba(245,158,11,0.4)" : "none", cursor: inventoryCropDuster > 0 ? "pointer" : "default" }} onClick={() => inventoryCropDuster > 0 && setCropDusterModalOpen(true)}>
+                                    <span style={{ fontSize: 28, display: "block" }}>✈️</span>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#f59e0b" }}>{inventoryCropDuster}</div>
+                                </div>
                             </div>
                         </div>
                         <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
@@ -8569,6 +8595,24 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     </div>
                 </div>
             )}
+
+            {/* Crop Duster Modal */}
+            <CropDusterModal
+                isOpen={cropDusterModalOpen}
+                onClose={() => setCropDusterModalOpen(false)}
+                userAddress={userAddress}
+                sendContractTx={sendContractTx}
+                provider={readProvider}
+                fcweedBalance={fcweedBalanceRaw}
+                inventoryCount={inventoryCropDuster}
+                onSuccess={() => {
+                    fetchInventory();
+                    refreshAllData();
+                }}
+                theme={theme}
+                itemShopAddress={V5_ITEMSHOP_ADDRESS}
+                battlesAddress={V5_BATTLES_ADDRESS}
+            />
 
             
             {healthPackModalOpen && (
@@ -9025,13 +9069,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginBottom: 16 }}>
                             {usdcShopItems.filter(item => item.active).map(item => {
                                 const canAfford = usdcBalanceRaw.gte(ethers.utils.parseUnits(item.price, 6));
-                                const itemColor = item.mainShopId === 3 ? "#ef4444" : item.mainShopId === 4 ? "#10b981" : "#a855f7";
-                                const itemImg = item.mainShopId === 3 ? "/images/items/nuke.gif" : item.mainShopId === 4 ? "/images/items/healthpack.gif" : "/images/items/attackboost.gif";
+                                const itemColor = item.mainShopId === 3 ? "#ef4444" : item.mainShopId === 4 ? "#10b981" : item.mainShopId === 7 ? "#f59e0b" : "#a855f7";
+                                const itemImg = item.mainShopId === 3 ? "/images/items/nuke.gif" : item.mainShopId === 4 ? "/images/items/healthpack.gif" : item.mainShopId === 7 ? null : "/images/items/attackboost.gif";
+                                const isCropDuster = item.mainShopId === 7;
                                 
                                 return (
                                     <div key={item.id} style={{ background: `linear-gradient(135deg, ${itemColor}15, ${itemColor}10)`, border: `1px solid ${itemColor}66`, borderRadius: 12, padding: 12, textAlign: "center", display: "flex", flexDirection: "column" }}>
                                         <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
-                                            <img src={itemImg} alt={item.name} style={{ width: 48, height: 48, objectFit: "contain" }} />
+                                            {isCropDuster ? (
+                                                <span style={{ fontSize: 48 }}>✈️</span>
+                                            ) : (
+                                                <img src={itemImg!} alt={item.name} style={{ width: 48, height: 48, objectFit: "contain" }} />
+                                            )}
                                         </div>
                                         <div style={{ fontSize: 14, fontWeight: 700, color: itemColor, marginBottom: 4 }}>{item.name.toUpperCase()}</div>
                                         <div style={{ fontSize: 20, fontWeight: 700, color: "#2775CA", marginBottom: 4 }}>${item.price}</div>
