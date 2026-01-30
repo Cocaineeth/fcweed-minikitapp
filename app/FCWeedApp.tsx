@@ -4834,49 +4834,83 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 "function waterPricePerLiter() view returns (uint256)",
                 "function getUserStakedPlants(address) view returns (uint256[])",
                 "function users(address) view returns (uint64, uint32, uint32, uint32, uint256, uint256, uint256, uint256, uint256, uint256)",
+                "function totalPlantsStaked() view returns (uint256)",
+                "function dailyWaterSold(uint256) view returns (uint256)",
+                // New view functions (after upgrade)
+                "function getDailyWaterSupply() view returns (uint256)",
+                "function getDailyWaterRemaining() view returns (uint256)",
+                "function getWalletWaterLimit(address) view returns (uint256)",
+                "function getWalletWaterRemaining(address) view returns (uint256)",
             ], readProvider);
             
-            const [shopEnabled, pricePerLiter, stakedPlantIds, userTuple] = await Promise.all([
+            // Calculate current day number (days since epoch, UTC)
+            const currentDay = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+            
+            // Try new view functions first, fallback to manual calculation
+            let dailySupply = 0, dailyRemaining = 0, walletLimit = 0, walletRemaining = 0;
+            let stakedPlantsCount = 0, waterBalance = 0;
+            
+            const [shopEnabled, pricePerLiter, stakedPlantIds, userTuple, totalPlantsStaked] = await Promise.all([
                 v6Contract.waterShopEnabled(),
                 v6Contract.waterPricePerLiter(),
                 userAddress ? v6Contract.getUserStakedPlants(userAddress) : [],
                 userAddress ? v6Contract.users(userAddress) : null,
+                v6Contract.totalPlantsStaked(),
             ]);
-
-            // Use array length for accurate plant count
-            const stakedPlantsCount = stakedPlantIds ? stakedPlantIds.length : 0;
             
-            // Parse user tuple: [last, plants, lands, superLands, accrued, bonusBoostBps, lastClaimTime, waterBalance, waterPurchasedToday, lastWaterPurchaseDay]
-            const waterBalance = userTuple ? Number(userTuple[7] || 0) : 0;
-            const waterPurchasedToday = userTuple ? Number(userTuple[8] || 0) : 0;
-            const lastWaterPurchaseDay = userTuple ? Number(userTuple[9] || 0) : 0;
+            stakedPlantsCount = stakedPlantIds ? stakedPlantIds.length : 0;
+            waterBalance = userTuple ? Number(userTuple[7] || 0) : 0;
+            
+            // Try to use new contract view functions
+            try {
+                const [supply, remaining, limit, walletRem] = await Promise.all([
+                    v6Contract.getDailyWaterSupply(),
+                    v6Contract.getDailyWaterRemaining(),
+                    userAddress ? v6Contract.getWalletWaterLimit(userAddress) : ethers.BigNumber.from(0),
+                    userAddress ? v6Contract.getWalletWaterRemaining(userAddress) : ethers.BigNumber.from(0),
+                ]);
+                dailySupply = Number(supply);
+                dailyRemaining = Number(remaining);
+                walletLimit = Number(limit);
+                walletRemaining = Number(walletRem);
+                console.log("[WaterShop] Using contract view functions");
+            } catch (e) {
+                // Fallback to manual calculation (pre-upgrade)
+                console.log("[WaterShop] Fallback to manual calc:", e.message);
+                const totalStaked = Number(totalPlantsStaked);
+                dailySupply = Math.floor(totalStaked / 2);
+                const dailyWaterSoldToday = await v6Contract.dailyWaterSold(currentDay);
+                const dailySold = Number(dailyWaterSoldToday);
+                dailyRemaining = Math.max(0, dailySupply - dailySold);
+                
+                walletLimit = stakedPlantsCount;
+                const userWaterPurchasedToday = userTuple ? Number(userTuple[8] || 0) : 0;
+                const userLastWaterPurchaseDay = userTuple ? Number(userTuple[9] || 0) : 0;
+                const purchasedToday = userLastWaterPurchaseDay === currentDay ? userWaterPurchasedToday : 0;
+                walletRemaining = Math.max(0, walletLimit - purchasedToday);
+            }
             
             // Calculate shop open status (12PM - 6PM EST = 17:00 - 23:00 UTC in winter)
             const now = new Date();
             const utcHour = now.getUTCHours();
-            // EST is UTC-5, so 12PM EST = 17:00 UTC, 6PM EST = 23:00 UTC
             const isShopOpen = shopEnabled && utcHour >= 17 && utcHour < 23;
             
-            // Calculate current day number (days since epoch)
-            const currentDay = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
-            
-            // Wallet limit: 1L per staked plant
-            const walletLimit = stakedPlantsCount;
-            // Check if purchased today resets (different day)
-            const purchasedToday = lastWaterPurchaseDay === currentDay ? waterPurchasedToday : 0;
-            const walletRemaining = Math.max(0, walletLimit - purchasedToday);
-            
-            console.log("[WaterShop] V6 Data:", { shopEnabled, stakedPlantsCount, waterBalance, waterPurchasedToday, walletLimit, walletRemaining, utcHour, isShopOpen });
+            console.log("[WaterShop] V6 Data:", { 
+                shopEnabled, dailySupply, dailyRemaining,
+                stakedPlantsCount, walletLimit, walletRemaining, 
+                utcHour, isShopOpen, currentDay 
+            });
             
             setWaterShopInfo({
                 isOpen: isShopOpen,
                 shopEnabled: shopEnabled,
                 opensAt: 12,
                 closesAt: 18,
-                dailyRemaining: 999999,
+                totalPlantsStaked: Number(totalPlantsStaked),
+                dailySupply: dailySupply,
+                dailyRemaining: dailyRemaining,
                 walletRemaining: walletRemaining,
                 walletLimit: walletLimit,
-                purchasedToday: purchasedToday,
                 pricePerLiter: parseFloat(ethers.utils.formatUnits(pricePerLiter, 18)),
                 stakedPlants: stakedPlantsCount,
                 waterBalance: waterBalance,
@@ -9106,23 +9140,38 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         </div>
                         {waterShopInfo?.isOpen && (
                             <div style={{ marginBottom: 16 }}>
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 12 }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 12 }}>
+                                    <div style={{ background: "rgba(16,185,129,0.1)", borderRadius: 8, padding: 10 }}>
+                                        <div style={{ fontSize: 9, color: "#9ca3af" }}>DAILY SUPPLY LEFT</div>
+                                        <div style={{ fontSize: 14, color: (waterShopInfo?.dailyRemaining || 0) > 0 ? "#10b981" : "#ef4444", fontWeight: 700 }}>{waterShopInfo?.dailyRemaining || 0}L / {waterShopInfo?.dailySupply || 0}L</div>
+                                    </div>
                                     <div style={{ background: "rgba(96,165,250,0.1)", borderRadius: 8, padding: 10 }}>
-                                        <div style={{ fontSize: 9, color: "#9ca3af" }}>YOUR REMAINING TODAY</div>
-                                        <div style={{ fontSize: 14, color: "#60a5fa", fontWeight: 700 }}>{waterShopInfo?.walletRemaining || 0}L</div>
+                                        <div style={{ fontSize: 9, color: "#9ca3af" }}>YOUR REMAINING</div>
+                                        <div style={{ fontSize: 14, color: (waterShopInfo?.walletRemaining || 0) > 0 ? "#60a5fa" : "#ef4444", fontWeight: 700 }}>{waterShopInfo?.walletRemaining || 0}L</div>
                                     </div>
                                 </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                                    <button type="button" onClick={() => setWaterBuyAmount(Math.max(1, waterBuyAmount - 1))} style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #374151", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 18, fontWeight: 700 }}>-</button>
-                                    <div style={{ flex: 1, background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: "10px 16px", textAlign: "center" }}>
-                                        <div style={{ fontSize: 20, color: "#60a5fa", fontWeight: 700 }}>{waterBuyAmount}L</div>
-                                        <div style={{ fontSize: 11, color: "#9ca3af" }}>{(waterBuyAmount * (waterShopInfo?.pricePerLiter || 75000)).toLocaleString()} FCWEED</div>
-                                    </div>
-                                    <button type="button" onClick={() => setWaterBuyAmount(Math.min(waterShopInfo?.walletRemaining || 0, waterBuyAmount + 1))} disabled={waterBuyAmount >= (waterShopInfo?.walletRemaining || 0)} style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #374151", background: waterBuyAmount >= (waterShopInfo?.walletRemaining || 0) ? "#1f2937" : "transparent", color: waterBuyAmount >= (waterShopInfo?.walletRemaining || 0) ? "#6b7280" : "#fff", cursor: waterBuyAmount >= (waterShopInfo?.walletRemaining || 0) ? "not-allowed" : "pointer", fontSize: 18, fontWeight: 700 }}>+</button>
-                                </div>
-                                <button type="button" onClick={handleBuyWater} disabled={waterLoading || !connected || waterBuyAmount > (waterShopInfo?.walletRemaining || 0) || (waterShopInfo?.walletRemaining || 0) === 0} style={{ width: "100%", padding: 14, fontSize: 13, fontWeight: 700, borderRadius: 10, border: "none", background: waterLoading || waterBuyAmount > (waterShopInfo?.walletRemaining || 0) || (waterShopInfo?.walletRemaining || 0) === 0 ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)", color: "#fff", cursor: waterLoading || waterBuyAmount > (waterShopInfo?.walletRemaining || 0) || (waterShopInfo?.walletRemaining || 0) === 0 ? "not-allowed" : "pointer" }}>
-                                    {waterLoading ? "💧 Buying..." : (waterShopInfo?.walletRemaining || 0) === 0 ? "💧 Limit Reached" : `💧 Buy ${waterBuyAmount}L Water`}
-                                </button>
+                                {(() => {
+                                    const maxCanBuy = Math.min(waterShopInfo?.dailyRemaining || 0, waterShopInfo?.walletRemaining || 0);
+                                    const canBuy = maxCanBuy > 0;
+                                    return (
+                                        <>
+                                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                                                <button type="button" onClick={() => setWaterBuyAmount(Math.max(1, waterBuyAmount - 1))} disabled={!canBuy} style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #374151", background: !canBuy ? "#1f2937" : "transparent", color: !canBuy ? "#6b7280" : "#fff", cursor: !canBuy ? "not-allowed" : "pointer", fontSize: 18, fontWeight: 700 }}>-</button>
+                                                <div style={{ flex: 1, background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: "10px 16px", textAlign: "center" }}>
+                                                    <div style={{ fontSize: 20, color: "#60a5fa", fontWeight: 700 }}>{waterBuyAmount}L</div>
+                                                    <div style={{ fontSize: 11, color: "#9ca3af" }}>{(waterBuyAmount * (waterShopInfo?.pricePerLiter || 75000)).toLocaleString()} FCWEED</div>
+                                                </div>
+                                                <button type="button" onClick={() => setWaterBuyAmount(Math.min(maxCanBuy, waterBuyAmount + 1))} disabled={!canBuy || waterBuyAmount >= maxCanBuy} style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #374151", background: (!canBuy || waterBuyAmount >= maxCanBuy) ? "#1f2937" : "transparent", color: (!canBuy || waterBuyAmount >= maxCanBuy) ? "#6b7280" : "#fff", cursor: (!canBuy || waterBuyAmount >= maxCanBuy) ? "not-allowed" : "pointer", fontSize: 18, fontWeight: 700 }}>+</button>
+                                            </div>
+                                            <button type="button" onClick={handleBuyWater} disabled={waterLoading || !connected || !canBuy || waterBuyAmount > maxCanBuy} style={{ width: "100%", padding: 14, fontSize: 13, fontWeight: 700, borderRadius: 10, border: "none", background: (waterLoading || !canBuy || waterBuyAmount > maxCanBuy) ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)", color: "#fff", cursor: (waterLoading || !canBuy || waterBuyAmount > maxCanBuy) ? "not-allowed" : "pointer" }}>
+                                                {waterLoading ? "💧 Buying..." : 
+                                                    (waterShopInfo?.dailyRemaining || 0) === 0 ? "💧 Sold Out Today" :
+                                                    (waterShopInfo?.walletRemaining || 0) === 0 ? "💧 Daily Limit Reached" :
+                                                    `💧 Buy ${waterBuyAmount}L Water`}
+                                            </button>
+                                        </>
+                                    );
+                                })()}
                                 {waterStatus && <p style={{ fontSize: 10, color: "#fbbf24", marginTop: 8, textAlign: "center" }}>{waterStatus}</p>}
                             </div>
                         )}
