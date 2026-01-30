@@ -51,6 +51,7 @@ import {
     MULTICALL3_ADDRESS,
     METADATA_MODE,
     V6_CRATE_VAULT_ADDRESS,
+    CRATE_VAULT_ADDRESS,
     CRATE_COST,
     V4_ITEMSHOP_ADDRESS,
     V4_STAKING_ADDRESS,     
@@ -1248,14 +1249,14 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 console.log("[Inventory] Failed to check purge status:", e);
             }
             
-            // V14 ItemShop ABI
+            // V15 ItemShop ABI (matches FCWEEDItemShopV15.sol)
             const itemShopAbi = [
                 "function inventory(address user, uint256 itemId) view returns (uint256)",
                 "function getUserFullInventory(address) view returns (uint256[])",
                 "function getRemainingSupply(uint256 itemId) view returns (uint256)",
-                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active)",
+                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 xFcweedPrice, uint256 usdcPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active, bool fcweedEnabled, bool xFcweedEnabled, bool usdcEnabled, bool dustEnabled)",
                 "function hasActiveShield(address) view returns (bool active, uint256 expiresAt)",
-                "function getActiveBoosts(address) view returns (uint256 ak47Boost, uint256 ak47Expires, uint256 rpgBoost, uint256 rpgExpires, uint256 attackBoost, uint256 attackBoostExpires, bool nukeActive, uint256 nukeExpires, uint256 shieldExpires)",
+                "function getActiveBoosts(address) view returns (uint256 ak47Boost, uint256 ak47Expires, uint256 rpgBoost, uint256 rpgExpires, uint256 attackBoost, uint256 attackBoostExpires, bool nukeActive, uint256 nukeExpires, uint256 shieldExpires, bool cropDusterActive, uint256 cropDusterExpires)",
             ];
             const itemShop = new ethers.Contract(V6_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
             
@@ -1342,10 +1343,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function refreshShopSupply() {
         if (!readProvider) return;
         try {
-            // V14 ItemShop ABI
+            // V15 ItemShop ABI
             const itemShopAbi = [
                 "function getRemainingSupply(uint256 itemId) view returns (uint256)",
-                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active)",
+                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 xFcweedPrice, uint256 usdcPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active, bool fcweedEnabled, bool xFcweedEnabled, bool usdcEnabled, bool dustEnabled)",
                 "function getCurrentDay() view returns (uint256)",
             ];
             const itemShop = new ethers.Contract(V6_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
@@ -1618,7 +1619,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
     }
 
-    async function handleBuyItem(itemId: number, currency: "dust" | "fcweed") {
+    async function handleBuyItem(itemId: number, currency: "dust" | "fcweed" | "xfcweed") {
         if (!userAddress) return;
         
         // Block shield purchases during The Purge - shields are useless
@@ -1631,10 +1632,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setShopLoading(true);
         setShopStatus(`Buying item...`);
         try {
-            // V14 ItemShop uses buyItem(itemId, payWithDust)
+            // V15 ItemShop uses buyItem(itemId, PaymentType) where PaymentType enum: 0=FCWEED, 1=XFCWEED, 2=USDC, 3=DUST
             const itemShopAbi = [
-                "function buyItem(uint256 itemId, bool payWithDust) external",
-                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active)",
+                "function buyItem(uint256 itemId, uint8 payment) external",
+                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 xFcweedPrice, uint256 usdcPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active, bool fcweedEnabled, bool xFcweedEnabled, bool usdcEnabled, bool dustEnabled)",
                 "function shopEnabled() view returns (bool)",
             ];
             const itemShopInterface = new ethers.utils.Interface(itemShopAbi);
@@ -1644,7 +1645,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             if (currency === "fcweed") {
                 const fcweedPrice = item.fcweedPrice;
-                if (fcweedPrice.eq(0)) {
+                if (fcweedPrice.eq(0) || !item.fcweedEnabled) {
                     setShopStatus("This item cannot be purchased with FCWEED");
                     setShopLoading(false);
                     return;
@@ -1658,8 +1659,35 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 }
                 
                 setShopStatus("Confirming purchase...");
-                // V14: buyItem(itemId, false) for FCWEED payment
-                const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, false]);
+                // V15: buyItem(itemId, 0) for FCWEED payment (PaymentType.FCWEED = 0)
+                const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, 0]);
+                const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
+                if (!tx) {
+                    setShopStatus("Transaction canceled");
+                    setShopLoading(false);
+                    return;
+                }
+                await tx.wait();
+            } else if (currency === "xfcweed") {
+                const xFcweedPrice = item.xFcweedPrice;
+                if (xFcweedPrice.eq(0) || !item.xFcweedEnabled) {
+                    setShopStatus("This item cannot be purchased with xFCWEED");
+                    setShopLoading(false);
+                    return;
+                }
+                
+                // Check xFCWEED balance
+                if (v6XFcweedBalance.lt(xFcweedPrice)) {
+                    const needed = parseFloat(ethers.utils.formatEther(xFcweedPrice));
+                    const have = parseFloat(ethers.utils.formatEther(v6XFcweedBalance));
+                    setShopStatus(`Insufficient xFCWEED! Need ${needed >= 1000000 ? (needed/1000000).toFixed(1) + "M" : needed >= 1000 ? (needed/1000).toFixed(0) + "K" : needed.toFixed(0)}, have ${have >= 1000000 ? (have/1000000).toFixed(1) + "M" : have >= 1000 ? (have/1000).toFixed(0) + "K" : have.toFixed(0)}`);
+                    setShopLoading(false);
+                    return;
+                }
+                
+                setShopStatus("Confirming purchase...");
+                // V15: buyItem(itemId, 1) for xFCWEED payment (PaymentType.XFCWEED = 1)
+                const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, 1]);
                 const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
                 if (!tx) {
                     setShopStatus("Transaction canceled");
@@ -1669,7 +1697,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 await tx.wait();
             } else {
                 const dustPrice = item.dustPrice;
-                if (dustPrice.eq(0)) {
+                if (dustPrice.eq(0) || !item.dustEnabled) {
                     setShopStatus("This item cannot be purchased with Dust");
                     setShopLoading(false);
                     return;
@@ -1702,8 +1730,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 }
                 
                 setShopStatus("Confirming purchase...");
-                // V14: buyItem(itemId, true) for Dust payment
-                const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, true]);
+                // V15: buyItem(itemId, 3) for Dust payment (PaymentType.DUST = 3)
+                const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, 3]);
                 const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
                 if (!tx) {
                     setShopStatus("Transaction canceled");
@@ -8881,14 +8909,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             <button onClick={() => setItemsModalOpen(false)} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
                         </div>
                         {/* Balance Display */}
-                        <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 12, padding: "8px 12px", background: "rgba(0,0,0,0.2)", borderRadius: 8 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <span style={{ fontSize: 14 }}>🌿</span>
-                                <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>{fcweedBalance} FCWEED</span>
+                        <div style={{ display: "flex", justifyContent: "center", gap: 12, marginBottom: 12, padding: "8px 12px", background: "rgba(0,0,0,0.2)", borderRadius: 8, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                <span style={{ fontSize: 12 }}>🌿</span>
+                                <span style={{ fontSize: 11, color: "#10b981", fontWeight: 700 }}>{fcweedBalance} FCWEED</span>
                             </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <img src="/images/items/dust.gif" alt="Dust" style={{ width: 18, height: 18, objectFit: "contain" }} />
-                                <span style={{ fontSize: 12, color: "#9ca3af", fontWeight: 700 }}>{crateUserStats.dust.toLocaleString()} DUST</span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                <span style={{ fontSize: 12 }}>⚡</span>
+                                <span style={{ fontSize: 11, color: "#8b5cf6", fontWeight: 700 }}>{parseFloat(ethers.utils.formatEther(v6XFcweedBalance)) >= 1000000 ? (parseFloat(ethers.utils.formatEther(v6XFcweedBalance)) / 1000000).toFixed(2) + "M" : parseFloat(ethers.utils.formatEther(v6XFcweedBalance)) >= 1000 ? (parseFloat(ethers.utils.formatEther(v6XFcweedBalance)) / 1000).toFixed(1) + "K" : parseFloat(ethers.utils.formatEther(v6XFcweedBalance)).toFixed(0)} xFCWEED</span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                <img src="/images/items/dust.gif" alt="Dust" style={{ width: 16, height: 16, objectFit: "contain" }} />
+                                <span style={{ fontSize: 11, color: "#9ca3af", fontWeight: 700 }}>{crateUserStats.dust.toLocaleString()} DUST</span>
                             </div>
                         </div>
                         <div style={{ fontSize: 10, color: "#9ca3af", textAlign: "center", marginBottom: 12 }}>
@@ -8909,6 +8941,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[1]?.remaining ?? 15}/{shopSupply[1]?.total ?? 15}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(1, "dust")} disabled={shopLoading || crateUserStats.dust < 1000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 1000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 1000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 1000 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />1K DUST</button>
+                                            <button onClick={() => handleBuyItem(1, "xfcweed")} disabled={shopLoading || v6XFcweedBalance.lt(SHOP_FCWEED_PRICES.ak47)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.ak47) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.ak47) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.ak47) ? "pointer" : "not-allowed", fontSize: 8 }}>⚡ 1M xFCWEED</button>
                                             <button onClick={() => handleBuyItem(1, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.ak47)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "linear-gradient(135deg, #ef4444, #dc2626)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 1M FCWEED</button>
                                         </div>
                                     </>
@@ -8933,6 +8966,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[3]?.remaining ?? 1}/{shopSupply[3]?.total ?? 1}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(3, "dust")} disabled={shopLoading || crateUserStats.dust < 10000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 10000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 10000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 10000 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />10K DUST</button>
+                                            <button onClick={() => handleBuyItem(3, "xfcweed")} disabled={shopLoading || v6XFcweedBalance.lt(SHOP_FCWEED_PRICES.nuke)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.nuke) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.nuke) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.nuke) ? "pointer" : "not-allowed", fontSize: 8 }}>⚡ 10M xFCWEED</button>
                                             <button onClick={() => handleBuyItem(3, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.nuke)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "linear-gradient(135deg, #dc2626, #b91c1c)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 10M FCWEED</button>
                                         </div>
                                     </>
@@ -8957,6 +8991,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#a855f7", fontWeight: 600 }}>{shopSupply[2]?.remaining ?? 3}/{shopSupply[2]?.total ?? 3}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(2, "dust")} disabled={shopLoading || crateUserStats.dust < 4000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 4000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 4000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 4000 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />4K DUST</button>
+                                            <button onClick={() => handleBuyItem(2, "xfcweed")} disabled={shopLoading || v6XFcweedBalance.lt(SHOP_FCWEED_PRICES.rpg)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.rpg) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.rpg) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.rpg) ? "pointer" : "not-allowed", fontSize: 8 }}>⚡ 4M xFCWEED</button>
                                             <button onClick={() => handleBuyItem(2, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.rpg)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 4M FCWEED</button>
                                         </div>
                                     </>
@@ -8983,6 +9018,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#10b981", fontWeight: 600 }}>{shopSupply[4]?.remaining ?? 20}/{shopSupply[4]?.total ?? 20}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(4, "dust")} disabled={shopLoading || crateUserStats.dust < 2000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2000 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />2K DUST</button>
+                                            <button onClick={() => handleBuyItem(4, "xfcweed")} disabled={shopLoading || v6XFcweedBalance.lt(SHOP_FCWEED_PRICES.healthPack)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.healthPack) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.healthPack) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.healthPack) ? "pointer" : "not-allowed", fontSize: 8 }}>⚡ 2M xFCWEED</button>
                                             <button onClick={() => handleBuyItem(4, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.healthPack)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 2M FCWEED</button>
                                         </div>
                                     </>
@@ -9032,6 +9068,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#f59e0b", fontWeight: 600 }}>∞</span></div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                     <button onClick={() => handleBuyItem(6, "dust")} disabled={shopLoading || crateUserStats.dust < 200} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 200 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 200 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 200 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />200 DUST</button>
+                                    <button onClick={() => handleBuyItem(6, "xfcweed")} disabled={shopLoading || v6XFcweedBalance.lt(SHOP_FCWEED_PRICES.attackBoost)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.attackBoost) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.attackBoost) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.attackBoost) ? "pointer" : "not-allowed", fontSize: 8 }}>⚡ 200K xFCWEED</button>
                                     <button onClick={() => handleBuyItem(6, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.attackBoost)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "#000" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 200K FCWEED</button>
                                 </div>
                                 </div>
