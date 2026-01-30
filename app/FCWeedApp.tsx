@@ -4832,25 +4832,30 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const v6Contract = new ethers.Contract(V6_STAKING_ADDRESS, [
                 "function waterShopEnabled() view returns (bool)",
                 "function waterPricePerLiter() view returns (uint256)",
-                "function users(address) view returns (uint32 plants, uint32 lands, uint32 superLands, uint256 totalPower, uint256 lastClaim, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay, uint256 stakedTokens, uint256 accrued)",
+                "function getUserStakedPlants(address) view returns (uint256[])",
+                "function users(address) view returns (uint64, uint32, uint32, uint32, uint256, uint256, uint256, uint256, uint256, uint256)",
             ], readProvider);
             
-            const [shopEnabled, pricePerLiter, userData] = await Promise.all([
+            const [shopEnabled, pricePerLiter, stakedPlantIds, userTuple] = await Promise.all([
                 v6Contract.waterShopEnabled(),
                 v6Contract.waterPricePerLiter(),
+                userAddress ? v6Contract.getUserStakedPlants(userAddress) : [],
                 userAddress ? v6Contract.users(userAddress) : null,
             ]);
 
-            const waterBalance = userData ? Number(userData.waterBalance || 0) : 0;
-            const stakedPlantsCount = userData ? Number(userData.plants) : 0;
-            const waterPurchasedToday = userData ? Number(userData.waterPurchasedToday || 0) : 0;
-            const lastWaterPurchaseDay = userData ? Number(userData.lastWaterPurchaseDay || 0) : 0;
+            // Use array length for accurate plant count
+            const stakedPlantsCount = stakedPlantIds ? stakedPlantIds.length : 0;
             
-            // Calculate shop open status (12PM - 6PM EST)
+            // Parse user tuple: [last, plants, lands, superLands, accrued, bonusBoostBps, lastClaimTime, waterBalance, waterPurchasedToday, lastWaterPurchaseDay]
+            const waterBalance = userTuple ? Number(userTuple[7] || 0) : 0;
+            const waterPurchasedToday = userTuple ? Number(userTuple[8] || 0) : 0;
+            const lastWaterPurchaseDay = userTuple ? Number(userTuple[9] || 0) : 0;
+            
+            // Calculate shop open status (12PM - 6PM EST = 17:00 - 23:00 UTC in winter)
             const now = new Date();
-            const estTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-            const currentHour = estTime.getHours();
-            const isShopOpen = shopEnabled && currentHour >= 12 && currentHour < 18; // 12PM-6PM EST
+            const utcHour = now.getUTCHours();
+            // EST is UTC-5, so 12PM EST = 17:00 UTC, 6PM EST = 23:00 UTC
+            const isShopOpen = shopEnabled && utcHour >= 17 && utcHour < 23;
             
             // Calculate current day number (days since epoch)
             const currentDay = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
@@ -4861,12 +4866,14 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const purchasedToday = lastWaterPurchaseDay === currentDay ? waterPurchasedToday : 0;
             const walletRemaining = Math.max(0, walletLimit - purchasedToday);
             
+            console.log("[WaterShop] V6 Data:", { shopEnabled, stakedPlantsCount, waterBalance, waterPurchasedToday, walletLimit, walletRemaining, utcHour, isShopOpen });
+            
             setWaterShopInfo({
                 isOpen: isShopOpen,
                 shopEnabled: shopEnabled,
                 opensAt: 12,
                 closesAt: 18,
-                dailyRemaining: 999999, // V6 has no global daily limit
+                dailyRemaining: 999999,
                 walletRemaining: walletRemaining,
                 walletLimit: walletLimit,
                 purchasedToday: purchasedToday,
