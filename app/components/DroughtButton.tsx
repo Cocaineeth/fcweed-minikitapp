@@ -105,10 +105,16 @@ export function DroughtButton({
         return () => clearInterval(interval);
     }, [timeToDrought]);
     
-    // Activate drought
-    const activateDrought = async (paymentType: number) => {
+    // Activate drought - Contract ONLY supports xFCWEED
+    const activateDrought = async () => {
         if (!signer || !address) {
             alert("Please connect your wallet");
+            return;
+        }
+        
+        // Check xFCWEED balance
+        if (!canAffordXFcweed) {
+            setTxStatus("Insufficient xFCWEED balance. Need 100M xFCWEED.");
             return;
         }
         
@@ -118,35 +124,9 @@ export function DroughtButton({
         try {
             const battlesContract = new ethers.Contract(V6_BATTLES_ADDRESS, V5_BATTLES_ABI, signer);
             
-            // Check/approve tokens based on payment type
-            if (paymentType === 1) {
-                // FCWEED payment
-                setTxStatus("Checking FCWEED approval...");
-                // Use provider for read calls (allowance), signer for write calls (approve)
-                const fcweedRead = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, provider);
-                const allowance = await fcweedRead.allowance(address, V6_BATTLES_ADDRESS);
-                if (allowance.lt(DROUGHT_COST_FCWEED)) {
-                    setTxStatus("Approving FCWEED...");
-                    const fcweedWrite = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, signer);
-                    const approveTx = await fcweedWrite.approve(V6_BATTLES_ADDRESS, ethers.constants.MaxUint256);
-                    await approveTx.wait();
-                }
-            } else if (paymentType === 2) {
-                // USDC payment
-                setTxStatus("Checking USDC approval...");
-                // Use provider for read calls (allowance), signer for write calls (approve)
-                const usdcRead = new ethers.Contract(USDC_ADDRESS, USDC_ABI, provider);
-                const allowance = await usdcRead.allowance(address, V6_BATTLES_ADDRESS);
-                if (allowance.lt(DROUGHT_COST_USDC)) {
-                    setTxStatus("Approving USDC...");
-                    const usdcWrite = new ethers.Contract(USDC_ADDRESS, USDC_ABI, signer);
-                    const approveTx = await usdcWrite.approve(V6_BATTLES_ADDRESS, ethers.constants.MaxUint256);
-                    await approveTx.wait();
-                }
-            }
-            
+            // Contract uses xFCWEED from staking - no approval needed
             setTxStatus("Activating drought...");
-            const tx = await battlesContract.activateDrought(paymentType);
+            const tx = await battlesContract.activateDrought(); // No parameters!
             
             setTxStatus("Waiting for confirmation...");
             await tx.wait();
@@ -168,10 +148,8 @@ export function DroughtButton({
         }
     };
     
-    // Check if user can afford each payment type
+    // Check if user can afford xFCWEED (only payment method)
     const canAffordXFcweed = xFcweedBalance?.gte(DROUGHT_COST_XFCWEED) || false;
-    const canAffordFcweed = fcweedBalance?.gte(DROUGHT_COST_FCWEED) || false;
-    const canAffordUsdc = usdcBalance?.gte(DROUGHT_COST_USDC) || false;
     
     if (!droughtOn) {
         return null; // Don't show if drought is disabled
@@ -273,19 +251,19 @@ export function DroughtButton({
                             </div>
                         )}
                         
-                        {/* Payment Options */}
+                        {/* Payment Option - xFCWEED Only */}
                         {canDrought && !loading && (
                             <div className="space-y-3">
-                                <div className="text-sm text-gray-400 text-center mb-2">Choose payment method:</div>
+                                <div className="text-sm text-gray-400 text-center mb-2">Payment required:</div>
                                 
-                                {/* xFCWEED Option */}
+                                {/* xFCWEED Option - ONLY payment method */}
                                 <button
                                     className={`w-full p-4 rounded-xl flex items-center justify-between transition-all ${
                                         canAffordXFcweed 
                                             ? "bg-gradient-to-r from-purple-900 to-purple-700 hover:from-purple-800 hover:to-purple-600 border border-purple-500"
                                             : "bg-gray-800 opacity-50 cursor-not-allowed border border-gray-600"
                                     }`}
-                                    onClick={() => canAffordXFcweed && activateDrought(0)}
+                                    onClick={() => canAffordXFcweed && activateDrought()}
                                     disabled={!canAffordXFcweed}
                                 >
                                     <div className="flex items-center gap-3">
@@ -297,58 +275,16 @@ export function DroughtButton({
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="text-green-400">
+                                    <div className={canAffordXFcweed ? "text-green-400" : "text-red-400"}>
                                         {canAffordXFcweed ? "✓" : "✗"}
                                     </div>
                                 </button>
                                 
-                                {/* FCWEED Option */}
-                                <button
-                                    className={`w-full p-4 rounded-xl flex items-center justify-between transition-all ${
-                                        canAffordFcweed 
-                                            ? "bg-gradient-to-r from-green-900 to-green-700 hover:from-green-800 hover:to-green-600 border border-green-500"
-                                            : "bg-gray-800 opacity-50 cursor-not-allowed border border-gray-600"
-                                    }`}
-                                    onClick={() => canAffordFcweed && activateDrought(1)}
-                                    disabled={!canAffordFcweed}
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-2xl">🌿</span>
-                                        <div className="text-left">
-                                            <div className="font-bold text-white">100M FCWEED</div>
-                                            <div className="text-xs text-gray-300">
-                                                Balance: {formatBigNumber(fcweedBalance)}
-                                            </div>
-                                        </div>
+                                {!canAffordXFcweed && (
+                                    <div className="text-center text-sm text-red-400 mt-2">
+                                        Need 100M xFCWEED to activate drought. Stake NFTs to earn xFCWEED!
                                     </div>
-                                    <div className="text-green-400">
-                                        {canAffordFcweed ? "✓" : "✗"}
-                                    </div>
-                                </button>
-                                
-                                {/* USDC Option */}
-                                <button
-                                    className={`w-full p-4 rounded-xl flex items-center justify-between transition-all ${
-                                        canAffordUsdc 
-                                            ? "bg-gradient-to-r from-blue-900 to-blue-700 hover:from-blue-800 hover:to-blue-600 border border-blue-500"
-                                            : "bg-gray-800 opacity-50 cursor-not-allowed border border-gray-600"
-                                    }`}
-                                    onClick={() => canAffordUsdc && activateDrought(2)}
-                                    disabled={!canAffordUsdc}
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-2xl">💵</span>
-                                        <div className="text-left">
-                                            <div className="font-bold text-white">$300 USDC</div>
-                                            <div className="text-xs text-gray-300">
-                                                Balance: ${formatBigNumber(usdcBalance, 6)}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="text-green-400">
-                                        {canAffordUsdc ? "✓" : "✗"}
-                                    </div>
-                                </button>
+                                )}
                             </div>
                         )}
                         
