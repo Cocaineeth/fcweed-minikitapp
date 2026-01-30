@@ -1771,17 +1771,15 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     const stats = await crateVault.getUserStats(userAddress);
                     const dustBalanceRaw = stats.dustBalance ?? stats[0];
                     
-                    // CrateVault stores dust as raw integers (500 = 500 dust)
-                    // ItemShop stores dustPrice in 18 decimals (200 dust = 200e18)
-                    // Scale dustBalance to 18 decimals for comparison
-                    const dustBalanceScaled = ethers.BigNumber.from(dustBalanceRaw).mul(ethers.BigNumber.from(10).pow(18));
+                    // Both CrateVault dustBalance and ItemShop dustPrice are raw integers
+                    // e.g., 3450 dust balance, 200 dust price for Attack Boost
+                    const dustBalanceNum = typeof dustBalanceRaw === 'number' ? dustBalanceRaw : dustBalanceRaw.toNumber();
+                    const dustPriceNum = dustPrice.toNumber();
                     
-                    console.log("[Shop] Dust check - price:", dustPrice.toString(), "balance raw:", dustBalanceRaw.toString(), "balance scaled:", dustBalanceScaled.toString());
+                    console.log("[Shop] Dust check - price:", dustPriceNum, "balance:", dustBalanceNum);
                     
-                    if (dustBalanceScaled.lt(dustPrice)) {
-                        const needed = parseFloat(ethers.utils.formatUnits(dustPrice, 18));
-                        const have = typeof dustBalanceRaw === 'number' ? dustBalanceRaw : dustBalanceRaw.toNumber();
-                        setShopStatus(`Insufficient Dust! Need ${needed.toLocaleString()}, have ${have.toLocaleString()}. Open crates to earn Dust.`);
+                    if (dustBalanceNum < dustPriceNum) {
+                        setShopStatus(`Insufficient Dust! Need ${dustPriceNum.toLocaleString()}, have ${dustBalanceNum.toLocaleString()}. Open crates to earn Dust.`);
                         setShopLoading(false);
                         return;
                     }
@@ -4632,175 +4630,164 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
 
     async function handleV6Claim() {
-        if (!userAddress || !signer) return;
-        setV6ActionStatus("Harvesting xFCWEED...");
         try {
+            setActionLoading(true);
+            setV6ActionStatus("Harvesting xFCWEED...");
             const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
             const data = iface.encodeFunctionData("claimXFcweed", []);
             const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
-            if (tx) {
-                setV6ActionStatus("Waiting for confirmation...");
-                await tx.wait();
-                setV6ActionStatus("✅ Harvested xFCWEED!");
-                await loadV6StakingData();
-            }
+            if (!tx) throw new Error("Tx rejected");
+            setV6ActionStatus("Waiting for confirmation...");
+            await tx.wait();
+            setV6ActionStatus("✅ Harvested xFCWEED!");
+            await loadV6StakingData();
         } catch (err: any) {
-            setV6ActionStatus(err?.reason || err?.message || "Harvest failed");
+            setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
         }
-        setTimeout(() => setV6ActionStatus(""), 3000);
+        finally { setActionLoading(false); setTimeout(() => setV6ActionStatus(""), 3000); }
     }
 
     async function handleV6StakePlants(ids: number[]) {
-        if (!userAddress || !signer || ids.length === 0) return;
-        setV6ActionStatus("Staking plants...");
+        if (ids.length === 0) return;
         try {
-            // Check approval
-            const plantContract = new ethers.Contract(PLANT_ADDRESS, ["function isApprovedForAll(address,address) view returns (bool)", "function setApprovalForAll(address,bool)"], signer);
-            const isApproved = await plantContract.isApprovedForAll(userAddress, V6_STAKING_ADDRESS);
-            if (!isApproved) {
-                setV6ActionStatus("Approving plants...");
-                const approveTx = await plantContract.setApprovalForAll(V6_STAKING_ADDRESS, true);
-                await approveTx.wait();
-            }
+            setActionLoading(true);
+            setV6ActionStatus("Approving...");
+            const ctx = await ensureWallet();
+            if (!ctx) { setV6ActionStatus("Wallet not connected"); setActionLoading(false); return; }
+            await ensureCollectionApproval(PLANT_ADDRESS, V6_STAKING_ADDRESS, ctx);
             
+            setV6ActionStatus("Staking plants...");
             const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
             const data = iface.encodeFunctionData("stakePlants", [ids]);
             const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
-            if (tx) {
-                setV6ActionStatus("Waiting for confirmation...");
-                await tx.wait();
-                setV6ActionStatus(`✅ Staked ${ids.length} plant(s)!`);
-                await loadV6StakingData();
-            }
+            if (!tx) throw new Error("Tx rejected");
+            setV6ActionStatus("Waiting for confirmation...");
+            await tx.wait();
+            setV6ActionStatus(`✅ Staked ${ids.length} plant(s)!`);
+            await loadV6StakingData();
         } catch (err: any) {
-            setV6ActionStatus(err?.reason || err?.message || "Stake failed");
+            setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
         }
-        setTimeout(() => setV6ActionStatus(""), 3000);
+        finally { setActionLoading(false); setTimeout(() => setV6ActionStatus(""), 3000); }
     }
 
     async function handleV6UnstakePlants(ids: number[]) {
-        if (!userAddress || !signer || ids.length === 0) return;
-        setV6ActionStatus("Unstaking plants...");
+        if (ids.length === 0) return;
         try {
+            setActionLoading(true);
+            setV6ActionStatus("Unstaking plants...");
             const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
             const data = iface.encodeFunctionData("unstakePlants", [ids]);
             const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
-            if (tx) {
-                await tx.wait();
-                setV6ActionStatus(`✅ Unstaked ${ids.length} plant(s)!`);
-                await loadV6StakingData();
-            }
+            if (!tx) throw new Error("Tx rejected");
+            await tx.wait();
+            setV6ActionStatus(`✅ Unstaked ${ids.length} plant(s)!`);
+            await loadV6StakingData();
         } catch (err: any) {
-            setV6ActionStatus(err?.reason || err?.message || "Unstake failed");
+            setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
         }
-        setTimeout(() => setV6ActionStatus(""), 3000);
+        finally { setActionLoading(false); setTimeout(() => setV6ActionStatus(""), 3000); }
     }
 
     async function handleV6StakeLands(ids: number[]) {
-        if (!userAddress || !signer || ids.length === 0) return;
-        setV6ActionStatus("Staking lands...");
+        if (ids.length === 0) return;
         try {
-            const landContract = new ethers.Contract(LAND_ADDRESS, ["function isApprovedForAll(address,address) view returns (bool)", "function setApprovalForAll(address,bool)"], signer);
-            const isApproved = await landContract.isApprovedForAll(userAddress, V6_STAKING_ADDRESS);
-            if (!isApproved) {
-                setV6ActionStatus("Approving lands...");
-                const approveTx = await landContract.setApprovalForAll(V6_STAKING_ADDRESS, true);
-                await approveTx.wait();
-            }
+            setActionLoading(true);
+            setV6ActionStatus("Approving...");
+            const ctx = await ensureWallet();
+            if (!ctx) { setV6ActionStatus("Wallet not connected"); setActionLoading(false); return; }
+            await ensureCollectionApproval(LAND_ADDRESS, V6_STAKING_ADDRESS, ctx);
             
+            setV6ActionStatus("Staking lands...");
             const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
             const data = iface.encodeFunctionData("stakeLands", [ids]);
             const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
-            if (tx) {
-                await tx.wait();
-                setV6ActionStatus(`✅ Staked ${ids.length} land(s)!`);
-                await loadV6StakingData();
-            }
+            if (!tx) throw new Error("Tx rejected");
+            await tx.wait();
+            setV6ActionStatus(`✅ Staked ${ids.length} land(s)!`);
+            await loadV6StakingData();
         } catch (err: any) {
-            setV6ActionStatus(err?.reason || err?.message || "Stake failed");
+            setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
         }
-        setTimeout(() => setV6ActionStatus(""), 3000);
+        finally { setActionLoading(false); setTimeout(() => setV6ActionStatus(""), 3000); }
     }
 
     async function handleV6UnstakeLands(ids: number[]) {
-        if (!userAddress || !signer || ids.length === 0) return;
-        setV6ActionStatus("Unstaking lands...");
+        if (ids.length === 0) return;
         try {
+            setActionLoading(true);
+            setV6ActionStatus("Unstaking lands...");
             const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
             const data = iface.encodeFunctionData("unstakeLands", [ids]);
             const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
-            if (tx) {
-                await tx.wait();
-                setV6ActionStatus(`✅ Unstaked ${ids.length} land(s)!`);
-                await loadV6StakingData();
-            }
+            if (!tx) throw new Error("Tx rejected");
+            await tx.wait();
+            setV6ActionStatus(`✅ Unstaked ${ids.length} land(s)!`);
+            await loadV6StakingData();
         } catch (err: any) {
-            setV6ActionStatus(err?.reason || err?.message || "Unstake failed");
+            setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
         }
-        setTimeout(() => setV6ActionStatus(""), 3000);
+        finally { setActionLoading(false); setTimeout(() => setV6ActionStatus(""), 3000); }
     }
 
     async function handleV6StakeSuperLands(ids: number[]) {
-        if (!userAddress || !signer || ids.length === 0) return;
-        setV6ActionStatus("Staking super lands...");
+        if (ids.length === 0) return;
         try {
-            const slContract = new ethers.Contract(SUPER_LAND_ADDRESS, ["function isApprovedForAll(address,address) view returns (bool)", "function setApprovalForAll(address,bool)"], signer);
-            const isApproved = await slContract.isApprovedForAll(userAddress, V6_STAKING_ADDRESS);
-            if (!isApproved) {
-                setV6ActionStatus("Approving super lands...");
-                const approveTx = await slContract.setApprovalForAll(V6_STAKING_ADDRESS, true);
-                await approveTx.wait();
-            }
+            setActionLoading(true);
+            setV6ActionStatus("Approving...");
+            const ctx = await ensureWallet();
+            if (!ctx) { setV6ActionStatus("Wallet not connected"); setActionLoading(false); return; }
+            await ensureCollectionApproval(SUPER_LAND_ADDRESS, V6_STAKING_ADDRESS, ctx);
             
+            setV6ActionStatus("Staking super lands...");
             const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
             const data = iface.encodeFunctionData("stakeSuperLands", [ids]);
             const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
-            if (tx) {
-                await tx.wait();
-                setV6ActionStatus(`✅ Staked ${ids.length} super land(s)!`);
-                await loadV6StakingData();
-            }
+            if (!tx) throw new Error("Tx rejected");
+            await tx.wait();
+            setV6ActionStatus(`✅ Staked ${ids.length} super land(s)!`);
+            await loadV6StakingData();
         } catch (err: any) {
-            setV6ActionStatus(err?.reason || err?.message || "Stake failed");
+            setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
         }
-        setTimeout(() => setV6ActionStatus(""), 3000);
+        finally { setActionLoading(false); setTimeout(() => setV6ActionStatus(""), 3000); }
     }
 
     async function handleV6UnstakeSuperLands(ids: number[]) {
-        if (!userAddress || !signer || ids.length === 0) return;
-        setV6ActionStatus("Unstaking super lands...");
+        if (ids.length === 0) return;
         try {
+            setActionLoading(true);
+            setV6ActionStatus("Unstaking super lands...");
             const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
             const data = iface.encodeFunctionData("unstakeSuperLands", [ids]);
             const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
-            if (tx) {
-                await tx.wait();
-                setV6ActionStatus(`✅ Unstaked ${ids.length} super land(s)!`);
-                await loadV6StakingData();
-            }
+            if (!tx) throw new Error("Tx rejected");
+            await tx.wait();
+            setV6ActionStatus(`✅ Unstaked ${ids.length} super land(s)!`);
+            await loadV6StakingData();
         } catch (err: any) {
-            setV6ActionStatus(err?.reason || err?.message || "Unstake failed");
+            setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
         }
-        setTimeout(() => setV6ActionStatus(""), 3000);
+        finally { setActionLoading(false); setTimeout(() => setV6ActionStatus(""), 3000); }
     }
 
     async function handleV6WaterPlants(ids: number[], amounts: Record<number, number>) {
-        if (!userAddress || !signer || ids.length === 0) return;
-        setV6ActionStatus("Watering plants...");
+        if (ids.length === 0) return;
         try {
+            setActionLoading(true);
+            setV6ActionStatus("Watering plants...");
             const amountArray = ids.map(id => ethers.utils.parseEther(String(amounts[id] || 0)));
             const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
             const data = iface.encodeFunctionData("waterPlants", [ids, amountArray]);
             const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
-            if (tx) {
-                await tx.wait();
-                setV6ActionStatus(`✅ Watered ${ids.length} plant(s)!`);
-                await loadV6StakingData();
-            }
+            if (!tx) throw new Error("Tx rejected");
+            await tx.wait();
+            setV6ActionStatus(`✅ Watered ${ids.length} plant(s)!`);
+            await loadV6StakingData();
         } catch (err: any) {
-            setV6ActionStatus(err?.reason || err?.message || "Water failed");
+            setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
         }
-        setTimeout(() => setV6ActionStatus(""), 3000);
+        finally { setActionLoading(false); setTimeout(() => setV6ActionStatus(""), 3000); }
     }
 
     // Load V6 data when modal opens
