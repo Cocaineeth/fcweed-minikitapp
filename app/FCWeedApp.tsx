@@ -4577,7 +4577,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setV6StakedLands(landIds);
             setV6StakedSuperLands(superLandIds);
             
-            // Pull live avgHealth + on-chain combat power (defense base) from V6 staking
             let avgHealthLive = 100, atkPower = 0, defPower = 0;
             try {
                 const dynAbi = new ethers.Contract(V6_STAKING_ADDRESS, [
@@ -4590,12 +4589,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 ]);
                 avgHealthLive = h.toNumber();
                 defPower = p.toNumber();
-                atkPower = defPower; // V6 attack boost layered on top by Item Shop ABIs; default = base
+                atkPower = defPower;
             } catch {}
             setContractCombatPower(atkPower);
             setContractDefensePower(defPower);
 
-            // Build stats object — V6 multipliers: land=2.5%, superland=12%
             const waterBal = userData?.waterBalance ? parseFloat(ethers.utils.formatEther(userData.waterBalance)) : 0;
             const boostPctLive = (landIds.length * 2.5) + (superLandIds.length * 12);
             setV6StakingStats({
@@ -4804,8 +4802,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         finally { setActionLoading(false); setTimeout(() => setV6ActionStatus(""), 3000); }
     }
 
-    // Sequential stake-all: lands → super lands → plants. Each tx waits for confirmation
-    // before the next prompt opens, so plant capacity is always present when plants stake.
     async function handleV6StakeAllSelected(plantIds: number[], landIds: number[], superLandIds: number[]) {
         if (!plantIds.length && !landIds.length && !superLandIds.length) return;
         try {
@@ -4815,7 +4811,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
             const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
 
-            // STEP 1 — lands first (so plant capacity exists when plants stake)
             if (landIds.length) {
                 setV6ActionStatus(`Approving Lands…`);
                 await ensureCollectionApproval(LAND_ADDRESS, V6_STAKING_ADDRESS, ctx);
@@ -4825,7 +4820,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 await tx1.wait();
             }
 
-            // STEP 2 — super lands
             if (superLandIds.length) {
                 setV6ActionStatus(`Approving Super Lands…`);
                 await ensureCollectionApproval(SUPER_LAND_ADDRESS, V6_STAKING_ADDRESS, ctx);
@@ -4835,7 +4829,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 await tx2.wait();
             }
 
-            // STEP 3 — plants last (capacity is now correct)
             if (plantIds.length) {
                 setV6ActionStatus(`Approving Plants…`);
                 await ensureCollectionApproval(PLANT_ADDRESS, V6_STAKING_ADDRESS, ctx);
@@ -4898,7 +4891,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
     async function loadWaterShopInfo() {
         try {
-            // V6: read WaterShop V1 + still read user.waterBalance from staking
             const WATER_SHOP_ADDR = "0x9A914A4B8268C94b3248Ecc2f5e78A6a5Edd8fFe";
             const waterShop = new ethers.Contract(WATER_SHOP_ADDR, [
                 "function getWaterStatus(address) view returns (tuple(bool enabled, bool windowOpen, bool isDst, uint256 secondsUntilOpen, uint256 secondsUntilClose, uint256 userCap, uint256 userPurchased, uint256 userRemaining, uint256 globalCap, uint256 globalPurchased, uint256 globalRemaining, uint256 xFcweedPrice, uint256 fcweedPrice, uint256 usdcPrice, bool xFcweedEnabled, bool fcweedEnabled, bool usdcEnabled))"
@@ -4948,8 +4940,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function handleBuyWater() {
         if (waterBuyAmount <= 0) return;
         const WATER_SHOP_ADDR = "0x9A914A4B8268C94b3248Ecc2f5e78A6a5Edd8fFe";
-        // payKind: 0 = XFCWEED (no approval), 1 = FCWEED (approval), 2 = USDC (approval).
-        // Default flow uses FCWEED (1) to match prior UX. Switch to 0 if/when xFCWEED toggle ships.
         const PAY_KIND_FCWEED = 1;
         try {
             setWaterLoading(true); setWaterStatus("Approving FCWEED...");
@@ -4963,7 +4953,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 await waitForTx(approveTx);
             }
             setWaterStatus("Buying water...");
-            // WaterShopV1: buyWater(uint256 liters, uint8 pay)
             const iface = new ethers.utils.Interface(["function buyWater(uint256 liters, uint8 pay) external"]);
             const data = iface.encodeFunctionData("buyWater", [waterBuyAmount, PAY_KIND_FCWEED]);
             const tx = await sendContractTx(WATER_SHOP_ADDR, data, "0x1E8480"); // 2M gas
@@ -4979,7 +4968,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const v4PlantsNeedingWater = useMemo(() => v4StakedPlants.filter(id => (v4WaterNeeded[id] || 0) > 0 || (v4PlantHealths[id] !== undefined && v4PlantHealths[id] < 100)), [v4StakedPlants, v4PlantHealths, v4WaterNeeded]);
     const v4TotalWaterNeededForSelected = useMemo(() => selectedV4PlantsToWater.reduce((sum, id) => sum + Math.max(1, v4WaterNeeded[id] || 0), 0), [selectedV4PlantsToWater, v4WaterNeeded]);
 
-    // Backend URL — uses NEXT_PUBLIC_WARS_BACKEND_URL env (Railway) at build time
     const BACKEND_API_URL = WARS_BACKEND_URL;
     const [warsBackendStatus, setWarsBackendStatus] = useState<"unknown" | "online" | "offline">("unknown");
 
@@ -5866,7 +5854,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 console.log("[CrateStats] Raw stats:", stats);
                 console.log("[CrateStats] dustBalance:", stats.dustBalance?.toString(), "cratesOpened:", stats.cratesOpened?.toString());
                 
-                // Deployed CrateVault returns 7 values: [dustBalance, cratesOpened, fcweedWon, xFcweedWon, usdcWon, nftsWon, totalSpent]
                 const dustBalance = stats.dustBalance ?? stats[0];
                 const cratesOpened = stats.cratesOpened ?? stats[1];
                 const fcweedWon = stats.fcweedWon ?? stats[2];
@@ -5951,7 +5938,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 if (userAddress) {
                     const stats = await vaultContract.getUserStats(userAddress);
                     console.log("[CratesTab] User stats:", stats);
-                    // Deployed CrateVault returns 7 values: [dust, opened, fcweedWon, xFcweedWon, usdcWon, nftsWon, totalSpent]
                     const dustBalance = stats.dustBalance ?? stats[0];
                     const cratesOpened = stats.cratesOpened ?? stats[1];
                     const fcweedWon = stats.fcweedWon ?? stats[2];
