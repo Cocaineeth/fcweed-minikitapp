@@ -8525,6 +8525,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     <div style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>{fcweedBalance}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 12px" }}>
+                                    <div style={{ fontSize: 7, color: "#9ca3af" }}>xFCWEED</div>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: "#a78bfa" }}>{v6XFcweedBalanceFormatted}</div>
+                                </div>
+                                <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 12px" }}>
                                     <div style={{ fontSize: 7, color: "#9ca3af" }}>DUST</div>
                                     <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24" }}>{crateUserStats.dust.toLocaleString()}</div>
                                 </div>
