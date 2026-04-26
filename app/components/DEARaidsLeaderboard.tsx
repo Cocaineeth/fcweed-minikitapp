@@ -52,7 +52,7 @@ type FarmInfo = { address: string; plants: number; avgHealth: number; pendingRew
 type JeetEntry = { address: string; totalSold: string; sellCount: number; lastSellTimestamp: number; expiresAt: number; hasShield: boolean; source: "onchain" | "backend" | "both"; needsFlagging: boolean; plants: number; avgHealth: number; battlePower: number; isCluster: boolean; farms: FarmInfo[]; totalPlants: number; totalPendingRaw: number; targetImmunityEnds: number; immunityEndsAt: number; myAttackCooldownEnds: number; hasRaidableFarm: boolean; hasImmunity: boolean; shieldExpiryTime: number; };
 type TargetInfo = { address: string; pendingRewards: string; plants: number; avgHealth: number; battlePower: number; hasShield: boolean; hasImmunity: boolean; immunityEndsAt: number; attackerPower: number; winChance: number; needsFlagging: boolean; farms: FarmInfo[]; shieldExpiryTime: number; };
 type ActiveTargeting = { targetAddress: string; attackerAddress: string; farmAddress?: string; timestamp: number; isAttacking: boolean; };
-type Props = { connected: boolean; userAddress: string | null; theme: "light" | "dark"; readProvider: ethers.providers.Provider | null; sendContractTx: (to: string, data: string, gasLimit?: string) => Promise<ethers.providers.TransactionResponse | null>; ensureAllowance: (spender: string, amount: ethers.BigNumber) => Promise<boolean>; refreshData: () => void; };
+type Props = { connected: boolean; userAddress: string | null; theme: "light" | "dark"; readProvider: ethers.providers.Provider | null; sendContractTx: (to: string, data: string, gasLimit?: string) => Promise<ethers.providers.TransactionResponse | null>; ensureAllowance: (spender: string, amount: ethers.BigNumber) => Promise<boolean>; refreshData: () => void; onRaidResult?: (won: boolean) => void; };
 
 const ITEMS_PER_PAGE = 10;
 const SUSPECT_EXPIRY = 24 * 60 * 60;
@@ -61,7 +61,7 @@ const PER_TARGET_COOLDOWN = 21600; // 6 hour per-target cooldown (matches contra
 const TARGETING_POLL_INTERVAL = 3000;
 const TARGETING_TIMEOUT = 120000;
 
-export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvider, sendContractTx, ensureAllowance, refreshData }: Props) {
+export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvider, sendContractTx, ensureAllowance, refreshData, onRaidResult }: Props) {
     const [jeets, setJeets] = useState<JeetEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [initialLoadComplete, setInitialLoadComplete] = useState(false);
@@ -1312,6 +1312,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             
             await clearTargeting(selectedJeet.address);
             setRaidResult({ won, amount, damage }); setShowAttackModal(false); setShowResultModal(true); fetchDEAData();
+            try { onRaidResult?.(won); } catch {}
         } catch (e: any) { 
             console.error("[DEA] Raid failed:", e); 
             // Parse the error message for better feedback

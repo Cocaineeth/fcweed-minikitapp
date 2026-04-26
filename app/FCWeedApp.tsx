@@ -16,6 +16,7 @@ import { loadLeaderboard, LeaderboardItem } from "./lib/leaderboard";
 import { CrateReward, StakingStats, NewStakingStats, FarmerRow, OwnedState} from "./lib/types";
 import { detectMiniAppEnvironment, waitForTx } from "./lib/auxilary";
 import { clearAuthStorage } from "./lib/referralAuth";
+import { emitOffchainEvent } from "./lib/questsApi";
 import { ReferralsPanel } from "./components/ReferralsPanel";
 import { QuestHubPanel } from "./components/QuestHubPanel";
 import { ThePurge } from "./components/ThePurge";
@@ -4671,6 +4672,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setV6ActionStatus("Waiting for confirmation...");
             await tx.wait();
             setV6ActionStatus("✅ Harvested xFCWEED!");
+            emitMission("harvest", 1);
             await loadV6StakingData();
         } catch (err: any) {
             setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
@@ -4695,6 +4697,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setV6ActionStatus("Waiting for confirmation...");
             await tx.wait();
             setV6ActionStatus(`✅ Staked ${ids.length} plant(s)!`);
+            emitMission("stake_plant", ids.length);
             await loadV6StakingData();
         } catch (err: any) {
             setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
@@ -4777,6 +4780,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             if (!tx) throw new Error("Tx rejected");
             await tx.wait();
             setV6ActionStatus(`✅ Staked ${ids.length} super land(s)!`);
+            emitMission("stake_super", ids.length);
             await loadV6StakingData();
         } catch (err: any) {
             setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
@@ -4839,6 +4843,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             }
 
             setV6ActionStatus(`✅ Staked all selected!`);
+            if (plantIds.length) emitMission("stake_plant", plantIds.length);
+            if (superLandIds.length) emitMission("stake_super", superLandIds.length);
             await loadV6StakingData();
         } catch (err: any) {
             setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
@@ -4858,6 +4864,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             if (!tx) throw new Error("Tx rejected");
             await tx.wait();
             setV6ActionStatus(`✅ Watered ${ids.length} plant(s)!`);
+            emitMission("water_plant", ids.length);
             await loadV6StakingData();
         } catch (err: any) {
             setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
@@ -5571,6 +5578,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     const stolenAmount = parseFloat(ethers.utils.formatUnits(rewardsAmount, 18));
                     const stolenFormatted = stolenAmount >= 1000 ? (stolenAmount / 1000).toFixed(1) + "K" : stolenAmount.toFixed(0);
                     setWarsStatus(`🎉 VICTORY! Stole ${stolenFormatted} FCWEED!`);
+                    emitMission("cartel_win", 1);
                 } else {
                     const lostAmount = parseFloat(ethers.utils.formatUnits(rewardsAmount, 18));
                     const lostFormatted = lostAmount >= 1000 ? (lostAmount / 1000).toFixed(1) + "K" : lostAmount.toFixed(0);
@@ -6241,19 +6249,15 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             if (isValidHash) {
                 console.log("[Crate] Waiting for tx:", txHash);
                 let found = false;
-                for (let i = 0; i < 5; i++) {
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    try {
-                        receipt = await readProvider.getTransactionReceipt(txHash);
-                        if (receipt) {
-                            console.log("[Crate] Got receipt with", receipt.logs?.length, "logs, status:", receipt.status);
-                            processedCrateTxHashes.current.add(txHash);
-                            found = true;
-                            break;
-                        }
-                    } catch (err) {
-                        console.log("[Crate] Polling for receipt...", i);
+                try {
+                    receipt = await readProvider.waitForTransaction(txHash, 1, 45000);
+                    if (receipt) {
+                        console.log("[Crate] waitForTransaction got receipt with", receipt.logs?.length, "logs, status:", receipt.status);
+                        processedCrateTxHashes.current.add(txHash);
+                        found = true;
                     }
+                } catch (waitErr) {
+                    console.log("[Crate] waitForTransaction failed, will fall back to log search:", waitErr);
                 }
 
                 if (!found) {
@@ -6305,6 +6309,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     if (!found) {
                         clearTimeout(timeoutId);
                         crateTransactionInProgress.current = false;
+                        stopCrateSpinOnError();
                         setCrateError("Transaction failed or not submitted. Please try again.");
                         setCrateLoading(false);
                         setCrateStatus("");
@@ -6397,6 +6402,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     if (!found) {
                         clearTimeout(timeoutId);
                         crateTransactionInProgress.current = false;
+                        stopCrateSpinOnError();
                         setCrateError("Transaction failed or not confirmed. Please try again.");
                         setCrateLoading(false);
                         setCrateStatus("");
@@ -6476,6 +6482,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             if (!eventFound) {
                 clearTimeout(timeoutId);
                 crateTransactionInProgress.current = false;
+                stopCrateSpinOnError();
                 setCrateError("Could not determine reward. Check your wallet for the transaction.");
                 setCrateLoading(false);
                 setCrateStatus("");
@@ -6531,12 +6538,14 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setCrateReelPhase('landing');
             setCrateStatus("");
             crateTransactionInProgress.current = false;
+            emitMission("crate_open", 1);
 
 
 
         } catch (err: any) {
             clearTimeout(timeoutId);
             crateTransactionInProgress.current = false;
+            stopCrateSpinOnError();
             console.error("Crate open failed:", err);
             const errMsg = err?.message || err?.reason || String(err);
             if (errMsg.includes("rejected") || errMsg.includes("denied") || err?.code === 4001) {
@@ -6574,6 +6583,35 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setCrateResultData(null);
         setCrateWinItem(null);
         setCrateReelPhase('idle');
+    };
+
+    const missionLoginEmittedRef = useRef(false);
+    const emitMission = useCallback((eventType: string, quantity: number = 1, meta: Record<string, any> = {}) => {
+        if (!signer || !userAddress) return;
+        emitOffchainEvent(
+            { backendBaseUrl: WARS_BACKEND_URL, address: userAddress, signer: signer as ethers.Signer, chainId: CHAIN_ID },
+            eventType, quantity, meta
+        ).catch(() => {});
+    }, [signer, userAddress]);
+
+    useEffect(() => {
+        if (!signer || !userAddress) return;
+        if (missionLoginEmittedRef.current) return;
+        missionLoginEmittedRef.current = true;
+        emitMission("login", 1);
+    }, [signer, userAddress, emitMission]);
+
+    const stopCrateSpinOnError = () => {
+        setCrateSpinning(false);
+        setCrateReelOpen(false);
+        setCrateReelPhase('idle');
+        setCrateWinItem(null);
+        setCrateResultIdx(null);
+        setCrateResultData(null);
+        if (crateSpinInterval.current) {
+            clearInterval(crateSpinInterval.current);
+            crateSpinInterval.current = null;
+        }
     };
 
     useEffect(() => {
@@ -7890,6 +7928,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                         fcweedBalance={fcweedBalanceRaw}
                                                         usdcBalance={usdcBalanceRaw}
                                                         onSuccess={() => {
+                                                            emitMission("drought", 1);
                                                             loadV6StakingData();
                                                             loadBalances();
                                                         }}
@@ -8341,6 +8380,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             sendContractTx={sendContractTx}
                             ensureAllowance={ensureFcweedAllowance}
                             refreshData={refreshAllData}
+                            onRaidResult={(won) => { if (won) emitMission("dea_win", 1); }}
                         />
                     </section>
                 )}
@@ -8526,7 +8566,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 }}
                 theme={theme}
                 showXFcweed={true}
-                xFcweedBalance={fcweedBalance}
+                xFcweedBalance={v6XFcweedBalanceFormatted}
+                fcweedErc20Balance={fcweedBalance}
             />
 
             {/* xFCWEED Converter Modal */}

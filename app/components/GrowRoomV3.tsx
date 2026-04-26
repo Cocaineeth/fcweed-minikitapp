@@ -62,6 +62,7 @@ interface IsometricFarmProps {
     legacyMessage?: string;
     // V6 xFCWEED display
     xFcweedBalance?: string;
+    fcweedErc20Balance?: string;
     showXFcweed?: boolean;
     // V5 Health Pack support
     onUseHealthPack?: () => void;
@@ -332,7 +333,7 @@ export default function IsometricFarm({
     actionStatus, loading, actionLoading,
     onStakePlants, onUnstakePlants, onStakeLands, onUnstakeLands,
     onStakeSuperLands, onUnstakeSuperLands, onClaim, onWaterPlants, onShare,
-    theme, isPurgeActive, isLegacy, legacyMessage, xFcweedBalance, showXFcweed,
+    theme, isPurgeActive, isLegacy, legacyMessage, xFcweedBalance, fcweedErc20Balance, showXFcweed,
     onUseHealthPack, healthPackInventory,
 }: IsometricFarmProps) {
     const [selectedStakedPlants, setSelectedStakedPlants] = useState<number[]>([]);
@@ -771,11 +772,17 @@ export default function IsometricFarm({
                     <div style={{ width: 1, background: "rgba(34,197,94,0.3)" }} />
                     <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b" }}>{stats?.superLands || 0}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>SUPER</div></div>
                     <div style={{ width: 1, background: "rgba(34,197,94,0.3)" }} />
-                    <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{realTimePending}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>{showXFcweed ? "xFCWEED" : "PENDING"}</div></div>
+                    <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{realTimePending}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>{showXFcweed ? "xFCWEED (EARNINGS)" : "PENDING"}</div></div>
                     {showXFcweed && xFcweedBalance && (
                         <>
                             <div style={{ width: 1, background: "rgba(139,92,246,0.3)" }} />
-                            <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>{xFcweedBalance}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>FCWEED Balance</div></div>
+                            <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>{xFcweedBalance}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>xFCWEED Balance</div></div>
+                        </>
+                    )}
+                    {showXFcweed && fcweedErc20Balance && (
+                        <>
+                            <div style={{ width: 1, background: "rgba(34,197,94,0.3)" }} />
+                            <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{fcweedErc20Balance}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>FCWEED Balance</div></div>
                         </>
                     )}
                 </div>
