@@ -6054,6 +6054,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setCrateResultData(null);
         setCrateReelOpen(false);
         setCrateShowWin(false);
+
+        let statsBefore: any = null;
+        try {
+            const vaultAbi = ["function getUserStats(address) view returns (uint256, uint256, uint256, uint256, uint256, uint256, uint256)"];
+            const v = new ethers.Contract(CRATE_VAULT_ADDRESS, vaultAbi, readProvider);
+            statsBefore = await v.getUserStats(userAddress).catch(() => null);
+        } catch {}
         setCrateSpinning(false);
 
 
@@ -6513,14 +6520,40 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             }
 
             if (!eventFound) {
+                console.warn("[Crate] event not parsed — using getUserStats diff to determine reward");
+                try {
+                    const vaultAbi = ["function getUserStats(address) view returns (uint256, uint256, uint256, uint256, uint256, uint256, uint256)"];
+                    const v = new ethers.Contract(CRATE_VAULT_ADDRESS, vaultAbi, readProvider);
+                    let statsAfter = null;
+                    for (let i = 0; i < 8; i++) {
+                        statsAfter = await v.getUserStats(userAddress);
+                        if (statsBefore && statsAfter[1].gt(statsBefore[1])) break;
+                        await new Promise(r => setTimeout(r, 1500));
+                    }
+                    if (statsBefore && statsAfter) {
+                        const dDust   = statsAfter[0].sub(statsBefore[0]);
+                        const dFcw    = statsAfter[2].sub(statsBefore[2]);
+                        const dXFcw   = statsAfter[3].sub(statsBefore[3]);
+                        const dUsdc   = statsAfter[4].sub(statsBefore[4]);
+                        const dNfts   = statsAfter[5].sub(statsBefore[5]);
+                        if (dFcw.gt(0))       { category = 0; amount = dFcw;  rewardName = "FCWEED"; }
+                        else if (dUsdc.gt(0)) { category = 1; amount = dUsdc; rewardName = "USDC"; }
+                        else if (dDust.gt(0)) { category = 2; amount = dDust; rewardName = "DUST"; }
+                        else if (dXFcw.gt(0)) { category = 0; amount = dXFcw; rewardName = "xFCWEED"; }
+                        else if (dNfts.gt(0)) { category = 3; amount = ethers.BigNumber.from(1); rewardName = "NFT"; nftTokenId = 0; }
+                        eventFound = true;
+                        console.log("[Crate] diff result:", { rewardName, amount: amount.toString(), category });
+                    }
+                } catch (e) { console.warn("[Crate] diff failed:", e); }
+            }
+            if (!eventFound) {
                 clearTimeout(timeoutId);
                 crateTransactionInProgress.current = false;
-                console.warn("[Crate] CrateOpened event not parsed — using generic reveal so reel completes");
-                rewardName = "Mystery Reward";
-                amount = ethers.BigNumber.from(0);
-                category = 99;
-                setCrateStatus("Tx confirmed — refresh to see updated balances");
-                eventFound = true;
+                stopCrateSpinOnError();
+                setCrateError("Could not determine reward. Refresh to see updated balances.");
+                setCrateLoading(false);
+                setCrateStatus("");
+                return;
             }
 
             console.log("[Crate] Final reward:", { rewardIndex, rewardName, amount: amount.toString() });
@@ -7809,7 +7842,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <div style={{ fontSize: 48, marginBottom: 6 }}>{crateIcon(crateWon.token)}</div>
                                 <h2 style={{ fontSize: 18, color: crateWon.color, margin: '0 0 2px', fontWeight: 800 }}>{crateWon.name}</h2>
                                 <div style={{ fontSize: 28, fontWeight: 900, color: crateWon.color, marginBottom: 6 }}>{crateWon.amount} <span style={{ fontSize: 12, opacity: 0.8 }}>{crateWon.token}</span></div>
-                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>{crateWon.isJackpot ? '🎉 JACKPOT! 🎉' : crateWon.token === 'DUST' ? 'For use in Item Shop later!' : crateWon.isNFT ? 'NFT sent!' : 'Sent!'}</p>
+                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>{crateWon.isJackpot ? '🎉 JACKPOT! 🎉' : `${crateWon.amount} ${crateWon.token} added to your wallet`}</p>
                                 <div style={{ display: 'flex', gap: 8 }}>
                                     <button type="button" onClick={onCrateClose} className={styles.btnPrimary} style={{ flex: 1, padding: 12, fontSize: 12, background: crateWon.token === 'DUST' ? 'linear-gradient(135deg, #4b5563, #6b7280)' : 'linear-gradient(135deg, #059669, #10b981)' }}>{crateWon.token === 'DUST' ? 'Collect' : 'Awesome!'}</button>
                                     <button 
