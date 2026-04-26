@@ -75,20 +75,21 @@ export function ReferralsPanel(props: Props) {
             });
 
             const j = await statsRes.json();
-            const st = j?.stats;
 
-            console.log(j);
+            // Backend returns stats at the top level — not under j.stats.
+            // Fields: { code, totalReferred, pendingPoints, claimedPoints, referredBy }
+            const st = j?.stats || j || {};
 
             setSummary({
                 address: props.userAddress,
-                myCode: myCode,
+                myCode: myCode || st.code || "",
                 referralUrl: "",
-                referredBy: st?.referredBy ?? null,
-                plantsStaked: st?.plantsStaked,
-                totalReferrals: Number(st?.numberReferred ?? 0),
+                referredBy: st.referredBy ?? null,
+                plantsStaked: st.plantsStaked,
+                totalReferrals: Number(st.totalReferred ?? st.numberReferred ?? 0),
                 totalRewards: null,
-                pendingRedeem: st?.pendingRedeem,
-                canReferMore: st?.canReferMore
+                pendingRedeem: Number(st.pendingPoints ?? st.pendingRedeem ?? 0),
+                canReferMore: st.canReferMore !== false  // default true; backend has no cap
             });
         } catch (e: any) {
             setError(e?.message || String(e));
