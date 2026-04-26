@@ -522,6 +522,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [waterBuyAmount, setWaterBuyAmount] = useState(1);
     const [waterLoading, setWaterLoading] = useState(false);
     const [waterStatus, setWaterStatus] = useState("");
+    const [waterPayKind, setWaterPayKind] = useState<0 | 1 | 2>(0); // 0=xFCWEED, 1=FCWEED, 2=USDC — default xFCWEED
     const [shopLoading, setShopLoading] = useState(false);
     const [shopStatus, setShopStatus] = useState("");
 
@@ -1285,6 +1286,21 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     // Refresh trigger state - defined early so inventory handlers can use refreshAllData
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const refreshAllData = useCallback(() => {
+        setRefreshTrigger(prev => prev + 1);
+    }, []);
+
+    // Refresh every balance/inventory the user can see post-spend.
+    // Awaits the explicit chain reads (V6 stats/water/xFCWEED, USDC) and bumps the
+    // refreshTrigger to fan out to FCWEED, dust/crate stats, inventory, etc.
+    const refreshAllBalances = useCallback(async () => {
+        try {
+            await Promise.all([
+                typeof loadV6StakingData === "function" ? loadV6StakingData() : null,
+                typeof loadUsdcBalance === "function" ? loadUsdcBalance() : null,
+            ]);
+        } catch (e) {
+            console.warn("[refreshAllBalances] explicit reads failed:", e);
+        }
         setRefreshTrigger(prev => prev + 1);
     }, []);
 
@@ -5023,32 +5039,54 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         if (activeTab === "shop") { loadWaterShopInfo(); }
     }, [activeTab, userAddress]);
 
-    async function handleBuyWater() {
+    async function handleBuyWater(payKind: number = 1) {
+        // payKind: 0=xFCWEED, 1=FCWEED, 2=USDC
         if (waterBuyAmount <= 0) return;
         const WATER_SHOP_ADDR = "0x9A914A4B8268C94b3248Ecc2f5e78A6a5Edd8fFe";
-        const PAY_KIND_FCWEED = 1;
         try {
-            setWaterLoading(true); setWaterStatus("Approving FCWEED...");
+            setWaterLoading(true);
             const ctx = await ensureWallet(); if (!ctx) { setWaterLoading(false); return; }
-            const cost = ethers.utils.parseUnits((waterBuyAmount * (waterShopInfo?.pricePerLiter || 75000)).toString(), 18);
-            const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            const allowance = await tokenContract.allowance(userAddress, WATER_SHOP_ADDR);
-            if (allowance.lt(cost)) {
-                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [WATER_SHOP_ADDR, ethers.constants.MaxUint256]));
-                if (!approveTx) throw new Error("Approval rejected");
-                await waitForTx(approveTx);
+
+            // FCWEED needs ERC20 approval; xFCWEED is internal (no approval); USDC needs USDC approval.
+            if (payKind === 1) {
+                setWaterStatus("Approving FCWEED...");
+                const cost = ethers.utils.parseUnits((waterBuyAmount * (waterShopInfo?.pricePerLiter || 75000)).toString(), 18);
+                const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+                const allowance = await tokenContract.allowance(userAddress, WATER_SHOP_ADDR);
+                if (allowance.lt(cost)) {
+                    const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [WATER_SHOP_ADDR, ethers.constants.MaxUint256]));
+                    if (!approveTx) throw new Error("Approval rejected");
+                    await waitForTx(approveTx);
+                }
+            } else if (payKind === 2) {
+                setWaterStatus("Approving USDC...");
+                const cost = ethers.utils.parseUnits((waterBuyAmount * (waterShopInfo?.usdcPricePerLiter || 0)).toString(), 6);
+                const usdc = new ethers.Contract(USDC_ADDRESS, ERC20_ABI, readProvider);
+                const allowance = await usdc.allowance(userAddress, WATER_SHOP_ADDR);
+                if (allowance.lt(cost)) {
+                    const approveTx = await sendContractTx(USDC_ADDRESS, erc20Interface.encodeFunctionData("approve", [WATER_SHOP_ADDR, ethers.constants.MaxUint256]));
+                    if (!approveTx) throw new Error("Approval rejected");
+                    await waitForTx(approveTx);
+                }
             }
-            setWaterStatus("Buying water...");
+
+            setWaterStatus(payKind === 0 ? "Spending xFCWEED..." : "Buying water...");
             const iface = new ethers.utils.Interface(["function buyWater(uint256 liters, uint8 pay) external"]);
-            const data = iface.encodeFunctionData("buyWater", [waterBuyAmount, PAY_KIND_FCWEED]);
-            const tx = await sendContractTx(WATER_SHOP_ADDR, data, "0x1E8480"); // 2M gas
+            const data = iface.encodeFunctionData("buyWater", [waterBuyAmount, payKind]);
+            const tx = await sendContractTx(WATER_SHOP_ADDR, data, "0x1E8480");
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
-            setWaterStatus("Water purchased!");
+
+            setWaterStatus(`✓ Purchased ${waterBuyAmount}L`);
+            // Refresh immediately — both shop info and staking inventory.
+            await Promise.all([loadWaterShopInfo(), loadV6StakingData()]);
             refreshAllData();
-            setTimeout(() => { loadWaterShopInfo(); loadV6StakingData(); setWaterStatus(""); }, 2000);
-        } catch (err: any) { setWaterStatus("Error: " + (err.message || err)); }
-        finally { setWaterLoading(false); }
+            setTimeout(() => setWaterStatus(""), 2500);
+        } catch (err: any) {
+            setWaterStatus("Error: " + (err.message || err));
+        } finally {
+            setWaterLoading(false);
+        }
     }
 
     const v4PlantsNeedingWater = useMemo(() => v4StakedPlants.filter(id => (v4WaterNeeded[id] || 0) > 0 || (v4PlantHealths[id] !== undefined && v4PlantHealths[id] < 100)), [v4StakedPlants, v4PlantHealths, v4WaterNeeded]);
@@ -5926,6 +5964,17 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         })();
     }, [connected, userAddress, readProvider, refreshTrigger]);
 
+    // Unified spend-tx refresh fan-out — anything bumped via refreshAllData()
+    // also re-reads on-chain V6 staking stats (water + xFCWEED) and USDC balance.
+    // This way every existing handler that already calls refreshAllData() picks up
+    // its post-spend balance changes without a per-call refresh helper.
+    useEffect(() => {
+        if (!connected || !userAddress || !readProvider) return;
+        if (refreshTrigger === 0) return; // skip first mount; loadV6StakingData runs separately on connect
+        loadV6StakingData();
+        loadUsdcBalance();
+    }, [refreshTrigger, connected, userAddress, readProvider]);
+
     // Auto-load user data on wallet connect (crate stats, inventory, V5 staking)
     useEffect(() => {
         if (!connected || !userAddress || !readProvider) return;
@@ -6064,7 +6113,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         
         const globalStatsInterval = setInterval(refreshGlobalStats, 15000);
         return () => clearInterval(globalStatsInterval);
-    }, [activeTab, readProvider, userAddress]);
+    }, [activeTab, readProvider, userAddress, refreshTrigger]);
 
     const crateIcon = (t: string) => t === 'DUST' ? <img src="/images/items/dust.gif" alt="Dust" style={{ width: 14, height: 14, verticalAlign: 'middle' }} /> : t === 'FCWEED' ? '🌿' : t === 'USDC' ? '💵' : '🏆';
 
@@ -9245,7 +9294,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             </div>
                             <div style={{ background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: 10 }}>
                                 <div style={{ fontSize: 9, color: "#9ca3af" }}>PRICE / LITER</div>
-                                <div style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>{waterShopInfo?.pricePerLiter ? waterShopInfo.pricePerLiter.toLocaleString() : "75,000"} FCWEED</div>
+                                <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 600 }}>{waterShopInfo?.xFcweedPricePerLiter ? waterShopInfo.xFcweedPricePerLiter.toLocaleString() : "—"} xFCWEED</div>
+                                <div style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>{waterShopInfo?.pricePerLiter ? waterShopInfo.pricePerLiter.toLocaleString() : "—"} FCWEED</div>
                             </div>
                             <div style={{ background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: 10 }}>
                                 <div style={{ fontSize: 9, color: "#9ca3af" }}>YOUR LIMIT</div>
@@ -9273,15 +9323,60 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                 <button type="button" onClick={() => setWaterBuyAmount(Math.max(1, waterBuyAmount - 1))} disabled={!canBuy} style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #374151", background: !canBuy ? "#1f2937" : "transparent", color: !canBuy ? "#6b7280" : "#fff", cursor: !canBuy ? "not-allowed" : "pointer", fontSize: 18, fontWeight: 700 }}>-</button>
                                                 <div style={{ flex: 1, background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: "10px 16px", textAlign: "center" }}>
                                                     <div style={{ fontSize: 20, color: "#60a5fa", fontWeight: 700 }}>{waterBuyAmount}L</div>
-                                                    <div style={{ fontSize: 11, color: "#9ca3af" }}>{(waterBuyAmount * (waterShopInfo?.pricePerLiter || 75000)).toLocaleString()} FCWEED</div>
+                                                    {(() => {
+                                                        const xPrice = waterShopInfo?.xFcweedPricePerLiter || 0;
+                                                        const fPrice = waterShopInfo?.pricePerLiter || 0;
+                                                        const uPrice = waterShopInfo?.usdcPricePerLiter || 0;
+                                                        const unitPrice = waterPayKind === 0 ? xPrice : waterPayKind === 1 ? fPrice : uPrice;
+                                                        const symbol = waterPayKind === 0 ? "xFCWEED" : waterPayKind === 1 ? "FCWEED" : "USDC";
+                                                        const total = waterBuyAmount * unitPrice;
+                                                        const totalDisplay = waterPayKind === 2 ? `$${total.toFixed(2)}` : total.toLocaleString();
+                                                        return <div style={{ fontSize: 11, color: "#9ca3af" }}>{totalDisplay} {symbol}</div>;
+                                                    })()}
                                                 </div>
                                                 <button type="button" onClick={() => setWaterBuyAmount(Math.min(maxCanBuy, waterBuyAmount + 1))} disabled={!canBuy || waterBuyAmount >= maxCanBuy} style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #374151", background: (!canBuy || waterBuyAmount >= maxCanBuy) ? "#1f2937" : "transparent", color: (!canBuy || waterBuyAmount >= maxCanBuy) ? "#6b7280" : "#fff", cursor: (!canBuy || waterBuyAmount >= maxCanBuy) ? "not-allowed" : "pointer", fontSize: 18, fontWeight: 700 }}>+</button>
                                             </div>
-                                            <button type="button" onClick={handleBuyWater} disabled={waterLoading || !connected || !canBuy || waterBuyAmount > maxCanBuy} style={{ width: "100%", padding: 14, fontSize: 13, fontWeight: 700, borderRadius: 10, border: "none", background: (waterLoading || !canBuy || waterBuyAmount > maxCanBuy) ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)", color: "#fff", cursor: (waterLoading || !canBuy || waterBuyAmount > maxCanBuy) ? "not-allowed" : "pointer" }}>
-                                                {waterLoading ? "💧 Buying..." : 
+
+                                            {/* PAY-WITH selector */}
+                                            <div style={{ marginBottom: 12 }}>
+                                                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 6, fontWeight: 600, letterSpacing: 0.5 }}>PAY WITH</div>
+                                                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+                                                    {[
+                                                        { kind: 0, label: "xFCWEED", color: "#a78bfa", enabled: waterShopInfo?.xFcweedEnabled !== false },
+                                                        { kind: 1, label: "FCWEED",  color: "#10b981", enabled: waterShopInfo?.fcweedEnabled !== false },
+                                                        { kind: 2, label: "USDC",    color: "#3b82f6", enabled: waterShopInfo?.usdcEnabled === true },
+                                                    ].map(opt => {
+                                                        const active = waterPayKind === opt.kind;
+                                                        return (
+                                                            <button
+                                                                key={opt.kind}
+                                                                type="button"
+                                                                onClick={() => opt.enabled && setWaterPayKind(opt.kind as 0 | 1 | 2)}
+                                                                disabled={!opt.enabled}
+                                                                style={{
+                                                                    padding: "8px 4px",
+                                                                    borderRadius: 8,
+                                                                    border: active ? `1px solid ${opt.color}` : "1px solid #374151",
+                                                                    background: active ? `${opt.color}22` : "transparent",
+                                                                    color: !opt.enabled ? "#4b5563" : active ? opt.color : "#9ca3af",
+                                                                    fontWeight: 700,
+                                                                    fontSize: 11,
+                                                                    cursor: opt.enabled ? "pointer" : "not-allowed",
+                                                                    opacity: opt.enabled ? 1 : 0.5,
+                                                                }}
+                                                            >
+                                                                {opt.label}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+
+                                            <button type="button" onClick={() => handleBuyWater(waterPayKind)} disabled={waterLoading || !connected || !canBuy || waterBuyAmount > maxCanBuy} style={{ width: "100%", padding: 14, fontSize: 13, fontWeight: 700, borderRadius: 10, border: "none", background: (waterLoading || !canBuy || waterBuyAmount > maxCanBuy) ? "#374151" : "linear-gradient(135deg, #3b82f6, #60a5fa)", color: "#fff", cursor: (waterLoading || !canBuy || waterBuyAmount > maxCanBuy) ? "not-allowed" : "pointer" }}>
+                                                {waterLoading ? "💧 Buying..." :
                                                     (waterShopInfo?.dailyRemaining || 0) === 0 ? "💧 Sold Out Today" :
                                                     (waterShopInfo?.walletRemaining || 0) === 0 ? "💧 Daily Limit Reached" :
-                                                    `💧 Buy ${waterBuyAmount}L Water`}
+                                                    `💧 Buy ${waterBuyAmount}L with ${waterPayKind === 0 ? "xFCWEED" : waterPayKind === 1 ? "FCWEED" : "USDC"}`}
                                             </button>
                                         </>
                                     );
