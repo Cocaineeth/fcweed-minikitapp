@@ -203,7 +203,7 @@ export const V4_STAKING_ABI = [
 // ===============================
 export const V5_BATTLES_ABI = [
     // Core battle functions
-    "function cartelAttack(address target, uint256 deadline, bytes calldata sig) external",
+    "function cartelSearch(address target, uint256 deadline, bytes calldata sig) external",
     "function deaRaid(address target) external",
     "function purgeAttack(address target) external",
     "function flagWithSig(address sus, uint256 amt, uint256 dl, bytes calldata sig) external",
@@ -268,7 +268,7 @@ export const V5_BATTLES_ABI = [
 
 // V3 Battles (backwards compatibility alias)
 export const V3_BATTLES_ABI = [
-    "function cartelAttack(address target, uint256 deadline, bytes calldata sig) external",
+    "function cartelSearch(address target, uint256 deadline, bytes calldata sig) external",
     "function deaRaid(address target) external",
     "function purgeAttack(address target) external",
     "function flagWithSig(address sus, uint256 amt, uint256 dl, bytes calldata sig) external",

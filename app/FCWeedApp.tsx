@@ -5579,7 +5579,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
             const tx = await sendContractTx(
                 V6_BATTLES_ADDRESS,
-                v3BattlesInterface.encodeFunctionData("cartelAttack", [target, deadline, signature]),
+                v3BattlesInterface.encodeFunctionData("cartelSearch", [target, deadline, signature]),
                 "0x3D0900", // 4M gas - matches DEA raids for cross-contract calls with weapons
                 effectiveAttacker
             );
@@ -5603,7 +5603,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 try {
                     const battlesContractRead = new ethers.Contract(V6_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
                     // Try to call the function statically to get error reason
-                    await battlesContractRead.callStatic.cartelAttack(target, deadline, signature, { from: effectiveAttacker });
+                    await battlesContractRead.callStatic.cartelSearch(target, deadline, signature, { from: effectiveAttacker });
                 } catch (simErr: any) {
                     const reason = simErr.reason || simErr.error?.message || simErr.message || "";
                     console.error("[Wars] Revert reason:", reason);
