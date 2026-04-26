@@ -373,7 +373,7 @@ export function XFcweedConverter({
                         <div style={{ fontSize: 32, marginBottom: 8 }}>💎</div>
                         <div style={{ color: "#9ca3af", fontWeight: 600 }}>No xFCWEED to Convert</div>
                         <div style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>
-                            Stake NFTs in V6 and harvest to earn xFCWEED
+                            Stake NFTs and harvest to earn xFCWEED
                         </div>
                     </div>
                 )}
@@ -441,7 +441,7 @@ export function XFcweedConverter({
                     border: "1px solid rgba(99, 102, 241, 0.2)",
                 }}>
                     <div style={{ fontSize: 11, color: "#a5b4fc" }}>
-                        💡 <strong>Tip:</strong> xFCWEED is earned by staking in V6. Convert it to FCWEED 
+                        💡 <strong>Tip:</strong> xFCWEED is earned by staking. Convert it to FCWEED
                         to trade. Conversion has a {conversionCooldown / 3600}h cooldown.
                     </div>
                 </div>

@@ -4931,7 +4931,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 userAddress ? v6Staking.users(userAddress) : null
             ]);
 
-            const waterBalance = userData ? Number(userData.waterBalance || 0) : 0;
+            const waterBalance = userData?.waterBalance ? parseFloat(ethers.utils.formatEther(userData.waterBalance)) : 0;
             const stakedPlantsCount = userData ? Number(userData.plants) : 0;
 
             setWaterShopInfo({
@@ -8359,7 +8359,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
                                 <div style={{ textAlign: "center", background: "rgba(96,165,250,0.15)", borderRadius: 8, padding: "6px 10px", minWidth: 50, border: "1px solid rgba(96,165,250,0.4)" }}>
                                     <img src="/images/items/water.gif" alt="Water" style={{ width: 32, height: 32, objectFit: "contain" }} />
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#60a5fa" }}>{waterShopInfo?.waterBalance || 0}L</div>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#60a5fa" }}>{(waterShopInfo?.waterBalance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}L</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 10px", minWidth: 50 }}>
                                     <img src="/images/items/ak47.gif" alt="AK-47" style={{ width: 32, height: 32, objectFit: "contain" }} />
