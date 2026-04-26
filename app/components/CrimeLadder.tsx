@@ -130,6 +130,7 @@ export function CrimeLadder(props: {
                                 <th style={{ textAlign: "right", padding: "4px 6px", color: isLight ? "#64748b" : "#9ca3af" }}>Plants</th>
                                 <th style={{ textAlign: "right", padding: "4px 6px", color: isLight ? "#64748b" : "#9ca3af" }}>Lands</th>
                                 <th style={{ textAlign: "right", padding: "4px 6px", color: isLight ? "#64748b" : "#9ca3af" }}>Super</th>
+                                <th style={{ textAlign: "right", padding: "4px 6px", color: isLight ? "#64748b" : "#9ca3af" }}>Health</th>
                                 <th style={{ textAlign: "right", padding: "4px 6px", color: isLight ? "#64748b" : "#9ca3af" }}>Score</th>
                             </tr>
                         </thead>
@@ -162,6 +163,9 @@ export function CrimeLadder(props: {
                                         </td>
                                         <td style={{ padding: "6px", textAlign: "right" }}>
                                             {row.superLands}
+                                        </td>
+                                        <td style={{ padding: "6px", textAlign: "right", fontWeight: 600, color: row.avgHealth >= 75 ? (isLight ? "#16a34a" : "#22c55e") : row.avgHealth >= 40 ? "#fbbf24" : row.avgHealth > 0 ? "#ef4444" : "#6b7280" }}>
+                                            {row.avgHealth ?? 100}%
                                         </td>
                                         <td style={{ padding: "6px", textAlign: "right", fontWeight: 600, color: isLight ? "#16a34a" : "#10b981" }}>
                                             {row.score}

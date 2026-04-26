@@ -5,6 +5,7 @@ export type LeaderboardItem = {
   plants: number;
   lands: number;
   superLands: number;
+  avgHealth: number;
   score: number;
 };
 
