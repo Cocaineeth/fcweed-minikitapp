@@ -4974,6 +4974,15 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
     }, [v6StakingOpen, userAddress]);
 
+    // Also load V6 data on wallet connect so v6StakedPlants is populated for
+    // the Wars page Health Pack / shield gates even if the user never opens
+    // the Stake modal in this session.
+    useEffect(() => {
+        if (connected && userAddress && readProvider) {
+            loadV6StakingData();
+        }
+    }, [connected, userAddress, readProvider]);
+
     // Also load V6 xFCWEED balance on connect for display
     useEffect(() => {
         if (userAddress && readProvider && V6_STAKING_ADDRESS) {
