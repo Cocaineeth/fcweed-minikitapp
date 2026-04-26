@@ -14,6 +14,7 @@ interface XFcweedConverterProps {
     xFcweedBalance: ethers.BigNumber;
     conversionRate: number; // 3 = 3:1 ratio
     onSuccess?: () => void;
+    sendContractTx?: (to: string, data: string, gasLimit?: string) => Promise<ethers.providers.TransactionResponse | null>;
 }
 
 export function XFcweedConverter({
@@ -25,6 +26,7 @@ export function XFcweedConverter({
     xFcweedBalance,
     conversionRate = 3,
     onSuccess,
+    sendContractTx,
 }: XFcweedConverterProps) {
     const [convertAmount, setConvertAmount] = useState<string>("");
     const [loading, setLoading] = useState(false);
@@ -121,9 +123,18 @@ export function XFcweedConverter({
         setStatus("Converting xFCWEED to FCWEED...");
         
         try {
-            const v6Contract = new ethers.Contract(V6_STAKING_ADDRESS, V6_STAKING_ABI, signer);
-            const tx = await v6Contract.convertToFcweed(amountWei);
-            
+            const iface = new ethers.utils.Interface(["function convertToFcweed(uint256 xAmount) external"]);
+            const data = iface.encodeFunctionData("convertToFcweed", [amountWei]);
+            let tx: ethers.providers.TransactionResponse | null = null;
+
+            if (sendContractTx) {
+                tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
+                if (!tx) throw new Error("Transaction rejected");
+            } else {
+                const v6Contract = new ethers.Contract(V6_STAKING_ADDRESS, V6_STAKING_ABI, signer);
+                tx = await v6Contract.convertToFcweed(amountWei);
+            }
+
             setStatus("Waiting for confirmation...");
             await tx.wait();
             

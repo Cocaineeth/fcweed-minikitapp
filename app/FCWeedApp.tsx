@@ -8579,6 +8579,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 provider={readProvider}
                 xFcweedBalance={v6XFcweedBalance}
                 conversionRate={3}
+                sendContractTx={sendContractTx}
                 onSuccess={() => {
                     loadV6StakingData();
                     refreshAllData();
