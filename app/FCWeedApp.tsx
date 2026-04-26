@@ -7553,54 +7553,32 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 {activeTab === "stake" && (
                     <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 20 })}>
                         <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#7cb3ff" }}>Staking</h2>
-                        
-                        {/* V6 Migration Banner */}
-                        <div style={{ 
-                            marginBottom: 16, 
-                            padding: 14, 
-                            background: "linear-gradient(135deg, rgba(16,185,129,0.2), rgba(52,211,153,0.1))", 
-                            borderRadius: 12, 
-                            border: "2px solid rgba(16,185,129,0.5)" 
-                        }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                                <span style={{ fontSize: 28 }}>🚀</span>
-                                <div>
-                                    <div style={{ color: "#10b981", fontWeight: 700, fontSize: 15 }}>V6 STAKING IS LIVE!</div>
-                                    <div style={{ color: "#9ca3af", fontSize: 11 }}>Earn xFCWEED rewards • Convert 3:1 to FCWEED</div>
-                                </div>
-                            </div>
-                            <div style={{ color: "#fbbf24", fontSize: 11, background: "rgba(251,191,36,0.15)", padding: 10, borderRadius: 8, border: "1px solid rgba(251,191,36,0.3)" }}>
-                                ⚠️ <strong>MIGRATION REQUIRED:</strong> Unstake from V4/V5 below and restake in V6 to continue earning rewards!
-                            </div>
-                        </div>
-                        
+
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            {/* V6 Staking Button - PRIMARY */}
-                            <button 
-                                type="button" 
-                                className={styles.btnPrimary} 
-                                onClick={() => setV6StakingOpen(true)} 
-                                style={{ 
-                                    width: "100%", 
-                                    padding: 16, 
-                                    background: "linear-gradient(135deg, #059669, #10b981, #34d399)", 
+                            <button
+                                type="button"
+                                className={styles.btnPrimary}
+                                onClick={() => setV6StakingOpen(true)}
+                                style={{
+                                    width: "100%",
+                                    padding: 16,
+                                    background: "linear-gradient(135deg, #059669, #10b981, #34d399)",
                                     fontSize: 16,
                                     fontWeight: 700,
                                     boxShadow: "0 4px 20px rgba(16, 185, 129, 0.4)"
                                 }}
                             >
-                                🌿 Staking V6 (NEW!)
+                                🌿 STAKING
                             </button>
-                            
-                            {/* xFCWEED Converter Button */}
-                            <button 
-                                type="button" 
-                                className={styles.btnPrimary} 
-                                onClick={() => setXFcweedConverterOpen(true)} 
-                                style={{ 
-                                    width: "100%", 
-                                    padding: 14, 
-                                    background: "linear-gradient(135deg, #7c3aed, #8b5cf6, #a78bfa)", 
+
+                            <button
+                                type="button"
+                                className={styles.btnPrimary}
+                                onClick={() => setXFcweedConverterOpen(true)}
+                                style={{
+                                    width: "100%",
+                                    padding: 14,
+                                    background: "linear-gradient(135deg, #7c3aed, #8b5cf6, #a78bfa)",
                                     fontSize: 14,
                                     fontWeight: 700,
                                     boxShadow: "0 4px 15px rgba(139, 92, 246, 0.3)",
@@ -7611,59 +7589,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 }}
                             >
                                 💎 xFCWEED Converter → 🌿 FCWEED
-                            </button>
-                            
-                            {/* Show xFCWEED balance */}
-                            {!v6XFcweedBalance.isZero() && (
-                                <div style={{
-                                    background: "rgba(139, 92, 246, 0.15)",
-                                    border: "1px solid rgba(139, 92, 246, 0.3)",
-                                    borderRadius: 10,
-                                    padding: 12,
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    alignItems: "center",
-                                }}>
-                                    <span style={{ fontSize: 13, color: "#a78bfa", fontWeight: 600 }}>💎 Your xFCWEED:</span>
-                                    <span style={{ fontSize: 16, fontWeight: 700, color: "#e9d5ff" }}>{v6XFcweedBalanceFormatted}</span>
-                                </div>
-                            )}
-                            
-                            {/* Divider */}
-                            <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0" }}>
-                                <div style={{ flex: 1, height: 1, background: "rgba(107,114,128,0.3)" }} />
-                                <span style={{ fontSize: 10, color: "#6b7280", fontWeight: 600 }}>LEGACY VERSIONS</span>
-                                <div style={{ flex: 1, height: 1, background: "rgba(107,114,128,0.3)" }} />
-                            </div>
-                            
-                            {/* V5 Button - LEGACY */}
-                            <button 
-                                type="button" 
-                                className={styles.btnPrimary} 
-                                onClick={() => setV5StakingOpen(true)} 
-                                style={{ 
-                                    width: "100%", 
-                                    padding: 14, 
-                                    background: "linear-gradient(to right, #6b7280, #9ca3af)",
-                                    opacity: 0.85
-                                }}
-                            >
-                                ⬅️ Staking V5 (UNSTAKE ONLY)
-                            </button>
-                            
-                            {/* V4 Button - LEGACY */}
-                            <button 
-                                type="button" 
-                                className={styles.btnPrimary} 
-                                onClick={() => setV4StakingOpen(true)} 
-                                style={{ 
-                                    width: "100%", 
-                                    padding: 14, 
-                                    background: "linear-gradient(to right, #4b5563, #6b7280)",
-                                    opacity: 0.7
-                                }}
-                            >
-                                ⬅️ Staking V4 (UNSTAKE ONLY)
                             </button>
                         </div>
                     </section>
