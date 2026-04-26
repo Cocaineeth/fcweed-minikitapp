@@ -522,7 +522,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [waterBuyAmount, setWaterBuyAmount] = useState(1);
     const [waterLoading, setWaterLoading] = useState(false);
     const [waterStatus, setWaterStatus] = useState("");
-    const [waterPayKind, setWaterPayKind] = useState<0 | 1 | 2>(0); // 0=xFCWEED, 1=FCWEED, 2=USDC — default xFCWEED
+    const [waterPayKind, setWaterPayKind] = useState<0 | 1>(0); // 0=xFCWEED, 1=FCWEED — default xFCWEED
     const [shopLoading, setShopLoading] = useState(false);
     const [shopStatus, setShopStatus] = useState("");
 
@@ -5039,9 +5039,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         if (activeTab === "shop") { loadWaterShopInfo(); }
     }, [activeTab, userAddress]);
 
-    async function handleBuyWater(payKind: number = 1) {
-        // payKind: 0=xFCWEED, 1=FCWEED, 2=USDC
+    async function handleBuyWater(payKind: number = 0) {
+        // payKind: 0=xFCWEED, 1=FCWEED (USDC purposely disabled in UI)
         if (waterBuyAmount <= 0) return;
+        if (payKind !== 0 && payKind !== 1) {
+            setWaterStatus("Invalid payment method");
+            return;
+        }
         const WATER_SHOP_ADDR = "0x9A914A4B8268C94b3248Ecc2f5e78A6a5Edd8fFe";
         try {
             setWaterLoading(true);
@@ -9326,12 +9330,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                     {(() => {
                                                         const xPrice = waterShopInfo?.xFcweedPricePerLiter || 0;
                                                         const fPrice = waterShopInfo?.pricePerLiter || 0;
-                                                        const uPrice = waterShopInfo?.usdcPricePerLiter || 0;
-                                                        const unitPrice = waterPayKind === 0 ? xPrice : waterPayKind === 1 ? fPrice : uPrice;
-                                                        const symbol = waterPayKind === 0 ? "xFCWEED" : waterPayKind === 1 ? "FCWEED" : "USDC";
+                                                        const unitPrice = waterPayKind === 0 ? xPrice : fPrice;
+                                                        const symbol = waterPayKind === 0 ? "xFCWEED" : "FCWEED";
                                                         const total = waterBuyAmount * unitPrice;
-                                                        const totalDisplay = waterPayKind === 2 ? `$${total.toFixed(2)}` : total.toLocaleString();
-                                                        return <div style={{ fontSize: 11, color: "#9ca3af" }}>{totalDisplay} {symbol}</div>;
+                                                        return <div style={{ fontSize: 11, color: "#9ca3af" }}>{total.toLocaleString()} {symbol}</div>;
                                                     })()}
                                                 </div>
                                                 <button type="button" onClick={() => setWaterBuyAmount(Math.min(maxCanBuy, waterBuyAmount + 1))} disabled={!canBuy || waterBuyAmount >= maxCanBuy} style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #374151", background: (!canBuy || waterBuyAmount >= maxCanBuy) ? "#1f2937" : "transparent", color: (!canBuy || waterBuyAmount >= maxCanBuy) ? "#6b7280" : "#fff", cursor: (!canBuy || waterBuyAmount >= maxCanBuy) ? "not-allowed" : "pointer", fontSize: 18, fontWeight: 700 }}>+</button>
@@ -9340,11 +9342,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                             {/* PAY-WITH selector */}
                                             <div style={{ marginBottom: 12 }}>
                                                 <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 6, fontWeight: 600, letterSpacing: 0.5 }}>PAY WITH</div>
-                                                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+                                                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
                                                     {[
                                                         { kind: 0, label: "xFCWEED", color: "#a78bfa", enabled: waterShopInfo?.xFcweedEnabled !== false },
                                                         { kind: 1, label: "FCWEED",  color: "#10b981", enabled: waterShopInfo?.fcweedEnabled !== false },
-                                                        { kind: 2, label: "USDC",    color: "#3b82f6", enabled: waterShopInfo?.usdcEnabled === true },
                                                     ].map(opt => {
                                                         const active = waterPayKind === opt.kind;
                                                         return (
@@ -9376,7 +9377,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                 {waterLoading ? "💧 Buying..." :
                                                     (waterShopInfo?.dailyRemaining || 0) === 0 ? "💧 Sold Out Today" :
                                                     (waterShopInfo?.walletRemaining || 0) === 0 ? "💧 Daily Limit Reached" :
-                                                    `💧 Buy ${waterBuyAmount}L with ${waterPayKind === 0 ? "xFCWEED" : waterPayKind === 1 ? "FCWEED" : "USDC"}`}
+                                                    `💧 Buy ${waterBuyAmount}L with ${waterPayKind === 0 ? "xFCWEED" : "FCWEED"}`}
                                             </button>
                                         </>
                                     );
