@@ -11,6 +11,7 @@ type Props = {
     signer: ethers.Signer | null;
     chainId: number;
     backendBaseUrl: string;
+    signMessageAsync?: (message: string) => Promise<string>;
 };
 
 type ReferralSummary = {
@@ -33,7 +34,7 @@ export function ReferralsPanel(props: Props) {
     const [claimTx, setClaimTx] = useState<string>("");
     const [copied, setCopied] = useState(false);
 
-    const canAuth = props.connected && !!props.userAddress && !!props.signer;
+    const canAuth = props.connected && !!props.userAddress && (!!props.signer || !!props.signMessageAsync);
     const rewardPerReferral = 0.5;
 
     const referralBaseUrl = useMemo(() => {
@@ -44,7 +45,7 @@ export function ReferralsPanel(props: Props) {
     }, []);
 
     const loadSummary = useCallback(async () => {
-        if (!canAuth || !props.userAddress || !props.signer) return;
+        if (!canAuth || !props.userAddress) return;
         setLoading(true);
         setError("");
 
@@ -55,6 +56,7 @@ export function ReferralsPanel(props: Props) {
                 address: props.userAddress,
                 signer: props.signer,
                 chainId: props.chainId,
+                signMessageAsync: props.signMessageAsync,
                 init: { method: "POST" }
             });
 
@@ -68,7 +70,8 @@ export function ReferralsPanel(props: Props) {
                 backendBaseUrl: props.backendBaseUrl,
                 address: props.userAddress,
                 signer: props.signer,
-                chainId: props.chainId
+                chainId: props.chainId,
+                signMessageAsync: props.signMessageAsync,
             });
 
             const j = await statsRes.json();
@@ -134,6 +137,7 @@ export function ReferralsPanel(props: Props) {
                 address: props.userAddress,
                 signer: props.signer,
                 chainId: props.chainId,
+                signMessageAsync: props.signMessageAsync,
                 init: {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -156,7 +160,7 @@ export function ReferralsPanel(props: Props) {
     }, [canAuth, loadSummary, props.backendBaseUrl, props.chainId, props.signer, props.userAddress, referrerCode]);
 
     const onRedeemRewards = useCallback(async () => {
-        if (!canAuth || !props.userAddress || !props.signer) return;
+        if (!canAuth || !props.userAddress) return;
 
         setLoading(true);
         setError("");
@@ -169,6 +173,7 @@ export function ReferralsPanel(props: Props) {
                 address: props.userAddress,
                 signer: props.signer,
                 chainId: props.chainId,
+                signMessageAsync: props.signMessageAsync,
                 init: {
                     method: "POST",
                     headers: { "Content-Type": "application/json" }

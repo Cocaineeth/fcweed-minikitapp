@@ -36,6 +36,7 @@ export function QuestHubPanel(props: {
   chainId: number;
   backendBaseUrl: string;
   theme?: "light" | "dark";
+  signMessageAsync?: (message: string) => Promise<string>;
 }) {
   const [tab, setTab] = useState<HubTab>("quests");
 
@@ -63,6 +64,7 @@ export function QuestHubPanel(props: {
           signer={props.signer}
           chainId={props.chainId}
           backendBaseUrl={props.backendBaseUrl}
+          signMessageAsync={props.signMessageAsync}
         />
       )}
 
@@ -73,6 +75,7 @@ export function QuestHubPanel(props: {
           signer={props.signer}
           chainId={props.chainId}
           backendBaseUrl={props.backendBaseUrl}
+          signMessageAsync={props.signMessageAsync}
         />
       )}
     </section>

@@ -53,9 +53,10 @@ export async function ensureReferralAuth(params:
 {
     backendBaseUrl: string;           // e.g. https://wars.x420ponzi.com
     address: string;
-    signer: ethers.Signer;            // must be connected
+    signer?: ethers.Signer | null;    // optional when signMessageAsync provided
     chainId: number;
     domain?: string;                  // defaults to window.location.host
+    signMessageAsync?: (message: string) => Promise<string>; // preferred for Farcaster mini-app
 }) : Promise<string>
 {
     const stored = readAuthFromStorage();
@@ -92,8 +93,21 @@ export async function ensureReferralAuth(params:
         throw new Error("Auth nonce response missing nonce/message");
     }
 
-    // 2) sign message
-    const signature = await params.signer.signMessage(message);
+    // 2) sign message — prefer caller-provided signer (handles Farcaster mini-app),
+    // fall back to ethers signer if available.
+    let signature: string;
+    if (typeof params.signMessageAsync === "function")
+    {
+        signature = await params.signMessageAsync(message);
+    }
+    else if (params.signer)
+    {
+        signature = await params.signer.signMessage(message);
+    }
+    else
+    {
+        throw new Error("No signer available for referral auth");
+    }
 
     // 3) verify signature -> token
     const verifyRes = await fetch(`${params.backendBaseUrl}/v1/referrals/auth/verify`, {
@@ -131,10 +145,11 @@ export async function authedFetch(params:
     init?: RequestInit;
     backendBaseUrl: string;
     address: string;
-    signer: ethers.Signer;
+    signer?: ethers.Signer | null;
     chainId: number;
     domain?: string;
     retryOn401?: boolean;
+    signMessageAsync?: (message: string) => Promise<string>;
 }) : Promise<Response>
 {
     const retryOn401 = params.retryOn401 ?? true;
@@ -145,6 +160,7 @@ export async function authedFetch(params:
         signer: params.signer,
         chainId: params.chainId,
         domain: params.domain,
+        signMessageAsync: params.signMessageAsync,
     });
 
     const init: RequestInit = {
@@ -169,6 +185,7 @@ export async function authedFetch(params:
             signer: params.signer,
             chainId: params.chainId,
             domain: params.domain,
+            signMessageAsync: params.signMessageAsync,
         });
 
         const init2: RequestInit = {

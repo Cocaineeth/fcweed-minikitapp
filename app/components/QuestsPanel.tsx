@@ -51,9 +51,10 @@ function formatTitle(title: string): string {
 export function QuestsPanel(props: {
   connected: boolean;
   userAddress?: string;
-  signer: ethers.Signer;
+  signer: ethers.Signer | null;
   chainId: number;
   backendBaseUrl: string;
+  signMessageAsync?: (message: string) => Promise<string>;
 }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -68,14 +69,15 @@ export function QuestsPanel(props: {
   const canLoad = props.connected && !!props.userAddress;
 
   const authCtx: AuthCtx | null = useMemo(() => {
-    if (!props.userAddress || !props.signer) return null;
+    if (!props.userAddress || (!props.signer && !props.signMessageAsync)) return null;
     return {
       backendBaseUrl: props.backendBaseUrl,
       address: props.userAddress,
       signer: props.signer,
       chainId: props.chainId,
+      signMessageAsync: props.signMessageAsync,
     };
-  }, [props.backendBaseUrl, props.userAddress, props.signer, props.chainId]);
+  }, [props.backendBaseUrl, props.userAddress, props.signer, props.chainId, props.signMessageAsync]);
 
   async function refresh() {
     if (!canLoad || !authCtx) return;

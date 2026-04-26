@@ -37,9 +37,10 @@ export type RewardType = "water" | "dust";
 export type AuthCtx = {
     backendBaseUrl: string;
     address: string;
-    signer: ethers.Signer;
+    signer: ethers.Signer | null;
     chainId: number;
     domain?: string;
+    signMessageAsync?: (message: string) => Promise<string>;
 };
 
 function v1(baseUrl: string): string {
@@ -133,6 +134,7 @@ export async function fetchMyMissionProgress(ctx: AuthCtx, signal?: AbortSignal)
         signer: ctx.signer,
         chainId: ctx.chainId,
         domain: ctx.domain,
+        signMessageAsync: ctx.signMessageAsync,
     });
 
     const data = await readJson(res);
@@ -165,6 +167,7 @@ export async function fetchMyPointsBalance(ctx: AuthCtx, signal?: AbortSignal): 
         signer: ctx.signer,
         chainId: ctx.chainId,
         domain: ctx.domain,
+        signMessageAsync: ctx.signMessageAsync,
     });
 
     const data = await readJson(res);
@@ -198,6 +201,7 @@ export async function convertPoints(
         signer: ctx.signer,
         chainId: ctx.chainId,
         domain: ctx.domain,
+        signMessageAsync: ctx.signMessageAsync,
     });
 
     const data = await readJson(res);
@@ -231,6 +235,7 @@ export async function emitOffchainEvent(
         signer: ctx.signer,
         chainId: ctx.chainId,
         domain: ctx.domain,
+        signMessageAsync: ctx.signMessageAsync,
     });
 
     const data = await readJson(res);

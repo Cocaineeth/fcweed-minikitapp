@@ -343,8 +343,8 @@ export default function IsometricFarm({
     const [selectedAvailableLands, setSelectedAvailableLands] = useState<number[]>([]);
     const [selectedAvailableSuperLands, setSelectedAvailableSuperLands] = useState<number[]>([]);
     const [wateringPlants, setWateringPlants] = useState<number[]>([]);
-    const [showStats, setShowStats] = useState(false);
-    const [showInventory, setShowInventory] = useState(false);
+    const [showStats, setShowStats] = useState(true);
+    const [showInventory, setShowInventory] = useState(true);
     const [activeTab, setActiveTab] = useState<"staked" | "available">("staked");
     const [waterAmounts, setWaterAmounts] = useState<Record<number, number>>({});
     const [errorMessage, setErrorMessage] = useState<string>("");
@@ -664,31 +664,31 @@ export default function IsometricFarm({
                 @keyframes dropFall { 0% { transform: translateY(-5px); opacity: 1; } 100% { transform: translateY(25px); opacity: 0; } }
                 @keyframes waterShimmer { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.6; } }
                 .grow-v4-tier-badge {
-                    position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
-                    z-index: 50; padding: 4px 14px;
-                    background: rgba(0,0,0,0.65);
+                    display: inline-block;
+                    padding: 3px 10px;
+                    background: rgba(0,0,0,0.55);
                     border: 2px solid ${T.accent};
                     color: ${T.titleColor};
-                    font-size: 9px; letter-spacing: 1.5px; font-weight: 700;
+                    font-size: 8px; letter-spacing: 1.2px; font-weight: 700;
                     border-radius: 2px;
                     text-shadow: 1px 1px 0 #000;
-                    box-shadow: 0 0 12px ${T.accent}55;
+                    box-shadow: 0 0 8px ${T.accent}55;
                 }
             `}</style>
-            <div className="grow-v4-tier-badge">{T.label}</div>
-            
+
             {/* HEADER - Fixed height */}
             <div style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center",
                 padding: "8px 14px", background: "linear-gradient(180deg, #0a1f0a 0%, #050810 100%)",
                 borderBottom: "2px solid #22c55e", flexShrink: 0, minHeight: 50
             }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                     <img src={PLANT_IMAGE} alt="FCWEED" style={{ width: 32, height: 32, borderRadius: 6 }} />
                     <div>
-                        <h1 style={{ color: "#22c55e", fontSize: 16, margin: 0, fontWeight: 800 }}>FCWEED FARM</h1>
-                        <span style={{ fontSize: 10, color: "#4ade80" }}>GROW ROOM</span>
+                        <h1 style={{ color: "#22c55e", fontSize: 14, margin: 0, fontWeight: 800 }}>FCWEED FARM</h1>
+                        <span style={{ fontSize: 9, color: "#4ade80" }}>GROW ROOM</span>
                     </div>
+                    <span className="grow-v4-tier-badge">{T.label}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <button onClick={onShare} style={{ padding: "8px 12px", background: "rgba(29,161,242,0.15)", border: "1px solid #1da1f2", borderRadius: 6, color: "#1da1f2", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>📸 Share</button>
@@ -809,52 +809,24 @@ export default function IsometricFarm({
                     </div>
                 )}
                 
-                {/* Quick stats bar */}
-                <div style={{
-                    position: "absolute", top: showStats ? "27%" : "18%", left: "50%", transform: "translateX(-50%)",
-                    display: "flex", gap: 16, padding: "8px 16px", background: "rgba(10,20,15,0.95)",
-                    borderRadius: 20, border: "1px solid rgba(34,197,94,0.3)", boxShadow: "0 4px 20px rgba(0,0,0,0.5)", zIndex: 100,
-                    transition: "top 0.3s ease"
-                }}>
-                    <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{stats?.plants || 0}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>PLANTS</div></div>
-                    <div style={{ width: 1, background: "rgba(34,197,94,0.3)" }} />
-                    <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#8b5cf6" }}>{stats?.lands || 0}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>LANDS</div></div>
-                    <div style={{ width: 1, background: "rgba(34,197,94,0.3)" }} />
-                    <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b" }}>{stats?.superLands || 0}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>SUPER</div></div>
-                    <div style={{ width: 1, background: "rgba(34,197,94,0.3)" }} />
-                    <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{realTimePending}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>{showXFcweed ? "xFCWEED (EARNINGS)" : "PENDING"}</div></div>
-                    {showXFcweed && xFcweedBalance && (
-                        <>
-                            <div style={{ width: 1, background: "rgba(139,92,246,0.3)" }} />
-                            <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>{xFcweedBalance}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>xFCWEED Balance</div></div>
-                        </>
-                    )}
-                    {showXFcweed && fcweedErc20Balance && (
-                        <>
-                            <div style={{ width: 1, background: "rgba(34,197,94,0.3)" }} />
-                            <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{fcweedErc20Balance}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>FCWEED Balance</div></div>
-                        </>
-                    )}
-                </div>
-                
                 {/* PLANT GRID - Fixed size, scrollable, no shrink */}
                 <div style={{
-                    position: "absolute", 
-                    top: showStats ? "35%" : "22%", 
-                    left: "50%", 
+                    position: "absolute",
+                    top: showStats ? "27%" : "10%",
+                    left: "50%",
                     transform: "translateX(-50%)",
-                    width: "92%", 
-                    maxWidth: 540, 
-                    display: "grid", 
+                    width: "92%",
+                    maxWidth: 540,
+                    display: "grid",
                     gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
-                    gap: 10, 
-                    padding: 14, 
-                    background: "rgba(10,15,20,0.85)", 
+                    gap: 10,
+                    padding: 14,
+                    background: "rgba(10,15,20,0.85)",
                     borderRadius: 12,
-                    border: "1px solid rgba(34,197,94,0.4)", 
+                    border: "1px solid rgba(34,197,94,0.4)",
                     transition: "top 0.3s ease",
-                    height: "48%",
-                    maxHeight: "48%",
+                    height: showStats ? "52%" : "65%",
+                    maxHeight: showStats ? "52%" : "65%",
                     overflowY: "auto",
                     boxShadow: "0 4px 30px rgba(0,0,0,0.5), inset 0 0 20px rgba(0,0,0,0.3)",
                     zIndex: 50

@@ -1236,6 +1236,52 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         return txAction().sendContractTx(to, data, gasLimit);
     }
 
+    // Sign a plain UTF-8 message via the user's connected wallet.
+    // Routes through miniAppEthProvider for Farcaster (where signer.signMessage triggers
+    // "method/account not authorized") and through wagmi walletClient for desktop wallets,
+    // with a raw provider fallback. Used for backend auth (referrals + quests).
+    const signMessageAsync = useCallback(async (message: string): Promise<string> => {
+        const addr = userAddress || wagmiAddress;
+        if (!addr) throw new Error("Wallet not connected");
+
+        const toHexUtf8 = (s: string) => "0x" + Array.from(new TextEncoder().encode(s)).map(b => b.toString(16).padStart(2, "0")).join("");
+
+        // 1) Farcaster mini-app
+        if (usingMiniApp && miniAppEthProvider) {
+            const sig = await miniAppEthProvider.request({
+                method: "personal_sign",
+                params: [toHexUtf8(message), addr],
+            });
+            if (typeof sig === "string" && sig.startsWith("0x")) return sig;
+        }
+
+        // 2) Wagmi walletClient (RainbowKit, MetaMask, Coinbase, Phantom via wagmi)
+        if (wagmiConnected && walletClient) {
+            try {
+                const sig = await (walletClient as any).signMessage({
+                    account: (walletClient as any).account,
+                    message,
+                });
+                if (typeof sig === "string" && sig.startsWith("0x")) return sig;
+            } catch (e) {
+                console.warn("[signMessage] walletClient failed, falling through:", e);
+            }
+        }
+
+        // 3) Raw window.ethereum
+        const anyWindow = window as any;
+        const eth = anyWindow.phantom?.ethereum || anyWindow.rabby || anyWindow.ethereum;
+        if (eth?.request) {
+            const sig = await eth.request({
+                method: "personal_sign",
+                params: [toHexUtf8(message), addr],
+            });
+            if (typeof sig === "string" && sig.startsWith("0x")) return sig;
+        }
+
+        throw new Error("No wallet available to sign message");
+    }, [userAddress, wagmiAddress, usingMiniApp, miniAppEthProvider, wagmiConnected, walletClient]);
+
     // Refresh trigger state - defined early so inventory handlers can use refreshAllData
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const refreshAllData = useCallback(() => {
@@ -8402,6 +8448,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         signer={signer}
                         chainId={CHAIN_ID}
                         backendBaseUrl={WARS_BACKEND_URL}
+                        signMessageAsync={signMessageAsync}
                     />
                 )}
 
