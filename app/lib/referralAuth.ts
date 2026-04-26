@@ -72,7 +72,7 @@ export async function ensureReferralAuth(params:
     // 1) get nonce
     const nonceRes = await fetch(`${params.backendBaseUrl}/v1/referrals/auth/nonce`, {
         method: "POST",
-        headers: { "Accept": "application/json" },
+        headers: { "Accept": "application/json", "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({wallet: params.address})
     });
