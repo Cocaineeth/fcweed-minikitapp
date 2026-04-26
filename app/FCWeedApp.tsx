@@ -4828,72 +4828,45 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
     async function loadWaterShopInfo() {
         try {
-            // Use V6 staking for water shop data
-            const v6Contract = new ethers.Contract(V6_STAKING_ADDRESS, [
-                "function waterShopEnabled() view returns (bool)",
-                "function waterPricePerLiter() view returns (uint256)",
-                "function getUserStakedPlants(address) view returns (uint256[])",
-                "function users(address) view returns (uint64, uint32, uint32, uint32, uint256, uint256, uint256, uint256, uint256, uint256)",
-                "function totalPlantsStaked() view returns (uint256)",
-                "function dailyWaterSold(uint256) view returns (uint256)",
+            // V6: read WaterShop V1 + still read user.waterBalance from staking
+            const WATER_SHOP_ADDR = "0x9A914A4B8268C94b3248Ecc2f5e78A6a5Edd8fFe";
+            const waterShop = new ethers.Contract(WATER_SHOP_ADDR, [
+                "function getWaterStatus(address) view returns (tuple(bool enabled, bool windowOpen, bool isDst, uint256 secondsUntilOpen, uint256 secondsUntilClose, uint256 userCap, uint256 userPurchased, uint256 userRemaining, uint256 globalCap, uint256 globalPurchased, uint256 globalRemaining, uint256 xFcweedPrice, uint256 fcweedPrice, uint256 usdcPrice, bool xFcweedEnabled, bool fcweedEnabled, bool usdcEnabled))"
             ], readProvider);
-            
-            // Calculate current day number (days since epoch, UTC)
-            const currentDay = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
-            
-            const [shopEnabled, pricePerLiter, stakedPlantIds, userTuple, totalPlantsStaked, dailyWaterSoldToday] = await Promise.all([
-                v6Contract.waterShopEnabled(),
-                v6Contract.waterPricePerLiter(),
-                userAddress ? v6Contract.getUserStakedPlants(userAddress) : [],
-                userAddress ? v6Contract.users(userAddress) : null,
-                v6Contract.totalPlantsStaked(),
-                v6Contract.dailyWaterSold(currentDay),
+            const v6Staking = new ethers.Contract(V6_STAKING_ADDRESS, [
+                "function users(address) view returns (uint64 last, uint32 plants, uint32 lands, uint32 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay)"
+            ], readProvider);
+
+            const userArg = userAddress || ethers.constants.AddressZero;
+            const [status, userData] = await Promise.all([
+                waterShop.getWaterStatus(userArg),
+                userAddress ? v6Staking.users(userAddress) : null
             ]);
 
-            // Use array length for accurate plant count
-            const stakedPlantsCount = stakedPlantIds ? stakedPlantIds.length : 0;
-            
-            // Parse user tuple: [last, plants, lands, superLands, accrued, bonusBoostBps, lastClaimTime, waterBalance, waterPurchasedToday, lastWaterPurchaseDay]
-            const waterBalance = userTuple ? Number(userTuple[7] || 0) : 0;
-            const userWaterPurchasedToday = userTuple ? Number(userTuple[8] || 0) : 0;
-            const userLastWaterPurchaseDay = userTuple ? Number(userTuple[9] || 0) : 0;
-            
-            // Calculate shop open status (12PM - 6PM EST = 17:00 - 23:00 UTC in winter)
-            const now = new Date();
-            const utcHour = now.getUTCHours();
-            const isShopOpen = shopEnabled && utcHour >= 17 && utcHour < 23;
-            
-            // Daily supply = half of total staked plants
-            const totalStaked = Number(totalPlantsStaked);
-            const dailySupply = Math.floor(totalStaked / 2);
-            const dailySold = Number(dailyWaterSoldToday);
-            const dailyRemaining = Math.max(0, dailySupply - dailySold);
-            
-            // Wallet limit: 1L per staked plant
-            const walletLimit = stakedPlantsCount;
-            // Check if user purchased today (same day number)
-            const purchasedToday = userLastWaterPurchaseDay === currentDay ? userWaterPurchasedToday : 0;
-            const walletRemaining = Math.max(0, walletLimit - purchasedToday);
-            
-            console.log("[WaterShop] V6 Data:", { 
-                shopEnabled, totalStaked, dailySupply, dailySold, dailyRemaining,
-                stakedPlantsCount, walletLimit, purchasedToday, walletRemaining, 
-                utcHour, isShopOpen, currentDay 
-            });
-            
+            const waterBalance = userData ? Number(userData.waterBalance || 0) : 0;
+            const stakedPlantsCount = userData ? Number(userData.plants) : 0;
+
             setWaterShopInfo({
-                isOpen: isShopOpen,
-                shopEnabled: shopEnabled,
+                isOpen: status.enabled && status.windowOpen,
+                shopEnabled: status.enabled,
+                isDst: status.isDst,
                 opensAt: 12,
                 closesAt: 18,
-                totalPlantsStaked: totalStaked,
-                dailySupply: dailySupply,
-                dailyRemaining: dailyRemaining,
-                walletRemaining: walletRemaining,
-                walletLimit: walletLimit,
-                pricePerLiter: parseFloat(ethers.utils.formatUnits(pricePerLiter, 18)),
+                secondsUntilOpen: status.secondsUntilOpen.toNumber(),
+                secondsUntilClose: status.secondsUntilClose.toNumber(),
+                dailyRemaining: status.globalRemaining.toNumber(),
+                globalCap: status.globalCap.toNumber(),
+                walletRemaining: status.userRemaining.toNumber(),
+                walletLimit: status.userCap.toNumber(),
+                purchasedToday: status.userPurchased.toNumber(),
+                pricePerLiter: parseFloat(ethers.utils.formatUnits(status.fcweedPrice, 18)),
+                xFcweedPricePerLiter: parseFloat(ethers.utils.formatUnits(status.xFcweedPrice, 18)),
+                usdcPricePerLiter: parseFloat(ethers.utils.formatUnits(status.usdcPrice, 6)),
+                xFcweedEnabled: status.xFcweedEnabled,
+                fcweedEnabled: status.fcweedEnabled,
+                usdcEnabled: status.usdcEnabled,
                 stakedPlants: stakedPlantsCount,
-                waterBalance: waterBalance,
+                waterBalance: waterBalance
             });
         } catch (err) { console.error("[WaterShop] Error:", err); }
     }
@@ -4904,26 +4877,29 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
     async function handleBuyWater() {
         if (waterBuyAmount <= 0) return;
+        const WATER_SHOP_ADDR = "0x9A914A4B8268C94b3248Ecc2f5e78A6a5Edd8fFe";
+        // payKind: 0 = XFCWEED (no approval), 1 = FCWEED (approval), 2 = USDC (approval).
+        // Default flow uses FCWEED (1) to match prior UX. Switch to 0 if/when xFCWEED toggle ships.
+        const PAY_KIND_FCWEED = 1;
         try {
             setWaterLoading(true); setWaterStatus("Approving FCWEED...");
             const ctx = await ensureWallet(); if (!ctx) { setWaterLoading(false); return; }
             const cost = ethers.utils.parseUnits((waterBuyAmount * (waterShopInfo?.pricePerLiter || 75000)).toString(), 18);
             const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            const allowance = await tokenContract.allowance(userAddress, V6_STAKING_ADDRESS);
+            const allowance = await tokenContract.allowance(userAddress, WATER_SHOP_ADDR);
             if (allowance.lt(cost)) {
-                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V6_STAKING_ADDRESS, ethers.constants.MaxUint256]));
+                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [WATER_SHOP_ADDR, ethers.constants.MaxUint256]));
                 if (!approveTx) throw new Error("Approval rejected");
                 await waitForTx(approveTx);
             }
             setWaterStatus("Buying water...");
-            // V6 uses buyWaterWithFcweed(liters)
-            const iface = new ethers.utils.Interface(["function buyWaterWithFcweed(uint256 liters) external"]);
-            const data = iface.encodeFunctionData("buyWaterWithFcweed", [waterBuyAmount]);
-            const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480"); // 2M gas
+            // WaterShopV1: buyWater(uint256 liters, uint8 pay)
+            const iface = new ethers.utils.Interface(["function buyWater(uint256 liters, uint8 pay) external"]);
+            const data = iface.encodeFunctionData("buyWater", [waterBuyAmount, PAY_KIND_FCWEED]);
+            const tx = await sendContractTx(WATER_SHOP_ADDR, data, "0x1E8480"); // 2M gas
             if (!tx) throw new Error("Tx rejected");
             await waitForTx(tx);
             setWaterStatus("Water purchased!");
-            // Refresh all balances after purchase
             refreshAllData();
             setTimeout(() => { loadWaterShopInfo(); loadV6StakingData(); setWaterStatus(""); }, 2000);
         } catch (err: any) { setWaterStatus("Error: " + (err.message || err)); }

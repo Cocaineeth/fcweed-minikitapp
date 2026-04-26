@@ -7,6 +7,21 @@ export const USDC_ABI = [
     "function decimals() view returns (uint8)",
 ];
 
+// FCWEEDWaterShopV1 — standalone water shop (replaces staking.buyWaterWith*)
+// payKind enum: 0=XFCWEED, 1=FCWEED, 2=USDC
+export const WATER_SHOP_ABI = [
+    "function buyWater(uint256 liters, uint8 pay) external",
+    "function getWaterStatus(address user) external view returns (tuple(bool enabled, bool windowOpen, bool isDst, uint256 secondsUntilOpen, uint256 secondsUntilClose, uint256 userCap, uint256 userPurchased, uint256 userRemaining, uint256 globalCap, uint256 globalPurchased, uint256 globalRemaining, uint256 xFcweedPrice, uint256 fcweedPrice, uint256 usdcPrice, bool xFcweedEnabled, bool fcweedEnabled, bool usdcEnabled) status)",
+    "function isWindowOpen() external view returns (bool)",
+    "function isDST() external view returns (bool)",
+    "function userDailyCap(address user) external view returns (uint256)",
+    "function xFcweedPricePerLiter() external view returns (uint256)",
+    "function fcweedPricePerLiter() external view returns (uint256)",
+    "function usdcPricePerLiter() external view returns (uint256)",
+    "function enabled() external view returns (bool)",
+    "event WaterPurchased(address indexed user, uint256 liters, uint256 cost, uint8 pay)"
+];
+
 export const LAND_ABI = ["function mint()"];
 export const PLANT_ABI = ["function mint()"];
 
