@@ -4979,8 +4979,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const v4PlantsNeedingWater = useMemo(() => v4StakedPlants.filter(id => (v4WaterNeeded[id] || 0) > 0 || (v4PlantHealths[id] !== undefined && v4PlantHealths[id] < 100)), [v4StakedPlants, v4PlantHealths, v4WaterNeeded]);
     const v4TotalWaterNeededForSelected = useMemo(() => selectedV4PlantsToWater.reduce((sum, id) => sum + Math.max(1, v4WaterNeeded[id] || 0), 0), [selectedV4PlantsToWater, v4WaterNeeded]);
 
-    // HARDCODED to avoid constants.ts issues
-    const BACKEND_API_URL = "https://wars.x420ponzi.com";
+    // Backend URL — uses NEXT_PUBLIC_WARS_BACKEND_URL env (Railway) at build time
+    const BACKEND_API_URL = WARS_BACKEND_URL;
     const [warsBackendStatus, setWarsBackendStatus] = useState<"unknown" | "online" | "offline">("unknown");
 
     // Check backend health when wars tab opens
@@ -5182,7 +5182,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 if (fetchErr.name === "AbortError") {
                     setWarsStatus("Search timed out. Please try again.");
                 } else {
-                    setWarsStatus("Backend API unavailable. Check if wars.x420ponzi.com is running.");
+                    setWarsStatus(`Backend API unavailable. Check ${BACKEND_API_URL}/api/health`);
                 }
                 setWarsSearching(false);
                 warsTransactionInProgress.current = false;
