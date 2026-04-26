@@ -3025,10 +3025,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const treasury = parseFloat(ethers.utils.formatUnits(treasuryRaw, 18));
             const lpPool = parseFloat(ethers.utils.formatUnits(lpPoolRaw, 18));
             const total = parseFloat(ethers.utils.formatUnits(totalSupply, 18));
-            const controlled = burned + treasury;
+
+            const controlled = burned + treasury + lpPool;
+            const circulating = Math.max(0, total - controlled);
 
             const controlledPct = total > 0 ? ((controlled / total) * 100).toFixed(2) : "0";
-            const lpPoolPct = total > 0 ? ((lpPool / total) * 100).toFixed(2) : "0";
+            const circulatingPct = total > 0 ? ((circulating / total) * 100).toFixed(2) : "0";
 
             const formatNum = (n: number) => {
                 if (n >= 1e12) return (n / 1e12).toFixed(2) + "T";
@@ -3038,13 +3040,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 return n.toFixed(0);
             };
 
-            console.log("[TokenStats] Formatted:", { burned: formatNum(burned), treasury: formatNum(treasury), controlledPct, lpPoolPct });
-
             setTokenStats({
                 burned: formatNum(burned),
                 treasury: formatNum(treasury),
                 controlledPct,
-                circulatingPct: lpPoolPct, // This is now the LP pool percentage
+                circulatingPct,
                 loading: false
             });
         } catch (err) {
