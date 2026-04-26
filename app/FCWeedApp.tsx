@@ -4876,9 +4876,23 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             setActionLoading(true);
             setV6ActionStatus("Watering plants...");
-            const amountArray = ids.map(id => ethers.utils.parseEther(String(amounts[id] || 0)));
-            const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
-            const data = iface.encodeFunctionData("waterPlants", [ids, amountArray]);
+            const iface = new ethers.utils.Interface([
+                "function waterAllPlants(uint256[] tokenIds) external",
+                "function waterPlantWithAmount(uint256 tokenId, uint256 amount) external"
+            ]);
+
+            let data: string;
+            if (ids.length > 1) {
+                data = iface.encodeFunctionData("waterAllPlants", [ids]);
+            } else {
+                const amt = ethers.utils.parseEther(String(amounts[ids[0]] || 0));
+                if (amt.isZero()) {
+                    data = iface.encodeFunctionData("waterAllPlants", [ids]);
+                } else {
+                    data = iface.encodeFunctionData("waterPlantWithAmount", [ids[0], amt]);
+                }
+            }
+
             const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
             if (!tx) throw new Error("Tx rejected");
             await tx.wait();
@@ -6501,11 +6515,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             if (!eventFound) {
                 clearTimeout(timeoutId);
                 crateTransactionInProgress.current = false;
-                stopCrateSpinOnError();
-                setCrateError("Could not determine reward. Check your wallet for the transaction.");
-                setCrateLoading(false);
-                setCrateStatus("");
-                return;
+                console.warn("[Crate] CrateOpened event not parsed — using generic reveal so reel completes");
+                rewardName = "Mystery Reward";
+                amount = ethers.BigNumber.from(0);
+                category = 99;
+                setCrateStatus("Tx confirmed — refresh to see updated balances");
+                eventFound = true;
             }
 
             console.log("[Crate] Final reward:", { rewardIndex, rewardName, amount: amount.toString() });
@@ -7471,6 +7486,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Active <b>Saturday 11PM - Sunday 11PM EST</b></li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>250K FCWEED</b> to target ANY wallet directly</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>20 min cooldown</b> | <b style={{ color: "#ef4444" }}>All shields BYPASSED</b></li>
+                                <li style={{ color: "#fbbf24", marginTop: 8 }}><b>🌵 DROUGHT (Global Event)</b> — One drought every 48h, first-clicker wins!</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>100M xFCWEED</b> to activate (no approval — internal balance)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>Steals 30%</b> of every player's pending xFCWEED globally</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#10b981" }}>Activator keeps 50%</b> of stolen xFCWEED, treasury gets 50%</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#ef4444" }}>Damages every staked plant by 30%</b> health globally</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>48h global cooldown</b> — race to click after window opens</li>
                                 <li style={{ color: "#10b981", marginTop: 8 }}><b>Item Shop</b> — Power-ups for your Farm!</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Water</b> — Restores Plant Health (Shop open 12PM-6PM EST)</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Health Pack</b> — Heals one Plant Max to 80%, Usage: 1 Per Plant</li>
@@ -7479,6 +7500,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>AK-47</b> — +100% Power for 12h</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% Power for 3h</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% Power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 50% | STEAL: 50%</b></li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>✈️ Crop Duster</b> — USDC-only premium item ($100). Hits <b>3 targets</b> at once with 15-min activation window. <b style={{ color: "#ef4444" }}>DAMAGE: 50% per target | STEAL: 50% per target</b>. Max 3 sold daily.</li>
                             </ul>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
                             <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
@@ -7495,7 +7517,6 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         <section className={styles.infoCard} style={getCardStyle()}>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Coming Soon</h2>
                             <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
-                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}>🎁 <b>Referrals + Quests</b> — Earn rewards for inviting friends and completing Quests</li>
                                 <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}>🛒 <b>More Shop Items</b> — Fertilizers, Growth Serums, Weapons, Explosives...</li>
                             </ul>
                         </section>

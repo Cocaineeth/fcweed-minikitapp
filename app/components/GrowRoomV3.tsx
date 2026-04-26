@@ -1054,7 +1054,12 @@ export default function IsometricFarm({
                 {/* Main buttons - always visible */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: "auto" }}>
                     <button onClick={() => { setShowStats(!showStats); setShowInventory(false); }} style={{ flex: 1, padding: "14px 12px", background: showStats ? "#22c55e30" : "#22c55e15", border: `2px solid ${showStats ? "#22c55e" : "#22c55e80"}`, borderRadius: 10, color: "#22c55e", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>📊 STATS</button>
-                    <button onClick={onClaim} disabled={actionLoading || claimCooldown > 0 || !stats || stats.pendingFormatted <= 0 || isLegacy} style={{ flex: 1.3, padding: "14px 16px", background: actionLoading || claimCooldown > 0 || !stats || stats.pendingFormatted <= 0 || isLegacy ? "#374151" : "linear-gradient(135deg, #22c55e, #16a34a)", border: "none", borderRadius: 10, color: isLegacy ? "#9ca3af" : "#fff", fontSize: 14, fontWeight: 700, cursor: isLegacy ? "not-allowed" : "pointer", boxShadow: isLegacy ? "none" : "0 0 20px rgba(34,197,94,0.3)" }}>{isLegacy ? "🚫 DISABLED" : "🌾 HARVEST"}</button>
+                    <button onClick={onClaim} disabled={actionLoading || claimCooldown > 0 || !stats || stats.pendingFormatted <= 0 || isLegacy} style={{ flex: 1.3, padding: "14px 16px", background: actionLoading || claimCooldown > 0 || !stats || stats.pendingFormatted <= 0 || isLegacy ? "#374151" : "linear-gradient(135deg, #22c55e, #16a34a)", border: "none", borderRadius: 10, color: isLegacy ? "#9ca3af" : "#fff", fontSize: 14, fontWeight: 700, cursor: isLegacy ? "not-allowed" : "pointer", boxShadow: isLegacy ? "none" : "0 0 20px rgba(34,197,94,0.3)" }}>{
+                        isLegacy ? "🚫 DISABLED" :
+                        claimCooldown > 0
+                            ? `⏳ ${Math.floor(claimCooldown / 3600)}h ${Math.floor((claimCooldown % 3600) / 60)}m ${claimCooldown % 60}s`
+                            : "🌾 HARVEST"
+                    }</button>
                     <button onClick={() => { setShowInventory(!showInventory); setShowStats(false); }} style={{ flex: 1, padding: "14px 12px", background: showInventory ? "#22c55e30" : "#22c55e15", border: `2px solid ${showInventory ? "#22c55e" : "#22c55e80"}`, borderRadius: 10, color: "#22c55e", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>📦 INVENTORY</button>
                 </div>
             </div>
