@@ -601,11 +601,10 @@ export default function IsometricFarm({
     
     if (!isOpen) return null;
 
-    // Tier theme — derived from staked land / super land counts.
     const tierKey: "shed" | "greenhouse" | "mansion" =
         stakedSuperLands.length > 0 ? "mansion" :
         stakedLands.length > 0 ? "greenhouse" : "shed";
-    const TIERS = {
+    const TIERS: Record<string, { label: string; outerBg: string; innerBg: string; pattern: string; accent: string; border: string; glow: string; titleColor: string }> = {
         shed: {
             label: "🪵 STARTER SHED",
             outerBg: "linear-gradient(180deg,#1a0f06 0%,#3a210e 50%,#1a0f06 100%)",
@@ -675,7 +674,6 @@ export default function IsometricFarm({
                     text-shadow: 1px 1px 0 #000;
                     box-shadow: 0 0 12px ${T.accent}55;
                 }
-                .grow-v4-modal img { image-rendering: pixelated; image-rendering: crisp-edges; }
             `}</style>
             <div className="grow-v4-tier-badge">{T.label}</div>
             
@@ -1130,4 +1128,20 @@ export default function IsometricFarm({
                     fontSize: 11, 
                     fontWeight: 600, 
                     zIndex: 300,
-      
+                    pointerEvents: "none"
+                }}>{actionStatus}</div>
+            )}
+            
+            {/* Loading */}
+            {loading && (
+                <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1001 }}>
+                    <div style={{ textAlign: "center" }}>
+                        <img src={PLANT_IMAGE} alt="Loading" style={{ width: 60, height: 60, animation: "plantBounce 1s infinite" }} />
+                        <div style={{ color: "#22c55e", fontSize: 12, fontWeight: 600, marginTop: 10 }}>Loading...</div>
+                    </div>
+                </div>
+            )}
+            </div>{/* Close inner container */}
+        </div>
+    );
+}
