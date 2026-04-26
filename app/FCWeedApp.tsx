@@ -1777,7 +1777,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 setShopStatus("Checking dust balance...");
                 try {
                     const crateVaultAbi = [
-                        "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)"
+                        "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 xFcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)"
                     ];
                     const crateVault = new ethers.Contract(CRATE_VAULT_ADDRESS, crateVaultAbi, readProvider);
                     const stats = await crateVault.getUserStats(userAddress);
@@ -5859,21 +5859,21 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         (async () => {
             try {
                 const vaultAbi = [
-                    "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)"
+                    "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 xFcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)"
                 ];
                 const vaultContract = new ethers.Contract(CRATE_VAULT_ADDRESS, vaultAbi, readProvider);
                 const stats = await vaultContract.getUserStats(userAddress);
                 console.log("[CrateStats] Raw stats:", stats);
                 console.log("[CrateStats] dustBalance:", stats.dustBalance?.toString(), "cratesOpened:", stats.cratesOpened?.toString());
                 
-                // Try named properties first, fall back to indices
+                // Deployed CrateVault returns 7 values: [dustBalance, cratesOpened, fcweedWon, xFcweedWon, usdcWon, nftsWon, totalSpent]
                 const dustBalance = stats.dustBalance ?? stats[0];
                 const cratesOpened = stats.cratesOpened ?? stats[1];
                 const fcweedWon = stats.fcweedWon ?? stats[2];
-                const usdcWon = stats.usdcWon ?? stats[3];
-                const nftsWon = stats.nftsWon ?? stats[4];
-                const totalSpent = stats.totalSpent ?? stats[5];
-                
+                const usdcWon = stats.usdcWon ?? stats[4];
+                const nftsWon = stats.nftsWon ?? stats[5];
+                const totalSpent = stats.totalSpent ?? stats[6];
+
                 setCrateUserStats({
                     opened: typeof cratesOpened === 'number' ? cratesOpened : cratesOpened.toNumber(),
                     dust: typeof dustBalance === 'number' ? dustBalance : dustBalance.toNumber(),
@@ -5951,12 +5951,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 if (userAddress) {
                     const stats = await vaultContract.getUserStats(userAddress);
                     console.log("[CratesTab] User stats:", stats);
+                    // Deployed CrateVault returns 7 values: [dust, opened, fcweedWon, xFcweedWon, usdcWon, nftsWon, totalSpent]
                     const dustBalance = stats.dustBalance ?? stats[0];
                     const cratesOpened = stats.cratesOpened ?? stats[1];
                     const fcweedWon = stats.fcweedWon ?? stats[2];
-                    const usdcWon = stats.usdcWon ?? stats[3];
-                    const nftsWon = stats.nftsWon ?? stats[4];
-                    const totalSpent = stats.totalSpent ?? stats[5];
+                    const usdcWon = stats.usdcWon ?? stats[4];
+                    const nftsWon = stats.nftsWon ?? stats[5];
+                    const totalSpent = stats.totalSpent ?? stats[6];
                     
                     setCrateUserStats({
                         opened: typeof cratesOpened === 'number' ? cratesOpened : cratesOpened.toNumber(),
@@ -7510,12 +7511,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                     <button type="button" className={styles.btnPrimary} onClick={handleMintPlant} disabled={connecting || actionLoading} style={{ width: "100%", padding: 14 }}>🌱 Mint Plant (49.99 USDC)</button>
                     <button type="button" className={styles.btnPrimary} onClick={handleMintLand} disabled={connecting || actionLoading} style={{ width: "100%", padding: 14 }}>🏠 Mint Land (199.99 USDC)</button>
-                    <button type="button" className={styles.btnPrimary} onClick={() => setUpgradeModalOpen(true)} disabled={connecting || actionLoading} style={{ width: "100%", padding: 14, background: "linear-gradient(to right, #f59e0b, #fbbf24)", color: "#000" }}>🔥 Upgrade to Super Land</button>
+                    <button type="button" className={styles.btnPrimary} disabled aria-disabled="true" style={{ width: "100%", padding: 14, position: "relative", background: "linear-gradient(to right, #4b5563, #374151)", color: "#9ca3af", cursor: "not-allowed", overflow: "hidden" }}>
+                        <span style={{ textDecoration: "line-through", opacity: 0.55 }}>🔥 Upgrade to Super Land</span>
+                        <span style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%) rotate(-8deg)", padding: "4px 18px", background: "rgba(220,38,38,0.92)", color: "#fff", fontWeight: 800, fontSize: 14, letterSpacing: 2, border: "2px solid #fff", borderRadius: 4, boxShadow: "0 0 12px rgba(220,38,38,0.6)" }}>SOLD OUT</span>
+                    </button>
                 </div>
                 {mintStatus && <p style={{ marginTop: 12, fontSize: 11, opacity: 0.9 }}>{mintStatus}</p>}
                 <div style={{ marginTop: 16, display: "flex", gap: 8, justifyContent: "center" }}>
                     <button type="button" className={styles.btnSecondary} onClick={() => window.open("https://opensea.io/collection/x420-plants", "_blank")} style={{ fontSize: 11, padding: "8px 12px" }}>Trade Plant</button>
                     <button type="button" className={styles.btnSecondary} onClick={() => window.open("https://opensea.io/collection/x420-land-763750895", "_blank")} style={{ fontSize: 11, padding: "8px 12px" }}>Trade Land</button>
+                    <button type="button" className={styles.btnSecondary} onClick={() => window.open(`https://opensea.io/assets/base/0xAcd70377fF1aaF4E1aE76398C678CBE6ECc35e7d`, "_blank")} style={{ fontSize: 11, padding: "8px 12px" }}>Trade Super Land</button>
                     <button type="button" className={styles.btnSecondary} onClick={() => window.open("https://dexscreener.com/base/0xa1a1b6b489ceb413999ccce73415d4fa92e826a1", "_blank")} style={{ fontSize: 11, padding: "8px 12px" }}>Trade $FCWEED</button>
                 </div>
             </section>
