@@ -7880,6 +7880,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         • <span style={{ color: "#fbbf24" }}>20 min cooldown</span> | <span style={{ color: "#ef4444" }}>All shields BYPASSED</span>. No mercy.
                                     </div>
                                 </div>
+                                <div style={{ borderTop: "1px solid rgba(139,92,246,0.2)", paddingTop: 10 }}>
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: "#fbbf24", marginBottom: 4 }}>🌵 DROUGHT (Global Event)</div>
+                                    <div style={{ fontSize: 9, color: theme === "light" ? "#475569" : "#c0c9f4", lineHeight: 1.5, paddingLeft: 8 }}>
+                                        • Pay <span style={{ color: "#fbbf24" }}>100M xFCWEED</span> to activate (no approval — internal balance)<br/>
+                                        • Steals <span style={{ color: "#fbbf24" }}>30%</span> of every player's pending xFCWEED globally<br/>
+                                        • <span style={{ color: "#10b981" }}>Activator keeps 50%</span> of stolen xFCWEED, treasury gets 50%<br/>
+                                        • <span style={{ color: "#ef4444" }}>Damages every staked plant by 30%</span> health<br/>
+                                        • <span style={{ color: "#fbbf24" }}>48h global cooldown</span> — first clicker wins
+                                    </div>
+                                </div>
                             </div>
                                                     </div>
 
