@@ -8526,7 +8526,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 }}
                 theme={theme}
                 showXFcweed={true}
-                xFcweedBalance={v6XFcweedBalanceFormatted}
+                xFcweedBalance={fcweedBalance}
             />
 
             {/* xFCWEED Converter Modal */}

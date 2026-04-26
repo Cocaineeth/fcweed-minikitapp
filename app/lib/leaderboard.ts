@@ -58,7 +58,7 @@ export async function loadLeaderboard(params?:
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
     
-    const base = "https://api.fcweed.xyz/v1";
+    const base = (process.env.NEXT_PUBLIC_WARS_BACKEND_URL || "https://web-production-697e98.up.railway.app").replace(/\/$/, "") + "/v1";
     const url = new URL(`${base}/leaderboard`);
     
     url.searchParams.set("limit", String(limit));
