@@ -57,7 +57,7 @@ export function ReferralsPanel(props: Props) {
                 signer: props.signer,
                 chainId: props.chainId,
                 signMessageAsync: props.signMessageAsync,
-                init: { method: "POST" }
+                init: { method: "GET" }
             });
 
             const codeText = await codeRes.text().catch(() => "");
@@ -132,7 +132,7 @@ export function ReferralsPanel(props: Props) {
 
         try {
             const res = await authedFetch({
-                url: `${props.backendBaseUrl}/v1/referrals/claim`,
+                url: `${props.backendBaseUrl}/v1/referral/redeem`,
                 backendBaseUrl: props.backendBaseUrl,
                 address: props.userAddress,
                 signer: props.signer,
@@ -168,7 +168,7 @@ export function ReferralsPanel(props: Props) {
 
         try {
             const res = await authedFetch({
-                url: `${props.backendBaseUrl}/v1/referral/redeem`,
+                url: `${props.backendBaseUrl}/v1/referrals/claim`,
                 backendBaseUrl: props.backendBaseUrl,
                 address: props.userAddress,
                 signer: props.signer,
