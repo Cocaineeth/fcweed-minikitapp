@@ -24,7 +24,7 @@ import { DEARaidsLeaderboard } from "./components/DEARaidsLeaderboard";
 import { BattleEventToast } from "./components/BattleEventToast";
 import { NotificationSettings } from "./components/NotificationSettings";
 import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS } from "./lib/constants";
-import IsometricFarm from "./components/GrowRoomV3";
+import IsometricFarm from "./components/GrowRoomV4";
 import { XFcweedConverter } from "./components/XFcweedConverter";
 import { DroughtButton } from "./components/DroughtButton";
 import { CropDusterModal } from "./components/CropDusterModal";
