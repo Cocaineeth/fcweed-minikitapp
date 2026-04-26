@@ -4519,7 +4519,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const V6_STAKING_READ_ABI = [
         "function pending(address) view returns (uint256)",
         "function xFcweedBalance(address) view returns (uint256)",
-        "function users(address) view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 totalPower, uint256 lastClaim, uint256 waterBalance)",
+        "function users(address) view returns (uint256 last, uint256 plants, uint256 lands, uint256 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay)",
         "function getUserStakedPlants(address) view returns (uint256[])",
         "function getUserStakedLands(address) view returns (uint256[])",
         "function getUserStakedSuperLands(address) view returns (uint256[])",
