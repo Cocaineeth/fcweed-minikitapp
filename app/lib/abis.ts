@@ -39,7 +39,7 @@ export const MULTICALL3_ABI = [
 ];
 
 export const STAKING_ABI = [
-    "function users(address) view returns (uint64 last,uint32 plants,uint32 lands,uint32 superLands,uint256 accrued,uint256 bonusBoostBps)",
+    "function users(address) view returns (uint256 last,uint256 plants,uint256 lands,uint256 superLands,uint256 accrued,uint256 bonusBoostBps)",
     "function pending(address) view returns (uint256)",
     "function plantsOf(address) view returns (uint256[] memory)",
     "function landsOf(address) view returns (uint256[] memory)",
@@ -92,7 +92,7 @@ export const V6_STAKING_ABI = [
     "function getUserStakedSuperLands(address) view returns (uint256[])",
     
     // User struct
-    "function users(address) view returns (uint64 last, uint32 plants, uint32 lands, uint32 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay, uint256 stakedTokens, uint256 tokenStakeTime, address referrer, uint256 referralEarnings, uint32 referralCount, uint256 guildId, uint256 earningBoostBps, uint256 earningBoostExpiry, uint256 capacityBoost, uint256 capacityBoostExpiry, uint256 raidShieldExpiry, uint256 raidAttackBoostBps, uint256 raidAttackBoostExpiry, uint256 plantEarningBoostBpsTotal, uint64 lastPlantBoostBucketProcessed)",
+    "function users(address) view returns (uint256 last, uint256 plants, uint256 lands, uint256 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay, uint256 stakedTokens, uint256 tokenStakeTime, address referrer, uint256 referralEarnings, uint256 referralCount, uint256 guildId, uint256 earningBoostBps, uint256 earningBoostExpiry, uint256 capacityBoost, uint256 capacityBoostExpiry, uint256 raidShieldExpiry, uint256 raidAttackBoostBps, uint256 raidAttackBoostExpiry, uint256 plantEarningBoostBpsTotal, uint256 lastPlantBoostBucketProcessed)",
     
     // Plant health
     "function getPlantHealth(uint256 tokenId) view returns (uint256)",
@@ -162,7 +162,7 @@ export const V4_STAKING_ABI = [
     "function landsOf(address account) external view returns (uint256[])",
     "function superLandsOf(address account) external view returns (uint256[])",
     "function superLandStakerOf(uint256 tokenId) external view returns (address)",
-    "function users(address) external view returns (uint64 last, uint32 plants, uint32 lands, uint32 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay, uint256 stakedTokens, uint256 tokenStakeTime, address referrer, uint256 referralEarnings, uint32 referralCount, uint256 guildId, uint256 earningBoostBps, uint256 earningBoostExpiry, uint256 capacityBoost, uint256 capacityBoostExpiry, uint256 raidShieldExpiry, uint256 raidAttackBoostBps, uint256 raidAttackBoostExpiry, uint256 seasonPoints, uint256 lastSeasonUpdated)",
+    "function users(address) external view returns (uint256 last, uint256 plants, uint256 lands, uint256 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay, uint256 stakedTokens, uint256 tokenStakeTime, address referrer, uint256 referralEarnings, uint256 referralCount, uint256 guildId, uint256 earningBoostBps, uint256 earningBoostExpiry, uint256 capacityBoost, uint256 capacityBoostExpiry, uint256 raidShieldExpiry, uint256 raidAttackBoostBps, uint256 raidAttackBoostExpiry, uint256 seasonPoints, uint256 lastSeasonUpdated)",
     "function getPlantHealth(uint256 tokenId) external view returns (uint256)",
     "function getAverageHealth(address user) external view returns (uint256)",
     "function getWaterNeeded(uint256 tokenId) external view returns (uint256)",

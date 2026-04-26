@@ -3837,6 +3837,14 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }, [v5StakingOpen, v5ClaimCooldown > 0]);
 
     useEffect(() => {
+        if (!v6StakingOpen || v6ClaimCooldown <= 0) return;
+        const interval = setInterval(() => {
+            setV6ClaimCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [v6StakingOpen, v6ClaimCooldown > 0]);
+
+    useEffect(() => {
         if (!v5StakingOpen || v5StakedPlants.length === 0 || !V5_STAKING_ADDRESS) return;
         const healthInterval = setInterval(async () => {
             try {
@@ -4578,6 +4586,17 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setV6StakedLands(landIds);
             setV6StakedSuperLands(superLandIds);
             
+            try {
+                const claimCdContract = new ethers.Contract(V6_STAKING_ADDRESS, [
+                    "function claimCooldown() view returns (uint256)"
+                ], readProvider);
+                const cd = await claimCdContract.claimCooldown();
+                const lastClaim = userData?.lastClaimTime ? Number(userData.lastClaimTime) : 0;
+                const nowSec = Math.floor(Date.now() / 1000);
+                const remain = lastClaim > 0 ? Math.max(0, (lastClaim + Number(cd)) - nowSec) : 0;
+                setV6ClaimCooldown(remain);
+            } catch {}
+
             let avgHealthLive = 100, atkPower = 0, defPower = 0;
             try {
                 const dynAbi = new ethers.Contract(V6_STAKING_ADDRESS, [
@@ -4903,7 +4922,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 "function getWaterStatus(address) view returns (tuple(bool enabled, bool windowOpen, bool isDst, uint256 secondsUntilOpen, uint256 secondsUntilClose, uint256 userCap, uint256 userPurchased, uint256 userRemaining, uint256 globalCap, uint256 globalPurchased, uint256 globalRemaining, uint256 xFcweedPrice, uint256 fcweedPrice, uint256 usdcPrice, bool xFcweedEnabled, bool fcweedEnabled, bool usdcEnabled))"
             ], readProvider);
             const v6Staking = new ethers.Contract(V6_STAKING_ADDRESS, [
-                "function users(address) view returns (uint64 last, uint32 plants, uint32 lands, uint32 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay)"
+                "function users(address) view returns (uint256 last, uint256 plants, uint256 lands, uint256 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay)"
             ], readProvider);
 
             const userArg = userAddress || ethers.constants.AddressZero;
