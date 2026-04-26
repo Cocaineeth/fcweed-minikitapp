@@ -4577,15 +4577,36 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setV6StakedLands(landIds);
             setV6StakedSuperLands(superLandIds);
             
-            // Build stats object
+            // Pull live avgHealth + on-chain combat power (defense base) from V6 staking
+            let avgHealthLive = 100, atkPower = 0, defPower = 0;
+            try {
+                const dynAbi = new ethers.Contract(V6_STAKING_ADDRESS, [
+                    "function getAverageHealth(address) view returns (uint256)",
+                    "function calculateBattlePower(address) view returns (uint256)"
+                ], readProvider);
+                const [h, p] = await Promise.all([
+                    dynAbi.getAverageHealth(userAddress).catch(() => ethers.BigNumber.from(100)),
+                    dynAbi.calculateBattlePower(userAddress).catch(() => ethers.BigNumber.from(0))
+                ]);
+                avgHealthLive = h.toNumber();
+                defPower = p.toNumber();
+                atkPower = defPower; // V6 attack boost layered on top by Item Shop ABIs; default = base
+            } catch {}
+            setContractCombatPower(atkPower);
+            setContractDefensePower(defPower);
+
+            // Build stats object — V6 multipliers: land=2.5%, superland=12%
             const waterBal = userData?.waterBalance ? parseFloat(ethers.utils.formatEther(userData.waterBalance)) : 0;
+            const boostPctLive = (landIds.length * 2.5) + (superLandIds.length * 12);
             setV6StakingStats({
                 plants: plantIds.length,
                 lands: landIds.length,
                 superLands: superLandIds.length,
-                capacity: 1 + (landIds.length * 3) + (superLandIds.length * 10),
-                boostPct: (landIds.length * 10) + (superLandIds.length * 50),
-                avgHealth: 100,
+                capacity: 1 + (landIds.length * 3) + (superLandIds.length * 3),
+                boostPct: boostPctLive,
+                avgHealth: avgHealthLive,
+                attackPower: atkPower,
+                defensePower: defPower,
                 dailyRewards: "~",
                 water: userData?.waterBalance?.toString() || "0",
                 pendingRaw: pending,
@@ -4781,6 +4802,55 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
         }
         finally { setActionLoading(false); setTimeout(() => setV6ActionStatus(""), 3000); }
+    }
+
+    // Sequential stake-all: lands → super lands → plants. Each tx waits for confirmation
+    // before the next prompt opens, so plant capacity is always present when plants stake.
+    async function handleV6StakeAllSelected(plantIds: number[], landIds: number[], superLandIds: number[]) {
+        if (!plantIds.length && !landIds.length && !superLandIds.length) return;
+        try {
+            setActionLoading(true);
+            const ctx = await ensureWallet();
+            if (!ctx) { setV6ActionStatus("Wallet not connected"); setActionLoading(false); return; }
+
+            const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
+
+            // STEP 1 — lands first (so plant capacity exists when plants stake)
+            if (landIds.length) {
+                setV6ActionStatus(`Approving Lands…`);
+                await ensureCollectionApproval(LAND_ADDRESS, V6_STAKING_ADDRESS, ctx);
+                setV6ActionStatus(`Staking ${landIds.length} land(s)…`);
+                const tx1 = await sendContractTx(V6_STAKING_ADDRESS, iface.encodeFunctionData("stakeLands", [landIds]), "0x1E8480");
+                if (!tx1) throw new Error("Lands tx rejected");
+                await tx1.wait();
+            }
+
+            // STEP 2 — super lands
+            if (superLandIds.length) {
+                setV6ActionStatus(`Approving Super Lands…`);
+                await ensureCollectionApproval(SUPER_LAND_ADDRESS, V6_STAKING_ADDRESS, ctx);
+                setV6ActionStatus(`Staking ${superLandIds.length} super land(s)…`);
+                const tx2 = await sendContractTx(V6_STAKING_ADDRESS, iface.encodeFunctionData("stakeSuperLands", [superLandIds]), "0x1E8480");
+                if (!tx2) throw new Error("Super Lands tx rejected");
+                await tx2.wait();
+            }
+
+            // STEP 3 — plants last (capacity is now correct)
+            if (plantIds.length) {
+                setV6ActionStatus(`Approving Plants…`);
+                await ensureCollectionApproval(PLANT_ADDRESS, V6_STAKING_ADDRESS, ctx);
+                setV6ActionStatus(`Staking ${plantIds.length} plant(s)…`);
+                const tx3 = await sendContractTx(V6_STAKING_ADDRESS, iface.encodeFunctionData("stakePlants", [plantIds]), "0x1E8480");
+                if (!tx3) throw new Error("Plants tx rejected");
+                await tx3.wait();
+            }
+
+            setV6ActionStatus(`✅ Staked all selected!`);
+            await loadV6StakingData();
+        } catch (err: any) {
+            setV6ActionStatus("Error: " + (err?.reason || err?.message || err));
+        }
+        finally { setActionLoading(false); setTimeout(() => setV6ActionStatus(""), 4000); }
     }
 
     async function handleV6WaterPlants(ids: number[], amounts: Record<number, number>) {
@@ -8006,31 +8076,31 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         )}
 
                         
-                        {connected && v5StakingStats && (
+                        {connected && v6StakingStats && (
                             <div style={{ background: theme === "light" ? "rgba(139,92,246,0.08)" : "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)", borderRadius: 10, padding: 12, marginBottom: 12 }}>
                                 <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700, textAlign: "center", marginBottom: 10 }}>🌿 FCWEED FARM COMBAT POWER</div>
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 8 }}>
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
                                         <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>PLANTS</div>
-                                        <div style={{ fontSize: 16, color: "#22c55e", fontWeight: 700 }}>{v5StakedPlants.length}</div>
+                                        <div style={{ fontSize: 16, color: "#22c55e", fontWeight: 700 }}>{v6StakedPlants.length}</div>
                                     </div>
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
                                         <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LANDS</div>
-                                        <div style={{ fontSize: 16, color: "#8b4513", fontWeight: 700 }}>{v5StakedLands.length}</div>
+                                        <div style={{ fontSize: 16, color: "#8b4513", fontWeight: 700 }}>{v6StakedLands.length}</div>
                                     </div>
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
                                         <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>SUPER LANDS</div>
-                                        <div style={{ fontSize: 16, color: "#ff6b35", fontWeight: 700 }}>{v5StakedSuperLands.length}</div>
+                                        <div style={{ fontSize: 16, color: "#ff6b35", fontWeight: 700 }}>{v6StakedSuperLands.length}</div>
                                     </div>
                                 </div>
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
                                         <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>AVG HEALTH</div>
-                                        <div style={{ fontSize: 14, color: v5StakingStats.avgHealth >= 70 ? "#22c55e" : v5StakingStats.avgHealth >= 40 ? "#fbbf24" : "#ef4444", fontWeight: 700 }}>{v5StakingStats.avgHealth || 0}%</div>
+                                        <div style={{ fontSize: 14, color: v6StakingStats.avgHealth >= 70 ? "#22c55e" : v6StakingStats.avgHealth >= 40 ? "#fbbf24" : "#ef4444", fontWeight: 700 }}>{v6StakingStats.avgHealth || 0}%</div>
                                     </div>
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
                                         <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>LAND BOOST</div>
-                                        <div style={{ fontSize: 14, color: "#fbbf24", fontWeight: 700 }}>+{v5StakingStats.boostPct || 0}%</div>
+                                        <div style={{ fontSize: 14, color: "#fbbf24", fontWeight: 700 }}>+{(v6StakingStats.boostPct || 0).toFixed(1)}%</div>
                                     </div>
                                 </div>
                                 {(boostExpiry > Math.floor(Date.now() / 1000) || ak47Expiry > Math.floor(Date.now() / 1000) || rpgExpiry > Math.floor(Date.now() / 1000) || nukeExpiry > Math.floor(Date.now() / 1000)) ? (

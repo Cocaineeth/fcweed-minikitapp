@@ -775,7 +775,7 @@ export default function IsometricFarm({
                     {showXFcweed && xFcweedBalance && (
                         <>
                             <div style={{ width: 1, background: "rgba(139,92,246,0.3)" }} />
-                            <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>{xFcweedBalance}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>💎 BALANCE</div></div>
+                            <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>{xFcweedBalance}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>FCWEED Balance</div></div>
                         </>
                     )}
                 </div>
