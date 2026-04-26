@@ -8337,7 +8337,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         userAddress={userAddress}
                         signer={signer}
                         chainId={CHAIN_ID}
-                        backendBaseUrl={"https://api.fcweed.xyz"}
+                        backendBaseUrl={WARS_BACKEND_URL}
                     />
                 )}
 
