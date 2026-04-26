@@ -8107,7 +8107,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ fontSize: 6, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>HEALTH</div>
                                         <div style={{ fontSize: 14, fontWeight: 700, color: "#10b981", marginBottom: 4 }}>{inventoryHealthPacks}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
-                                            <button onClick={() => setHealthPackModalOpen(true)} disabled={inventoryHealthPacks === 0 || v5StakedPlants.length === 0} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryHealthPacks > 0 && v5StakedPlants.length > 0 ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: "#fff", cursor: inventoryHealthPacks > 0 && v5StakedPlants.length > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Use</button>
+                                            <button onClick={() => setHealthPackModalOpen(true)} disabled={inventoryHealthPacks === 0 || v6StakedPlants.length === 0} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryHealthPacks > 0 && v6StakedPlants.length > 0 ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: "#fff", cursor: inventoryHealthPacks > 0 && v6StakedPlants.length > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Use</button>
                                         </div>
                                     </div>
                                     {/* Shields */}
@@ -8958,25 +8958,25 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             </div>
                             <div style={{ textAlign: "center" }}>
                                 <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>Staked Plants</div>
-                                <div style={{ fontSize: 20, fontWeight: 700, color: "#a78bfa" }}>{v5StakedPlants.length}</div>
+                                <div style={{ fontSize: 20, fontWeight: 700, color: "#a78bfa" }}>{v6StakedPlants.length}</div>
                             </div>
                             <div style={{ textAlign: "center" }}>
                                 <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>Avg Health</div>
-                                <div style={{ fontSize: 20, fontWeight: 700, color: v5StakedPlants.length > 0 ? (v5StakedPlants.reduce((acc, id) => acc + (v5PlantHealths[id] ?? 100), 0) / v5StakedPlants.length >= 70 ? "#10b981" : v5StakedPlants.reduce((acc, id) => acc + (v5PlantHealths[id] ?? 100), 0) / v5StakedPlants.length >= 40 ? "#fbbf24" : "#ef4444") : "#10b981" }}>
-                                    {v5StakedPlants.length > 0 ? Math.round(v5StakedPlants.reduce((acc, id) => acc + (v5PlantHealths[id] ?? 100), 0) / v5StakedPlants.length) : 100}%
+                                <div style={{ fontSize: 20, fontWeight: 700, color: v6StakedPlants.length > 0 ? (v6StakedPlants.reduce((acc, id) => acc + (v6PlantHealths[id] ?? 100), 0) / v6StakedPlants.length >= 70 ? "#10b981" : v6StakedPlants.reduce((acc, id) => acc + (v6PlantHealths[id] ?? 100), 0) / v6StakedPlants.length >= 40 ? "#fbbf24" : "#ef4444") : "#10b981" }}>
+                                    {v6StakedPlants.length > 0 ? Math.round(v6StakedPlants.reduce((acc, id) => acc + (v6PlantHealths[id] ?? 100), 0) / v6StakedPlants.length) : 100}%
                                 </div>
                             </div>
                         </div>
 
                         <p style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 12, textAlign: "center" }}>Select plants to heal to 80% health. Each plant uses 1 health pack.</p>
-                        
+
                         <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                             <label style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 6, color: "#10b981", cursor: "pointer" }}>
-                                <input 
-                                    type="checkbox" 
-                                    checked={selectedPlantsForHealthPack.length === v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 80).length && selectedPlantsForHealthPack.length > 0}
+                                <input
+                                    type="checkbox"
+                                    checked={selectedPlantsForHealthPack.length === v6StakedPlants.filter(id => (v6PlantHealths[id] ?? 100) < 80).length && selectedPlantsForHealthPack.length > 0}
                                     onChange={() => {
-                                        const needsHealing = v5StakedPlants.filter(id => (v5PlantHealths[id] ?? 100) < 80).slice(0, inventoryHealthPacks);
+                                        const needsHealing = v6StakedPlants.filter(id => (v6PlantHealths[id] ?? 100) < 80).slice(0, inventoryHealthPacks);
                                         if (selectedPlantsForHealthPack.length === needsHealing.length && needsHealing.length > 0) {
                                             setSelectedPlantsForHealthPack([]);
                                         } else {
@@ -8993,8 +8993,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         </div>
 
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 16, maxHeight: 350, overflow: "auto", padding: 4 }}>
-                            {v5StakedPlants.map((id) => {
-                                const health = v5PlantHealths[id] ?? 100;
+                            {v6StakedPlants.map((id) => {
+                                const health = v6PlantHealths[id] ?? 100;
                                 const isSelected = selectedPlantsForHealthPack.includes(id);
                                 const needsHeal = health < 80;
                                 return (
