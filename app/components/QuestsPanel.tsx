@@ -62,7 +62,7 @@ export function QuestsPanel(props: {
   const [progress, setProgress] = useState<MissionProgress[]>([]);
   const [points, setPoints] = useState<PointBalances | null>(null);
 
-  const [convertPts, setConvertPts] = useState<number>(10);
+  const [convertPts, setConvertPts] = useState<number>(50);
   const [convertReward, setConvertReward] = useState<"water">("water");
   const [convertStatus, setConvertStatus] = useState<string | null>(null);
 
@@ -236,10 +236,11 @@ return (
                             cursor: "pointer",
                         }}
                     >
-                        <option value={10}>10 points</option>
-                        <option value={25}>25 points</option>
                         <option value={50}>50 points</option>
                         <option value={100}>100 points</option>
+                        <option value={250}>250 points</option>
+                        <option value={500}>500 points</option>
+                        <option value={1000}>1000 points</option>
                     </select>
 
                     <select
