@@ -1666,38 +1666,43 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function handleUseHealthPack() {
         if (!userAddress || selectedPlantsForHealthPack.length === 0) return;
         setInventoryLoading(true);
-        
-        // ItemShopV15 only has useHealthPack(plantId) for single plants
-        // Process each plant one at a time
+
+        // ItemShopV15 only has useHealthPack(plantId) for single plants — no batch fn.
+        // Submit all txs back-to-back without awaiting confirmations, so the wallet
+        // queues them and the user can rapidly tap through confirmations.
         const plantIds = [...selectedPlantsForHealthPack];
-        let successCount = 0;
-        
-        for (let i = 0; i < plantIds.length; i++) {
-            const plantId = plantIds[i];
-            setInventoryStatus(`Healing plant ${plantId} (${i + 1}/${plantIds.length})...`);
+        const iface = new ethers.utils.Interface(["function useHealthPack(uint256 plantId) external"]);
+
+        setInventoryStatus(`Healing ${plantIds.length} plant${plantIds.length !== 1 ? "s" : ""} — confirm ${plantIds.length} tx${plantIds.length !== 1 ? "s" : ""} in your wallet...`);
+
+        // Fire all submissions in parallel; each returns a tx promise we'll await separately.
+        const submissions = plantIds.map(async (plantId) => {
             try {
-                const iface = new ethers.utils.Interface(["function useHealthPack(uint256 plantId) external"]);
                 const data = iface.encodeFunctionData("useHealthPack", [plantId]);
-                const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120"); // 500k gas
-                if (tx) {
-                    await tx.wait();
-                    successCount++;
-                } else {
-                    setInventoryStatus(`Transaction rejected for plant ${plantId}`);
-                    break;
-                }
+                const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120");
+                if (!tx) return { plantId, ok: false, reason: "rejected" };
+                await tx.wait();
+                return { plantId, ok: true };
             } catch (e: any) {
-                setInventoryStatus(e?.reason || e?.message || `Failed to heal plant ${plantId}`);
-                break;
+                return { plantId, ok: false, reason: e?.reason || e?.message || "failed" };
             }
-        }
-        
-        if (successCount > 0) {
-            setInventoryStatus(`Healed ${successCount} plant(s) to 80%!`);
+        });
+
+        const results = await Promise.all(submissions);
+        const successes = results.filter(r => r.ok).length;
+        const failures = results.filter(r => !r.ok);
+
+        if (successes > 0) {
+            const msg = failures.length === 0
+                ? `✅ Healed ${successes} plant${successes !== 1 ? "s" : ""} to 80%!`
+                : `Healed ${successes} of ${plantIds.length} plants — ${failures.length} failed`;
+            setInventoryStatus(msg);
             setHealthPackModalOpen(false);
             setSelectedPlantsForHealthPack([]);
             fetchInventory();
             refreshAllData();
+        } else if (failures.length > 0) {
+            setInventoryStatus(`❌ All heals failed: ${failures[0].reason}`);
         }
         setInventoryLoading(false);
     }
@@ -8397,7 +8402,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                 <div style={{ fontSize: 10, color: "#22c55e", fontWeight: 600, textAlign: "center", marginBottom: 8 }}>⚔️ YOU</div>
                                                 <div style={{ textAlign: "center" }}>
                                                     <div style={{ fontSize: 9, color: "#9ca3af" }}>PLANTS</div>
-                                                    <div style={{ fontSize: 16, fontWeight: 700, color: "#22c55e" }}>{v5StakedPlants?.length || 0}</div>
+                                                    <div style={{ fontSize: 16, fontWeight: 700, color: "#22c55e" }}>{v6StakedPlants?.length || v5StakedPlants?.length || 0}</div>
                                                 </div>
                                                 <div style={{ textAlign: "center", marginTop: 6 }}>
                                                     <div style={{ fontSize: 9, color: "#9ca3af" }}>POWER</div>
