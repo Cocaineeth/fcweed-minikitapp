@@ -5460,15 +5460,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setWarsStatus("Checking authorization...");
             
             // Check 0: CRITICAL - Verify user has staked plants (prevents !p error)
+            // Battles V10 reads from V6 staking, so the preflight must hit V6 too.
             const stakingAbi = [
                 "function getUserBattleStats(address) view returns (uint256 plants, uint256 lands, uint256 superLands, uint256 avgHealth, uint256 pendingRewards)"
             ];
-            const stakingContract = new ethers.Contract(V5_STAKING_ADDRESS, stakingAbi, readProvider);
+            const stakingContract = new ethers.Contract(V6_STAKING_ADDRESS, stakingAbi, readProvider);
             try {
                 const battleStats = await stakingContract.getUserBattleStats(effectiveAttacker);
                 const plantCount = Number(battleStats[0]);
                 console.log("[Wars] Pre-flight plant check:", plantCount, "plants for", effectiveAttacker);
-                
+
                 if (plantCount === 0) {
                     setWarsStatus("❌ You need staked plants to attack! Stake plants first.");
                     setWarsSearching(false);
@@ -5529,22 +5530,26 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 }
             } catch {}
             
-            const attackFee = await battlesContract.cartelFee();
-            const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            let allowance = await tokenContract.allowance(effectiveAttacker, V6_BATTLES_ADDRESS);
-
-            if (allowance.lt(attackFee)) {
-                setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V6_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120", effectiveAttacker);
-                if (!approveTx) {
-                    setWarsStatus("Approval rejected");
+            // Cartel fee is paid in xFCWEED (internal balance, no ERC20 approval needed).
+            // The Battles contract calls staking.spendXFcweed(user, cartelFee) directly.
+            // Verify the attacker has enough spendable xFCWEED before submitting.
+            try {
+                const xAbi = ["function xFcweedBalance(address) view returns (uint256)"];
+                const xRead = new ethers.Contract(V6_STAKING_ADDRESS, xAbi, readProvider);
+                const [xBal, attackFee] = await Promise.all([
+                    xRead.xFcweedBalance(effectiveAttacker),
+                    battlesContract.cartelFee(),
+                ]);
+                if (xBal.lt(attackFee)) {
+                    const have = parseFloat(ethers.utils.formatEther(xBal));
+                    const need = parseFloat(ethers.utils.formatEther(attackFee));
+                    setWarsStatus(`❌ Need ${need.toLocaleString()} xFCWEED — you have ${have.toFixed(0)}. Claim pending rewards first.`);
                     setWarsSearching(false);
                     warsTransactionInProgress.current = false;
                     return;
                 }
-                setWarsStatus("Confirming approval...");
-                await waitForTx(approveTx, readProvider);
-                await new Promise(resolve => setTimeout(resolve, 1500));
+            } catch (e) {
+                console.warn("[Wars] xFCWEED balance preflight failed:", e);
             }
 
             // V14: Check shield but don't manually remove - Battles V4 removes it automatically in cartelAttack()
