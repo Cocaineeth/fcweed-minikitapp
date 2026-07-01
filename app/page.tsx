@@ -2,9 +2,7 @@
 
 import dynamic from "next/dynamic";
 
-// Completely disable SSR for the entire app
-// This is necessary because MiniKitProvider requires browser context
-const App = dynamic(() => import("./App"), {
+const CartelStarterPack = dynamic(() => import("./components/CartelStarterPack"), {
   ssr: false,
   loading: () => (
     <div
@@ -14,18 +12,17 @@ const App = dynamic(() => import("./App"), {
         alignItems: "center",
         justifyContent: "center",
         background: "#050812",
-        color: "#c0c9f4",
+        color: "#f2496b",
+        fontWeight: 800,
+        letterSpacing: "0.4em",
         fontFamily: "system-ui, sans-serif",
       }}
     >
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: "48px", marginBottom: "16px" }}>🌿</div>
-        <div style={{ fontSize: "18px", fontWeight: "bold" }}>Loading FCWeed...</div>
-      </div>
+      CARTEL
     </div>
   ),
 });
 
 export default function Page() {
-  return <App />;
+  return <CartelStarterPack />;
 }
