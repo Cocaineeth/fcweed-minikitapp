@@ -2408,9 +2408,10 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
     
     // Helper function for card/box styling based on theme
     const getCardStyle = (additionalStyles: React.CSSProperties = {}): React.CSSProperties => ({
-        background: theme === "light" ? "#ffffff" : "rgba(5, 8, 20, 0.9)",
-        border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255, 255, 255, 0.08)"}`,
-        boxShadow: theme === "light" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+        background: theme === "light" ? "#ffffff" : "linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.012))",
+        border: `1px solid ${theme === "light" ? "#e2e8f0" : "rgba(255, 255, 255, 0.09)"}`,
+        borderRadius: 18,
+        boxShadow: theme === "light" ? "0 1px 3px rgba(0,0,0,0.08)" : "0 8px 28px -18px rgba(0,0,0,0.9)",
         color: theme === "light" ? "#1e293b" : "#ffffff",
         ...additionalStyles
     });
@@ -8733,7 +8734,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                 )}
             </main>
 
-            <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "linear-gradient(to top, #050812, #0a1128)", borderTop: "1px solid #1b2340", display: "flex", justifyContent: "space-around", padding: "10px 4px 14px 4px", zIndex: 50, maxWidth: "100vw", boxSizing: "border-box", paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}>
+            <nav style={{ position: "fixed", bottom: "max(8px, env(safe-area-inset-bottom))", left: 8, right: 8, background: "rgba(9, 12, 20, 0.88)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 20, display: "flex", justifyContent: "space-around", padding: "8px 4px", zIndex: 50, boxSizing: "border-box", boxShadow: "0 14px 34px -14px rgba(0,0,0,0.95)" }}>
                 {[
                     { key: "info", icon: "🏠", label: "HOME" },
                     { key: "mint", icon: "🌱", label: "MINT" },
