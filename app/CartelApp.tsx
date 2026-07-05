@@ -27,6 +27,7 @@ import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS } from "./lib/constants";
 import IsometricFarm from "./components/GrowRoomV4";
 import { XCartelConverter } from "./components/XCartelConverter";
 import { CartelBankPanel } from "./components/CartelBankPanel";
+import { SeasonOneRescue } from "./components/SeasonOneRescue";
 import { CARTEL_TOKEN_ADDRESS } from "./lib/cartelConstants";
 import { DroughtButton } from "./components/DroughtButton";
 import { CropDusterModal } from "./components/CropDusterModal";
@@ -7780,7 +7781,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
 
         {activeTab === "mint" && (
             <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 20 })}>
-                <h2 style={{ fontSize: 18, margin: "0 0 12px", color: theme === "light" ? "#2563eb" : "#7cb3ff" }}>Mint NFTs</h2>
+                <h2 style={{ fontSize: 12, margin: "0 0 12px", color: "#f5a623", textTransform: "uppercase", letterSpacing: "0.14em", fontWeight: 800 }}>Mint NFTs</h2>
                 
                 <div style={{
                     display: "flex",
@@ -7847,7 +7848,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
 
                 {activeTab === "stake" && (
                     <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 20 })}>
-                        <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#7cb3ff" }}>Staking</h2>
+                        <h2 style={{ fontSize: 12, margin: "0 0 14px", color: "#f5a623", textTransform: "uppercase", letterSpacing: "0.14em", fontWeight: 800 }}>Your Farm</h2>
 
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                             <button
@@ -7857,13 +7858,15 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 style={{
                                     width: "100%",
                                     padding: 16,
-                                    background: "linear-gradient(135deg, #059669, #10b981, #34d399)",
-                                    fontSize: 16,
-                                    fontWeight: 700,
-                                    boxShadow: "0 4px 20px rgba(16, 185, 129, 0.4)"
+                                    background: "linear-gradient(180deg, #7ef7c8, #21c48a)",
+                                    color: "#08131a",
+                                    borderRadius: 14,
+                                    fontSize: 15,
+                                    fontWeight: 800,
+                                    boxShadow: "0 0 26px -8px rgba(46, 220, 150, 0.7)"
                                 }}
                             >
-                                🌿 STAKING
+                                🌿 Open Grow Room
                             </button>
 
                             <button
@@ -7873,19 +7876,27 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 style={{
                                     width: "100%",
                                     padding: 14,
-                                    background: "linear-gradient(135deg, #7c3aed, #8b5cf6, #a78bfa)",
-                                    fontSize: 14,
-                                    fontWeight: 700,
-                                    boxShadow: "0 4px 15px rgba(139, 92, 246, 0.3)",
+                                    background: "rgba(255,255,255,0.05)",
+                                    border: "1px solid rgba(167,139,250,0.4)",
+                                    color: "#c4b5fd",
+                                    borderRadius: 14,
+                                    fontSize: 13.5,
+                                    fontWeight: 800,
                                     display: "flex",
                                     alignItems: "center",
                                     justifyContent: "center",
                                     gap: 8,
                                 }}
                             >
-                                💎 xCARTEL Converter → 🌿 CARTEL
+                                💎 Convert xCARTEL → CARTEL
                             </button>
                         </div>
+
+                        {connected && (
+                            <div style={{ marginTop: 14 }}>
+                                <SeasonOneRescue address={userAddress} provider={readProvider} sendContractTx={sendContractTx} onDone={() => refreshAllData()} />
+                            </div>
+                        )}
                     </section>
                 )}
 
@@ -8087,7 +8098,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
 
                 {activeTab === "wars" && (
                     <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 16 })}>
-                        <h2 style={{ fontSize: 18, margin: "0 0 8px", color: "#ef4444" }}>⚔️ Cartel Wars</h2>
+                        <h2 style={{ fontSize: 12, margin: "0 0 12px", color: "#f5a623", textTransform: "uppercase", letterSpacing: "0.14em", fontWeight: 800 }}>Cartel Wars</h2>
 
                         
                         <div style={{
@@ -8650,7 +8661,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
 
                 {activeTab === "bank" && (
                     <section className={styles.infoCard} style={getCardStyle({ padding: 16 })}>
-                        <h2 style={{ fontSize: 18, margin: "0 0 4px", color: "#f5a623" }}>🏦 The Bank</h2>
+                        <h2 style={{ fontSize: 12, margin: "0 0 12px", color: "#f5a623", textTransform: "uppercase", letterSpacing: "0.14em", fontWeight: 800 }}>The Bank</h2>
                         <div style={{ fontSize: 11.5, color: "#7b84a8", marginBottom: 14 }}>Half the street tax. Paid to the members.</div>
                         <CartelBankPanel
                             address={userAddress}
@@ -8663,7 +8674,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
 
                 {activeTab === "shop" && (
                     <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 16 })}>
-                        <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#10b981" }}>🛒 Shop</h2>
+                        <h2 style={{ fontSize: 12, margin: "0 0 12px", color: "#f5a623", textTransform: "uppercase", letterSpacing: "0.14em", fontWeight: 800 }}>Shop</h2>
                         <div style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.1))", border: "1px solid rgba(139,92,246,0.4)", borderRadius: 12, padding: 12, marginBottom: 16 }}>
                             <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600, marginBottom: 8, textAlign: "center" }}>🎒 YOUR INVENTORY</div>
                             <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
