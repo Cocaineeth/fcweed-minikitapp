@@ -512,6 +512,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [loadingV6Staking, setLoadingV6Staking] = useState(false);
     const [v6RealTimePending, setV6RealTimePending] = useState<string>("0.00");
     const [s1WarStats, setS1WarStats] = useState<{ cartel: string; dea: string; purge: string; stolen: string } | null>(null);
+    const [warsBattlePower, setWarsBattlePower] = useState<{ atk: string; def: string } | null>(null);
     const [v6XCartelBalance, setV6XCartelBalance] = useState<ethers.BigNumber>(ethers.BigNumber.from(0));
     const [v6XCartelBalanceFormatted, setV6XCartelBalanceFormatted] = useState<string>("0.00");
     const [v6PlantHealths, setV6PlantHealths] = useState<Record<number, number>>({});
@@ -5025,12 +5026,53 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
     useEffect(() => {
         (async () => {
             try {
-                const S1_BATTLES = "0xB0e2D0d5794C2e86A57C77EdCD962191670B0dcE";
-                const abi = ["function getGlobal() view returns (uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"];
-                const c = new ethers.Contract(S1_BATTLES, abi, readProvider);
-                const g = await c.getGlobal();
+                const S1_BATTLES_ALL = [
+                    "0xaea874795C4368B446c8da1A3EA90dB134349Ce3",
+                    "0xc023bcE1e9387B3F3BeE91B4E87Cc7A22c225e14",
+                    "0xa944070DE111045B9e0F31266Fc39604cDe5FBD4",
+                    "0x589cF892e99Ee1aa0D232e2D1D5398A8e54b567C",
+                    "0xb17A9451c424c3ae55660cF86795eE3f52877C75",
+                    "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00",
+                    "0xB0e2D0d5794C2e86A57C77EdCD962191670B0dcE",
+                ];
+                const S1_DEA_RAIDS = "0x94EA1CCF45D5B363b36329baD49e7b67De802E41";
+                const S1_PURGE = "0x60e845616bD85e61054b18863cD3A30D36353E4b";
+                const gAbi = ["function getGlobal() view returns (uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"];
+                const deaAbi = ["function totalRaids() view returns (uint256)", "function totalRewardsRedistributed() view returns (uint256)"];
+                const purgeAbi = ["function totalPurgeAttacks() view returns (uint256)", "function totalPurgeRewardsStolen() view returns (uint256)"];
+
+                let cartel = ethers.BigNumber.from(0), dea = ethers.BigNumber.from(0), purge = ethers.BigNumber.from(0), stolen = ethers.BigNumber.from(0);
+
+                const battleReads = S1_BATTLES_ALL.map(async (addr) => {
+                    try {
+                        const g = await new ethers.Contract(addr, gAbi, readProvider).getGlobal();
+                        return g;
+                    } catch { return null; }
+                });
+                const results = await Promise.all(battleReads);
+                for (const g of results) {
+                    if (!g) continue;
+                    cartel = cartel.add(g[0]);
+                    dea = dea.add(g[1]);
+                    purge = purge.add(g[2]);
+                    stolen = stolen.add(g[5]);
+                }
+
+                try {
+                    const d = new ethers.Contract(S1_DEA_RAIDS, deaAbi, readProvider);
+                    const [raids, redist] = await Promise.all([d.totalRaids(), d.totalRewardsRedistributed()]);
+                    dea = dea.add(raids);
+                    stolen = stolen.add(redist);
+                } catch {}
+                try {
+                    const pg = new ethers.Contract(S1_PURGE, purgeAbi, readProvider);
+                    const [atks, pStolen] = await Promise.all([pg.totalPurgeAttacks(), pg.totalPurgeRewardsStolen()]);
+                    purge = purge.add(atks);
+                    stolen = stolen.add(pStolen);
+                } catch {}
+
                 const fmt = (bn: any) => { const n = parseFloat(ethers.utils.formatUnits(bn, 18)); return n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "K" : n.toFixed(0); };
-                setS1WarStats({ cartel: g[0].toString(), dea: g[1].toString(), purge: g[2].toString(), stolen: fmt(g[5]) });
+                setS1WarStats({ cartel: cartel.toString(), dea: dea.toString(), purge: purge.toString(), stolen: fmt(stolen) });
             } catch {}
         })();
     }, [readProvider]);
@@ -5192,6 +5234,16 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
     }, [activeTab]);
 
     useEffect(() => {
+        if (connected && userAddress && activeTab === "wars") {
+            (async () => {
+                try {
+                    const pAbi = ["function getPower(address) view returns (uint256 base, uint256 atk, uint256 def)"];
+                    const bp = await new ethers.Contract(V6_BATTLES_ADDRESS, pAbi, readProvider).getPower(userAddress);
+                    const f = (n: any) => Number(n).toLocaleString();
+                    setWarsBattlePower({ atk: f(bp.atk), def: f(bp.def) });
+                } catch {}
+            })();
+        }
         if (connected && userAddress && activeTab === "wars") {
             fetchInventory();
         }
@@ -8100,6 +8152,41 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                     <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 16 })}>
                         <h2 style={{ fontSize: 12, margin: "0 0 12px", color: "#f5a623", textTransform: "uppercase", letterSpacing: "0.14em", fontWeight: 800 }}>Cartel Wars</h2>
 
+                        {connected && v6StakingStats && (() => {
+                            const now = Math.floor(Date.now() / 1000);
+                            const effects = [
+                                ["🔫 AK-47", ak47Expiry], ["🚀 RPG", rpgExpiry], ["⚡ Boost", boostExpiry],
+                                ["🦺 Kevlar", kevlarExpiry], ["🛡️ Shield", shieldExpiry], ["☢️ Nuke", nukeExpiry],
+                            ].filter(([, exp]) => (exp as number) > now);
+                            const fmtT = (exp: number) => { const sLeft = exp - now; const h = Math.floor(sLeft / 3600); const m = Math.floor((sLeft % 3600) / 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
+                            return (
+                                <div style={{ background: "rgba(0,0,0,0.28)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 14, padding: 14, marginBottom: 14, textAlign: "left" }}>
+                                    <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#7b84a8", fontWeight: 700, marginBottom: 10 }}>Battle Readiness</div>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: warsBattlePower || effects.length ? 10 : 0 }}>
+                                        <div style={{ textAlign: "center" }}>
+                                            <div style={{ fontSize: 9, color: "#7b84a8" }}>⚔️ ATTACK</div>
+                                            <div style={{ fontSize: 16, fontWeight: 900, color: "#ff8a9b" }}>{warsBattlePower ? warsBattlePower.atk : "—"}</div>
+                                        </div>
+                                        <div style={{ textAlign: "center" }}>
+                                            <div style={{ fontSize: 9, color: "#7b84a8" }}>🛡️ DEFENSE</div>
+                                            <div style={{ fontSize: 16, fontWeight: 900, color: "#7ec8f7" }}>{warsBattlePower ? warsBattlePower.def : "—"}</div>
+                                        </div>
+                                        <div style={{ textAlign: "center" }}>
+                                            <div style={{ fontSize: 9, color: "#7b84a8" }}>🌱 FARM</div>
+                                            <div style={{ fontSize: 12, fontWeight: 800, color: "#e9edff", lineHeight: 1.4 }}>{v6StakingStats.plants}P · {v6StakingStats.lands}L · {v6StakingStats.superLands}S<br /><span style={{ color: "#7ef7c8" }}>+{v6StakingStats.boostPct}%</span></div>
+                                        </div>
+                                    </div>
+                                    {effects.length > 0 && (
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                            {effects.map(([label, exp]) => (
+                                                <span key={label as string} style={{ fontSize: 9.5, fontWeight: 800, color: "#7ef7c8", background: "rgba(126,247,200,0.1)", border: "1px solid rgba(126,247,200,0.3)", borderRadius: 999, padding: "3px 9px" }}>{label} {fmtT(exp as number)}</span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
+
                         
                         <div style={{
                             display: "flex",
@@ -8731,7 +8818,8 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <img src="/images/items/water.gif" alt="Water" style={{ width: 32, height: 32, objectFit: "contain" }} />
                                 <span>WATER</span>
                             </button>
-                            <button onClick={() => setUsdcShopModalOpen(true)} style={{ flex: 1, padding: "16px 12px", borderRadius: 12, border: "1px solid rgba(39,117,202,0.4)", background: "linear-gradient(135deg, rgba(39,117,202,0.15), rgba(45,156,219,0.1))", color: "#2775CA", cursor: "pointer", fontSize: 14, fontWeight: 700, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                            <button disabled style={{ flex: 1, padding: "16px 12px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)", color: "#5c6484", cursor: "not-allowed", fontSize: 14, fontWeight: 700, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, position: "relative" }}>
+                                <span style={{ position: "absolute", top: 6, right: 6, fontSize: 7, fontWeight: 800, letterSpacing: "0.08em", color: "#f5a623", background: "rgba(245,166,35,0.12)", border: "1px solid rgba(245,166,35,0.3)", borderRadius: 999, padding: "2px 6px" }}>TOKEN LAUNCH</span>
                                 <span style={{ fontSize: 28 }}>💵</span>
                                 <span>USDC</span>
                             </button>
