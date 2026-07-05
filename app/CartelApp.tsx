@@ -7785,7 +7785,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                     </button>
                 </div>
                 {mintStatus && <p style={{ marginTop: 12, fontSize: 11, opacity: 0.9 }}>{mintStatus}</p>}
-                <div style={{ marginTop: 16, display: "flex", gap: 8, justifyContent: "center" }}>
+                <div style={{ marginTop: 16, display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
                     <button type="button" className={styles.btnSecondary} onClick={() => window.open("https://opensea.io/collection/x420-plants", "_blank")} style={{ fontSize: 11, padding: "8px 12px" }}>Trade Plant</button>
                     <button type="button" className={styles.btnSecondary} onClick={() => window.open("https://opensea.io/collection/x420-land-763750895", "_blank")} style={{ fontSize: 11, padding: "8px 12px" }}>Trade Land</button>
                     <button type="button" className={styles.btnSecondary} onClick={() => window.open(`https://opensea.io/assets/base/0xAcd70377fF1aaF4E1aE76398C678CBE6ECc35e7d`, "_blank")} style={{ fontSize: 11, padding: "8px 12px" }}>Trade Super Land</button>
@@ -8962,7 +8962,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             {nukeConfirmOpen && (
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 72, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }}>
-                    <div style={{ background: "linear-gradient(135deg, #1a0000, #2d0a0a)", borderRadius: 16, padding: 24, maxWidth: 380, width: "100%", border: "2px solid #ef4444", boxShadow: "0 0 40px rgba(239,68,68,0.3)" }}>
+                    <div style={{ background: "linear-gradient(135deg, #1a0000, #2d0a0a)", borderRadius: 16, padding: 24, maxWidth: 380, width: "100%", maxHeight: "calc(100vh - 120px)", overflowY: "auto", border: "2px solid #ef4444", boxShadow: "0 0 40px rgba(239,68,68,0.3)" }}>
                         <div style={{ textAlign: "center", marginBottom: 20 }}>
                             <div style={{ marginBottom: 12, display: "flex", justifyContent: "center", alignItems: "center" }}>
                                 <img src="/images/items/nuke.gif" alt="Nuke" style={{ width: 64, height: 64, objectFit: "contain" }} />
@@ -9545,7 +9545,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                             ⏰ Daily supply resets at 7:00 PM EST
                         </div>
                         <div style={{ fontSize: 12, color: "#ef4444", fontWeight: 700, textAlign: "center", marginBottom: 12 }}>🔫 WEAPONS</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginBottom: 16 }}>
                             <div style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.1))", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 180 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
                                     <img src="/images/items/ak47.gif" alt="AK-47" style={{ width: 40, height: 40, objectFit: "contain" }} />
@@ -9623,7 +9623,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                             </div>
                         </div>
                         <div style={{ fontSize: 12, color: "#10b981", fontWeight: 700, textAlign: "center", marginBottom: 12 }}>🛡️ CONSUMABLES</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginBottom: 16 }}>
                             <div style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.15), rgba(34,197,94,0.1))", border: "1px solid rgba(16,185,129,0.4)", borderRadius: 12, padding: 10, textAlign: "center", display: "flex", flexDirection: "column", minHeight: 170 }}>
                                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
                                     <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ width: 36, height: 36, objectFit: "contain" }} />

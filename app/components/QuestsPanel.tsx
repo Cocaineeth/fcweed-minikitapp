@@ -346,7 +346,7 @@ return (
                                         </div>
                                     </div>
 
-                                    <div style={{ textAlign: "right" }}>
+                                    <div style={{ textAlign: "right", flexShrink: 0, maxWidth: "42%" }}>
                                         <div style={{ fontSize: 11, fontWeight: 900, color: "#60a5fa" }}>{formatTitle(m.event_key)}</div>
                                         {pr?.resetAt ? (
                                             <div style={{ fontSize: 9, color: "#6b7280", fontWeight: 700 }}>

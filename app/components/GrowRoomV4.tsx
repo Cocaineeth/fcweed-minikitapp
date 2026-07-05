@@ -361,7 +361,7 @@ export default function IsometricFarm({
 
     const displayPlants = allPlantData.slice(0, 20);
     const hiddenPlantCount = Math.max(0, allPlantData.length - 20);
-    const gridCols = displayPlants.length <= 4 ? 2 : displayPlants.length <= 9 ? 3 : displayPlants.length <= 16 ? 4 : 5;
+    const gridCols = displayPlants.length <= 4 ? 2 : displayPlants.length <= 9 ? 3 : 4;
     
     // Water balance - full precision, no rounding
     const waterBalanceRaw = stats?.water 
@@ -772,7 +772,7 @@ export default function IsometricFarm({
                 {/* STATS PANEL - TOP */}
                 {showStats && (
                     <div style={{
-                        position: "absolute", top: 5, left: 10, right: 10, height: 125,
+                        position: "absolute", top: 5, left: 10, right: 10, height: 125, overflowY: "auto",
                         background: "rgba(10,15,25,0.98)", border: "2px solid #22c55e",
                         borderRadius: 12, zIndex: 200, display: "flex", flexDirection: "column"
                     }}>

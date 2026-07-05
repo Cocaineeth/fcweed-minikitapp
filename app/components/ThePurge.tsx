@@ -812,9 +812,9 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
                                             cursor: "pointer"
                                         }}
                                     >
-                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                            <div>
-                                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                                            <div style={{ minWidth: 0 }}>
+                                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
                                                     <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: textPrimary }}>
                                                         {cluster.name || shortAddr(cluster.address)}
                                                     </span>
@@ -906,7 +906,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             {/* Attack Modal */}
             {showAttackModal && selectedFarm && (
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 16 }}>
-                    <div style={{ background: modalBg, borderRadius: 16, padding: 20, maxWidth: 380, width: "100%", border: `1px solid ${borderColor}` }}>
+                    <div style={{ background: modalBg, borderRadius: 16, padding: 20, maxWidth: 380, width: "100%", maxHeight: "90vh", overflowY: "auto", border: `1px solid ${borderColor}` }}>
                         <div style={{ fontSize: 16, fontWeight: 700, color: "#dc2626", marginBottom: 16, textAlign: "center" }}>🔪 PURGE ATTACK</div>
                         
                         {/* Cluster info if applicable */}
@@ -953,7 +953,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             {/* Result Modal */}
             {showResultModal && attackResult && (
                 <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 16 }}>
-                    <div style={{ background: modalBg, borderRadius: 16, padding: 24, maxWidth: 340, width: "100%", border: `2px solid ${attackResult.won ? "rgba(16,185,129,0.5)" : "rgba(239,68,68,0.5)"}`, textAlign: "center" }}>
+                    <div style={{ background: modalBg, borderRadius: 16, padding: 24, maxWidth: 340, width: "100%", maxHeight: "90vh", overflowY: "auto", border: `2px solid ${attackResult.won ? "rgba(16,185,129,0.5)" : "rgba(239,68,68,0.5)"}`, textAlign: "center" }}>
                         <div style={{ fontSize: 56, marginBottom: 12 }}>{attackResult.won ? "🔥" : "💀"}</div>
                         <div style={{ fontSize: 22, fontWeight: 800, color: attackResult.won ? "#10b981" : "#ef4444", marginBottom: 16 }}>{attackResult.won ? "PURGED!" : "DEFEATED"}</div>
                         {attackResult.won ? (
