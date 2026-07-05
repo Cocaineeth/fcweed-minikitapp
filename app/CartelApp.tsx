@@ -510,6 +510,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [v6AvailableSuperLands, setV6AvailableSuperLands] = useState<number[]>([]);
     const [loadingV6Staking, setLoadingV6Staking] = useState(false);
     const [v6RealTimePending, setV6RealTimePending] = useState<string>("0.00");
+    const [s1WarStats, setS1WarStats] = useState<{ cartel: string; dea: string; purge: string; stolen: string } | null>(null);
     const [v6XCartelBalance, setV6XCartelBalance] = useState<ethers.BigNumber>(ethers.BigNumber.from(0));
     const [v6XCartelBalanceFormatted, setV6XCartelBalanceFormatted] = useState<string>("0.00");
     const [v6PlantHealths, setV6PlantHealths] = useState<Record<number, number>>({});
@@ -5020,6 +5021,19 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
     // the Wars page Health Pack / shield gates even if the user never opens
     // the Stake modal in this session.
     useEffect(() => {
+        (async () => {
+            try {
+                const S1_BATTLES = "0xB0e2D0d5794C2e86A57C77EdCD962191670B0dcE";
+                const abi = ["function getGlobal() view returns (uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"];
+                const c = new ethers.Contract(S1_BATTLES, abi, readProvider);
+                const g = await c.getGlobal();
+                const fmt = (bn: any) => { const n = parseFloat(ethers.utils.formatUnits(bn, 18)); return n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "K" : n.toFixed(0); };
+                setS1WarStats({ cartel: g[0].toString(), dea: g[1].toString(), purge: g[2].toString(), stolen: fmt(g[5]) });
+            } catch {}
+        })();
+    }, [readProvider]);
+
+    useEffect(() => {
         if (connected && userAddress && readProvider) {
             loadV6StakingData();
         }
@@ -7654,6 +7668,14 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                             {statCell("🔒", "Controlled", "88.31%", "#a855f7", true)}
                                             {statCell("💰", "Circulating", "11.69%", "#10b981", true)}
                                         </div>
+                                        {s1WarStats && (
+                                            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+                                                {statCell("⚔️", "Cartel Wars", s1WarStats.cartel, "#ef4444", true)}
+                                                {statCell("🚔", "DEA Raids", s1WarStats.dea, "#60a5fa", true)}
+                                                {statCell("🔪", "Purges", s1WarStats.purge, "#a855f7", true)}
+                                                {statCell("💰", "Stolen", s1WarStats.stolen, "#fbbf24", true)}
+                                            </div>
+                                        )}
                                     </div>
                                     <div style={{ background: "linear-gradient(180deg, rgba(126,247,200,0.08), rgba(33,196,138,0.03))", border: "1px solid rgba(126,247,200,0.3)", borderRadius: 14, padding: "12px 14px" }}>
                                         {badge("SEASON 2 · LIVE", true)}
