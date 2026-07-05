@@ -5025,54 +5025,14 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
     // the Stake modal in this session.
     useEffect(() => {
         (async () => {
+            const S1_WAR_MEMORIAL: { cartel: string; dea: string; purge: string; stolen: string } | null = null;
+            if (S1_WAR_MEMORIAL) { setS1WarStats(S1_WAR_MEMORIAL); return; }
             try {
-                const S1_BATTLES_ALL = [
-                    "0xaea874795C4368B446c8da1A3EA90dB134349Ce3",
-                    "0xc023bcE1e9387B3F3BeE91B4E87Cc7A22c225e14",
-                    "0xa944070DE111045B9e0F31266Fc39604cDe5FBD4",
-                    "0x589cF892e99Ee1aa0D232e2D1D5398A8e54b567C",
-                    "0xb17A9451c424c3ae55660cF86795eE3f52877C75",
-                    "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00",
-                    "0xB0e2D0d5794C2e86A57C77EdCD962191670B0dcE",
-                ];
-                const S1_DEA_RAIDS = "0x94EA1CCF45D5B363b36329baD49e7b67De802E41";
-                const S1_PURGE = "0x60e845616bD85e61054b18863cD3A30D36353E4b";
-                const gAbi = ["function getGlobal() view returns (uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"];
-                const deaAbi = ["function totalRaids() view returns (uint256)", "function totalRewardsRedistributed() view returns (uint256)"];
-                const purgeAbi = ["function totalPurgeAttacks() view returns (uint256)", "function totalPurgeRewardsStolen() view returns (uint256)"];
-
-                let cartel = ethers.BigNumber.from(0), dea = ethers.BigNumber.from(0), purge = ethers.BigNumber.from(0), stolen = ethers.BigNumber.from(0);
-
-                const battleReads = S1_BATTLES_ALL.map(async (addr) => {
-                    try {
-                        const g = await new ethers.Contract(addr, gAbi, readProvider).getGlobal();
-                        return g;
-                    } catch { return null; }
-                });
-                const results = await Promise.all(battleReads);
-                for (const g of results) {
-                    if (!g) continue;
-                    cartel = cartel.add(g[0]);
-                    dea = dea.add(g[1]);
-                    purge = purge.add(g[2]);
-                    stolen = stolen.add(g[5]);
-                }
-
-                try {
-                    const d = new ethers.Contract(S1_DEA_RAIDS, deaAbi, readProvider);
-                    const [raids, redist] = await Promise.all([d.totalRaids(), d.totalRewardsRedistributed()]);
-                    dea = dea.add(raids);
-                    stolen = stolen.add(redist);
-                } catch {}
-                try {
-                    const pg = new ethers.Contract(S1_PURGE, purgeAbi, readProvider);
-                    const [atks, pStolen] = await Promise.all([pg.totalPurgeAttacks(), pg.totalPurgeRewardsStolen()]);
-                    purge = purge.add(atks);
-                    stolen = stolen.add(pStolen);
-                } catch {}
-
+                const S1_BATTLES = "0xB0e2D0d5794C2e86A57C77EdCD962191670B0dcE";
+                const abi = ["function getGlobal() view returns (uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"];
+                const g = await new ethers.Contract(S1_BATTLES, abi, readProvider).getGlobal();
                 const fmt = (bn: any) => { const n = parseFloat(ethers.utils.formatUnits(bn, 18)); return n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "K" : n.toFixed(0); };
-                setS1WarStats({ cartel: cartel.toString(), dea: dea.toString(), purge: purge.toString(), stolen: fmt(stolen) });
+                setS1WarStats({ cartel: g[0].toString(), dea: g[1].toString(), purge: g[2].toString(), stolen: fmt(g[5]) });
             } catch {}
         })();
     }, [readProvider]);
@@ -7944,11 +7904,9 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                             </button>
                         </div>
 
-                        {connected && (
-                            <div style={{ marginTop: 14 }}>
-                                <SeasonOneRescue address={userAddress} provider={readProvider} sendContractTx={sendContractTx} onDone={() => refreshAllData()} />
-                            </div>
-                        )}
+                        <div style={{ marginTop: 14 }}>
+                            <SeasonOneRescue address={userAddress} provider={readProvider} sendContractTx={sendContractTx} onDone={() => refreshAllData()} />
+                        </div>
                     </section>
                 )}
 

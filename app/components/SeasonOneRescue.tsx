@@ -138,7 +138,13 @@ export function SeasonOneRescue({ address, provider, sendContractTx, onDone }: P
         Everything you had staked across all Season 1 vaults, in one place. Pull your Plants, Land and Super Land back to your wallet — they carry straight into Season 2.
       </div>
 
-      {scanning && <div style={{ fontSize: 12, color: "#aab3d6", textAlign: "center", padding: 14 }}>Scanning the old vaults…</div>}
+      {!address && (
+        <div style={{ fontSize: 12.5, color: "#aab3d6", textAlign: "center", padding: "16px 8px" }}>
+          Connect your wallet to scan the Season 1 vaults for your plants.
+        </div>
+      )}
+
+      {address && scanning && <div style={{ fontSize: 12, color: "#aab3d6", textAlign: "center", padding: 14 }}>Scanning the old vaults…</div>}
 
       {!scanning && scanned && totalFound === 0 && (
         <div style={{ fontSize: 12.5, color: "#8d96ba", textAlign: "center", padding: "18px 8px" }}>
