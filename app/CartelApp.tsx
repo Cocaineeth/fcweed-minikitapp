@@ -7603,8 +7603,36 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                 
                 {activeTab === "info" && (
                     <>
-
-                        
+                        {connected && v6StakingStats && v6StakingStats.plants > 0 ? (
+                            <section style={{ background: "linear-gradient(180deg, rgba(245,166,35,0.1), rgba(245,166,35,0.03))", border: "1px solid rgba(245,166,35,0.35)", borderRadius: 16, padding: 18 }}>
+                                <div style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "#7b84a8", fontWeight: 700 }}>Pending Harvest</div>
+                                <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "4px 0 12px" }}>
+                                    <span style={{ fontSize: 30, fontWeight: 900, background: "linear-gradient(180deg,#ffe08a,#f5a623)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>{v6RealTimePending}</span>
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: "#aab3d6" }}>xCARTEL</span>
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 14 }}>
+                                    {[
+                                        ["🌱", "Plants", `${v6StakingStats.plants}/${v6StakingStats.capacity}`],
+                                        ["❤️", "Health", `${v6StakingStats.avgHealth}%`],
+                                        ["⚡", "Boost", `+${v6StakingStats.boostPct}%`],
+                                        ["💧", "Water", `${parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(v6StakingStats.water?.toString() || "0"), 18)).toFixed(1)}L`],
+                                    ].map(([e, l, v]) => (
+                                        <div key={l as string} style={{ textAlign: "center", background: "rgba(0,0,0,0.25)", borderRadius: 10, padding: "8px 4px" }}>
+                                            <div style={{ fontSize: 9, color: "#7b84a8", marginBottom: 2 }}>{e} {l}</div>
+                                            <div style={{ fontSize: 13, fontWeight: 800, color: "#e9edff" }}>{v}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button onClick={() => setActiveTab("stake")} style={{ width: "100%", padding: "13px 16px", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 800, color: "#08131a", cursor: "pointer", background: "linear-gradient(180deg,#7ef7c8,#21c48a)", boxShadow: "0 0 24px -8px rgba(46,220,150,0.7)" }}>🌾 Manage Farm & Harvest</button>
+                            </section>
+                        ) : connected ? (
+                            <section style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 16, padding: 18, textAlign: "center" }}>
+                                <div style={{ fontSize: 26, marginBottom: 6 }}>🌱</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: "#e9edff", marginBottom: 4 }}>No farm yet</div>
+                                <div style={{ fontSize: 12, color: "#8d96ba", marginBottom: 12 }}>Mint a plant, stake it, and the empire starts printing.</div>
+                                <button onClick={() => setActiveTab("mint")} style={{ padding: "12px 26px", border: "none", borderRadius: 12, fontSize: 13, fontWeight: 800, color: "#08131a", cursor: "pointer", background: "linear-gradient(180deg,#ffe08a,#f5a623)" }}>Start Your Empire</button>
+                            </section>
+                        ) : null}
                         {(() => {
                             const s2Live = CARTEL_TOKEN_ADDRESS !== "";
                             const statCell = (emoji: string, label: string, value: string, color: string, dim: boolean) => (
@@ -7657,7 +7685,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                             />
                         </section>
                         <section className={styles.infoCard} style={getCardStyle()}>
-                            <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>How it Works</h2>
+                            <details><summary style={{ cursor: "pointer", fontWeight: 800, fontSize: 14, color: getTextColor("primary"), padding: "2px 0", listStyle: "none" }}>📖 How it Works <span style={{ color: "#f5a623" }}>+</span></summary>
                             <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
                                 <li>Connect your wallet on Base to begin.</li>
                                 <li>Mint <b>Plant Bud NFTs</b> and stake them for yield.</li>
@@ -7695,8 +7723,8 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>RPG</b> — +500% Power for 3h</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>Tactical Nuke</b> — +10,000% Power for 10min, just enough time to destroy your worst enemy. <b style={{ color: "#ef4444" }}>DAMAGE: 50% | STEAL: 50%</b></li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b>✈️ Crop Duster</b> — USDC-only premium item ($100). Hits <b>3 targets</b> at once with 15-min activation window. <b style={{ color: "#ef4444" }}>DAMAGE: 50% per target | STEAL: 50% per target</b>. Max 3 sold daily.</li>
-                            </ul>
-                            <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
+                            </ul></details>
+                            <details><summary style={{ cursor: "pointer", fontWeight: 800, fontSize: 14, color: getTextColor("primary"), padding: "2px 0", listStyle: "none" }}>💰 Use of Funds <span style={{ color: "#f5a623" }}>+</span></summary>
                             <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
                                 <li><b>50% of all mint funds</b> are routed to periodic <b>buyback and burns</b> of $CARTEL.</li>
                                 <li>$CARTEL has a <b>3% buy &amp; sell tax</b>:
@@ -7706,17 +7734,17 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                     </ul>
                                 </li>
                                 <li>Lock LP in the <b>🏦 Bank</b> to collect your cut of the street tax in real USDC.</li>
-                            </ul>
+                            </ul></details>
                         </section>
                         <section className={styles.infoCard} style={getCardStyle()}>
-                            <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Keeping Plants Alive</h2>
+                            <details><summary style={{ cursor: "pointer", fontWeight: 800, fontSize: 14, color: getTextColor("primary"), padding: "2px 0", listStyle: "none" }}>🌱 Keeping Plants Alive <span style={{ color: "#f5a623" }}>+</span></summary>
                             <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
                                 <li>💧 Plants dry out <b>every day they go unwatered</b>. Dry plants earn less — and the longer you wait, the more water the fix costs. Water daily or pay the neglect tax.</li>
                                 <li>📤 Unstaking settles the water bill first — <b>owed liters are auto-charged</b> on the way out.</li>
                                 <li>🦺 <b>Kevlar</b> — strap up for 12h and shave <b>15% off every hit</b> you take. Doesn't stop the raid; makes it hurt less.</li>
                                 <li>💉 <b>El Doctor</b> — the cartel's private medic. One visit, one plant, <b>back to 100%</b>. Starter pack exclusive.</li>
                                 <li>🏦 <b>The Bank</b> — lock CARTEL/USDC LP, collect half the street tax in USDC. Lock <b>$1,500+</b> and convert xCARTEL at <b>2:1</b> while everyone else pays 3.</li>
-                            </ul>
+                            </ul></details>
                         </section>
                         <section className={styles.infoCard} style={getCardStyle()}>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Coming Soon</h2>
@@ -8685,7 +8713,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
 
             <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "linear-gradient(to top, #050812, #0a1128)", borderTop: "1px solid #1b2340", display: "flex", justifyContent: "space-around", padding: "10px 4px 14px 4px", zIndex: 50, maxWidth: "100vw", boxSizing: "border-box", paddingBottom: "max(14px, env(safe-area-inset-bottom))" }}>
                 {[
-                    { key: "info", icon: "ℹ️", label: "INFO" },
+                    { key: "info", icon: "🏠", label: "HOME" },
                     { key: "mint", icon: "🌱", label: "MINT" },
                     { key: "stake", icon: "⚡", label: "STAKE" },
                     { key: "wars", icon: "⚔️", label: "WARS" },
@@ -8694,9 +8722,9 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                     { key: "shop", icon: "🛒", label: "SHOP" },
                     { key: "referrals", icon: "📜", label: "QUESTS" },
                 ].map((tab) => (
-                    <button key={tab.key} type="button" onClick={() => setActiveTab(tab.key as any)} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "8px 2px", border: "none", background: activeTab === tab.key ? "rgba(59,130,246,0.2)" : "transparent", borderRadius: 10, cursor: "pointer", minHeight: 44 }}>
+                    <button key={tab.key} type="button" onClick={() => setActiveTab(tab.key as any)} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "8px 2px", border: "none", background: activeTab === tab.key ? "rgba(245,166,35,0.16)" : "transparent", borderRadius: 10, cursor: "pointer", minHeight: 44 }}>
                         <span style={{ fontSize: 18 }}>{tab.icon}</span>
-                        <span style={{ fontSize: 9, fontWeight: 600, color: activeTab === tab.key ? "#3b82f6" : "#9ca3af" }}>{tab.label}</span>
+                        <span style={{ fontSize: 9, fontWeight: 600, color: activeTab === tab.key ? "#f5a623" : "#9ca3af" }}>{tab.label}</span>
                     </button>
                 ))}
             </nav>
