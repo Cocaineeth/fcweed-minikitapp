@@ -69,7 +69,7 @@ const Toast: React.FC<{
         onRemoveRef.current = onRemove;
     }, [onRemove]);
 
-    // Theme colors matching FCWeed app
+    // Theme colors matching Cartel app
     const cardBg = theme === "light" ? "#ffffff" : "rgba(20,25,35,0.98)";
     const textPrimary = theme === "light" ? "#1e293b" : "#ffffff";
     const textMuted = theme === "light" ? "#64748b" : "#94a3b8";
@@ -334,7 +334,7 @@ const Toast: React.FC<{
                                 fontWeight: 700, 
                                 color: event.won ? "#fbbf24" : "#ef4444"
                             }}>
-                                {formatTokens(event.stolen)} FCWEED
+                                {formatTokens(event.stolen)} CARTEL
                             </span>
                         </div>
                     )}

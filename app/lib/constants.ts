@@ -3,13 +3,13 @@ import { ethers } from "ethers";
 export const CHAIN_ID = 8453;
 export const PUBLIC_BASE_RPC = "https://base.publicnode.com";
 
-export const FCWEED_ADDRESS = "0x42ef01219BDb2190F275Cda7956D08822549d224";
+export const CARTEL_ADDRESS = "0x42ef01219BDb2190F275Cda7956D08822549d224";
 export const PLANT_ADDRESS = "0xD84890240C2CBB66a825915cD20aEe89C6b66dD5";
 export const LAND_ADDRESS  = "0x798A8F4b4799CfaBe859C85889c78e42a57d71c1";
 export const SUPER_LAND_ADDRESS = "0xAcd70377fF1aaF4E1aE76398C678CBE6ECc35e7d";
 
 export const METADATA_MODE: "local-only" | "hybrid" | "remote-all" = "hybrid";
-export const TOKEN_SYMBOL = "FCWEED";
+export const TOKEN_SYMBOL = "CARTEL";
 
 // ===============================
 // V6 CONTRACT ADDRESSES (NEW - USE THESE!)
@@ -52,8 +52,8 @@ export const USDC_ITEM_SHOP_ADDRESS = "0xA69646f43bD0a620A18F3c4c29cf3489b73ca7b
 // DROUGHT SYSTEM CONFIG
 // ===============================
 export const DROUGHT_COOLDOWN = 48 * 60 * 60; // 48 hours in seconds
-export const DROUGHT_COST_XFCWEED = ethers.utils.parseUnits("100000000", 18); // 100M xFCWEED
-export const DROUGHT_COST_FCWEED = ethers.utils.parseUnits("100000000", 18);  // 100M FCWEED
+export const DROUGHT_COST_XCARTEL = ethers.utils.parseUnits("100000000", 18); // 100M xCARTEL
+export const DROUGHT_COST_CARTEL = ethers.utils.parseUnits("100000000", 18);  // 100M CARTEL
 export const DROUGHT_COST_USDC = ethers.utils.parseUnits("300", 6);           // $300 USDC
 export const DROUGHT_TAKE_PERCENT = 30;
 export const DROUGHT_DAMAGE_PERCENT = 30;
@@ -82,7 +82,7 @@ export const OLD_V5_ITEMSHOP = "0x16e897f2dbB51b409b2Ae4aeAc782BD5178D0e05";
 export const WARS_BACKEND_URL = process.env.NEXT_PUBLIC_WARS_BACKEND_URL || "https://wars.x420ponzi.com";
 
 export const RewardCategory = {
-    FCWEED: 0,
+    CARTEL: 0,
     USDC: 1,
     DUST: 2,
     NFT_PLANT: 3,
@@ -96,12 +96,12 @@ export const CRATE_REWARDS = [
     { id: 1, name: 'Dust Pile', amount: '250', token: 'DUST', color: '#9CA3AF' },
     { id: 2, name: 'Dust Cloud', amount: '500', token: 'DUST', color: '#D1D5DB' },
     { id: 3, name: 'Dust Storm', amount: '1,000', token: 'DUST', color: '#E5E7EB' },
-    { id: 4, name: 'Common', amount: '50K', token: 'FCWEED', color: '#8B9A6B' },
-    { id: 5, name: 'Uncommon', amount: '150K', token: 'FCWEED', color: '#4A9B7F' },
-    { id: 6, name: 'Rare', amount: '300K', token: 'FCWEED', color: '#3B82F6' },
-    { id: 7, name: 'Epic', amount: '500K', token: 'FCWEED', color: '#A855F7' },
-    { id: 8, name: 'Legendary', amount: '1M', token: 'FCWEED', color: '#F59E0B' },
-    { id: 9, name: 'JACKPOT', amount: '5M', token: 'FCWEED', color: '#FFD700', isJackpot: true },
+    { id: 4, name: 'Common', amount: '50K', token: 'CARTEL', color: '#8B9A6B' },
+    { id: 5, name: 'Uncommon', amount: '150K', token: 'CARTEL', color: '#4A9B7F' },
+    { id: 6, name: 'Rare', amount: '300K', token: 'CARTEL', color: '#3B82F6' },
+    { id: 7, name: 'Epic', amount: '500K', token: 'CARTEL', color: '#A855F7' },
+    { id: 8, name: 'Legendary', amount: '1M', token: 'CARTEL', color: '#F59E0B' },
+    { id: 9, name: 'JACKPOT', amount: '5M', token: 'CARTEL', color: '#FFD700', isJackpot: true },
     { id: 10, name: '$5', amount: '$5', token: 'USDC', color: '#2775CA' },
     { id: 11, name: '$15', amount: '$15', token: 'USDC', color: '#2775CA' },
     { id: 12, name: '$50', amount: '$50', token: 'USDC', color: '#2775CA' },
@@ -122,7 +122,7 @@ export const USDC_DECIMALS = 6;
 
 export const PLANT_PRICE_USDC = ethers.utils.parseUnits("49.99", USDC_DECIMALS);
 export const LAND_PRICE_USDC  = ethers.utils.parseUnits("199.99", USDC_DECIMALS);
-export const SUPER_LAND_FCWEED_COST = ethers.utils.parseUnits("2000000", 18);
+export const SUPER_LAND_CARTEL_COST = ethers.utils.parseUnits("2000000", 18);
 
 export const ERC721_TRANSFER_TOPIC = ethers.utils.id(
   "Transfer(address,address,uint256)"
@@ -131,10 +131,10 @@ export const ERC721_TRANSFER_TOPIC = ethers.utils.id(
 export const MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
 
 export const GIFS = [
-  "/fcweed-radio.gif",
-  "/fcweed-radio-2.gif",
-  "/fcweed-radio-3.gif",
-  "/fcweed-radio-4.gif",
+  "/cartel-radio.gif",
+  "/cartel-radio-2.gif",
+  "/cartel-radio-3.gif",
+  "/cartel-radio-4.gif",
 ];
 
 export const PLAYLIST = [

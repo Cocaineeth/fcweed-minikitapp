@@ -25,7 +25,8 @@ import { BattleEventToast } from "./components/BattleEventToast";
 import { NotificationSettings } from "./components/NotificationSettings";
 import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS } from "./lib/constants";
 import IsometricFarm from "./components/GrowRoomV4";
-import { XFcweedConverter } from "./components/XFcweedConverter";
+import { XCartelConverter } from "./components/XCartelConverter";
+import { CartelBankPanel } from "./components/CartelBankPanel";
 import { DroughtButton } from "./components/DroughtButton";
 import { CropDusterModal } from "./components/CropDusterModal";
 
@@ -34,7 +35,7 @@ import {
     TOKEN_SYMBOL,
     PLANT_ADDRESS,
     LAND_ADDRESS,
-    FCWEED_ADDRESS,
+    CARTEL_ADDRESS,
     SUPER_LAND_ADDRESS,
     PUBLIC_BASE_RPC,
     PLANT_FALLBACK_IMG,
@@ -44,7 +45,7 @@ import {
     USDC_DECIMALS,
     PLANT_PRICE_USDC,
     LAND_PRICE_USDC,
-    SUPER_LAND_FCWEED_COST,
+    SUPER_LAND_CARTEL_COST,
     ERC721_TRANSFER_TOPIC,
     PLAYLIST,
     SUPER_PLANT_IDS,
@@ -201,7 +202,7 @@ async function captureAndShare(
             try {
                 const response = await fetch(imageDataUrl);
                 const blob = await response.blob();
-                const file = new File([blob], 'fcweed-share.png', { type: 'image/png' });
+                const file = new File([blob], 'cartel-share.png', { type: 'image/png' });
                 
                 if (navigator.canShare && navigator.canShare({ files: [file] })) {
                     await navigator.share({
@@ -246,7 +247,7 @@ async function captureAndShare(
     }
 }
 
-export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "dark" | "light") => void })
+export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "dark" | "light") => void })
 {
     const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount();
     const { data: walletClient } = useWalletClient();
@@ -425,7 +426,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
     }, []);
 
-    const [activeTab, setActiveTab] = useState<"info" | "mint" | "stake" | "wars" | "crates" | "referrals" | "shop">("info");
+    const [activeTab, setActiveTab] = useState<"info" | "mint" | "stake" | "wars" | "bank" | "crates" | "referrals" | "shop">("info");
     const [mintModalOpen, setMintModalOpen] = useState(false);
     const [stakeModalOpen, setStakeModalOpen] = useState(false);
     const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
@@ -434,7 +435,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     // Close all modals/popups when switching tabs
     useEffect(() => {
         setV6StakingOpen(false);
-        setXFcweedConverterOpen(false);
+        setXCartelConverterOpen(false);
         setV5StakingOpen(false);
         setV4StakingOpen(false);
         setItemsModalOpen(false);
@@ -497,7 +498,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [v5AverageHealth, setV5AverageHealth] = useState<number>(100);
     const [isPurgeActive, setIsPurgeActive] = useState(false);
 
-    // V6 Staking State (xFCWEED rewards)
+    // V6 Staking State (xCARTEL rewards)
     const [v6StakingOpen, setV6StakingOpen] = useState(false);
     const [v6StakingStats, setV6StakingStats] = useState<any>(null);
     const [v6StakedPlants, setV6StakedPlants] = useState<number[]>([]);
@@ -508,21 +509,21 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [v6AvailableSuperLands, setV6AvailableSuperLands] = useState<number[]>([]);
     const [loadingV6Staking, setLoadingV6Staking] = useState(false);
     const [v6RealTimePending, setV6RealTimePending] = useState<string>("0.00");
-    const [v6XFcweedBalance, setV6XFcweedBalance] = useState<ethers.BigNumber>(ethers.BigNumber.from(0));
-    const [v6XFcweedBalanceFormatted, setV6XFcweedBalanceFormatted] = useState<string>("0.00");
+    const [v6XCartelBalance, setV6XCartelBalance] = useState<ethers.BigNumber>(ethers.BigNumber.from(0));
+    const [v6XCartelBalanceFormatted, setV6XCartelBalanceFormatted] = useState<string>("0.00");
     const [v6PlantHealths, setV6PlantHealths] = useState<Record<number, number>>({});
     const [v6WaterNeeded, setV6WaterNeeded] = useState<Record<number, number>>({});
     const [v6ActionStatus, setV6ActionStatus] = useState("");
     const [v6ClaimCooldown, setV6ClaimCooldown] = useState<number>(0);
     
-    // xFCWEED Converter modal
-    const [xFcweedConverterOpen, setXFcweedConverterOpen] = useState(false);
+    // xCARTEL Converter modal
+    const [xCartelConverterOpen, setXCartelConverterOpen] = useState(false);
 
     const [waterShopInfo, setWaterShopInfo] = useState<any>(null);
     const [waterBuyAmount, setWaterBuyAmount] = useState(1);
     const [waterLoading, setWaterLoading] = useState(false);
     const [waterStatus, setWaterStatus] = useState("");
-    const [waterPayKind, setWaterPayKind] = useState<0 | 1>(0); // 0=xFCWEED, 1=FCWEED — default xFCWEED
+    const [waterPayKind, setWaterPayKind] = useState<0 | 1>(0); // 0=xCARTEL, 1=CARTEL — default xCARTEL
     const [shopLoading, setShopLoading] = useState(false);
     const [shopStatus, setShopStatus] = useState("");
 
@@ -536,6 +537,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [warsResult, setWarsResult] = useState<any>(null);
     const [inventoryHealthPacks, setInventoryHealthPacks] = useState<number>(0);
     const [inventoryShields, setInventoryShields] = useState<number>(0);
+    const [inventoryKevlar, setInventoryKevlar] = useState<number>(0);
+    const [kevlarExpiry, setKevlarExpiry] = useState<number>(0);
+    const [inventoryElDoctors, setInventoryElDoctors] = useState<number>(0);
+    const [healItemId, setHealItemId] = useState<number>(4);
     const [inventoryBoosts, setInventoryBoosts] = useState<number>(0);
     const [inventoryAK47, setInventoryAK47] = useState<number>(0);
     const [inventoryRPG, setInventoryRPG] = useState<number>(0);
@@ -688,8 +693,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 if (res.ok) {
                     console.log("[Notifications] Auto-registered successfully!");
                     notificationRegistered.current = true;
-                    localStorage.setItem("fcweed_notifications_enabled", "true");
-                    localStorage.setItem("fcweed_fid", String(fid));
+                    localStorage.setItem("cartel_notifications_enabled", "true");
+                    localStorage.setItem("cartel_fid", String(fid));
                 }
             } catch (e) {
                 console.error("[Notifications] Auto-register failed:", e);
@@ -868,13 +873,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [crateShowWin, setCrateShowWin] = useState(false);
     const [crateConfirmOpen, setCrateConfirmOpen] = useState(false);
     const [crateReelOpen, setCrateReelOpen] = useState(false);
-    const [crateUserStats, setCrateUserStats] = useState({ opened: 0, dust: 0, fcweed: 0, usdc: 0, nfts: 0, totalSpent: 0 });
+    const [crateUserStats, setCrateUserStats] = useState({ opened: 0, dust: 0, cartel: 0, usdc: 0, nfts: 0, totalSpent: 0 });
     const [crateGlobalStats, setCrateGlobalStats] = useState({ totalOpened: 0, totalBurned: "0", uniqueUsers: 0 });
-    const [fcweedBalance, setFcweedBalance] = useState("0");
-    const [fcweedBalanceRaw, setFcweedBalanceRaw] = useState(ethers.BigNumber.from(0));
+    const [cartelBalance, setCartelBalance] = useState("0");
+    const [cartelBalanceRaw, setCartelBalanceRaw] = useState(ethers.BigNumber.from(0));
     
-    // Item Shop FCWEED prices for balance checks
-    const SHOP_FCWEED_PRICES = {
+    // Item Shop CARTEL prices for balance checks
+    const SHOP_CARTEL_PRICES = {
         healthPack: ethers.utils.parseUnits("2000000", 18),    // 2M
         attackBoost: ethers.utils.parseUnits("200000", 18),    // 200K
         ak47: ethers.utils.parseUnits("1000000", 18),          // 1M
@@ -904,15 +909,15 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         return txRef.current;
     }
 
-    async function ensureFcweedAllowance(spender: string, amount: ethers.BigNumber): Promise<boolean> {
+    async function ensureCartelAllowance(spender: string, amount: ethers.BigNumber): Promise<boolean> {
         if (!userAddress || !readProvider) return false;
         try {
-            const fcweed = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            const current = await fcweed.allowance(userAddress, spender);
+            const cartel = new ethers.Contract(CARTEL_ADDRESS, ERC20_ABI, readProvider);
+            const current = await cartel.allowance(userAddress, spender);
             if (current.gte(amount)) return true;
-            setMintStatus("Approving FCWEED...");
+            setMintStatus("Approving CARTEL...");
             const approveData = erc20Interface.encodeFunctionData("approve", [spender, ethers.constants.MaxUint256]);
-            const tx = await sendContractTx(FCWEED_ADDRESS, approveData);
+            const tx = await sendContractTx(CARTEL_ADDRESS, approveData);
             if (!tx) return false;
             await waitForTx(tx, readProvider);
             return true;
@@ -1290,8 +1295,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }, []);
 
     // Refresh every balance/inventory the user can see post-spend.
-    // Awaits the explicit chain reads (V6 stats/water/xFCWEED, USDC) and bumps the
-    // refreshTrigger to fan out to FCWEED, dust/crate stats, inventory, etc.
+    // Awaits the explicit chain reads (V6 stats/water/xCARTEL, USDC) and bumps the
+    // refreshTrigger to fan out to CARTEL, dust/crate stats, inventory, etc.
     const refreshAllBalances = useCallback(async () => {
         try {
             await Promise.all([
@@ -1320,20 +1325,20 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 console.log("[Inventory] Failed to check purge status:", e);
             }
             
-            // V15 ItemShop ABI (matches FCWEEDItemShopV15.sol)
+            // V15 ItemShop ABI (matches CARTELItemShopV15.sol)
             const itemShopAbi = [
                 "function inventory(address user, uint256 itemId) view returns (uint256)",
                 "function getUserFullInventory(address) view returns (uint256[])",
                 "function getRemainingSupply(uint256 itemId) view returns (uint256)",
-                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 xFcweedPrice, uint256 usdcPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active, bool fcweedEnabled, bool xFcweedEnabled, bool usdcEnabled, bool dustEnabled)",
+                "function itemConfigs(uint256) view returns (string name, uint256 cartelPrice, uint256 xCartelPrice, uint256 usdcPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active, bool cartelEnabled, bool xCartelEnabled, bool usdcEnabled, bool dustEnabled)",
                 "function hasActiveShield(address) view returns (bool active, uint256 expiresAt)",
-                "function getActiveBoosts(address) view returns (uint256 ak47Boost, uint256 ak47Expires, uint256 rpgBoost, uint256 rpgExpires, uint256 attackBoost, uint256 attackBoostExpires, bool nukeActive, uint256 nukeExpires, uint256 shieldExpires, bool cropDusterActive, uint256 cropDusterExpires)",
+                "function getActiveBoosts(address) view returns (uint256 ak47Boost, uint256 ak47Expires, uint256 rpgBoost, uint256 rpgExpires, uint256 attackBoost, uint256 attackBoostExpires, uint256 kevlarBoost, uint256 kevlarExpires, bool nukeActive, uint256 nukeExpires, uint256 shieldExpires, bool cropDusterActive, uint256 cropDusterExpires)",
             ];
             const itemShop = new ethers.Contract(V6_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
             
             // V14 uses getUserFullInventory which returns uint256[] array
-            let inv = { ak47: 0, rpg: 0, nuke: 0, healthPack: 0, shield: 0, attackBoost: 0, cropDuster: 0 };
-            let boosts = { ak47Expires: 0, rpgExpires: 0, attackBoostExpires: 0, nukeExpires: 0, shieldExpires: 0 };
+            let inv = { ak47: 0, rpg: 0, nuke: 0, healthPack: 0, shield: 0, attackBoost: 0, cropDuster: 0, kevlar: 0, elDoctor: 0 };
+            let boosts = { ak47Expires: 0, rpgExpires: 0, attackBoostExpires: 0, nukeExpires: 0, shieldExpires: 0, kevlarExpires: 0 };
             
             try {
                 const invResult = await itemShop.getUserFullInventory(userAddress);
@@ -1347,6 +1352,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     shield: Number(invResult[4]),
                     attackBoost: Number(invResult[5]),
                     cropDuster: invResult[7] ? Number(invResult[7]) : 0,
+                    kevlar: invResult[8] ? Number(invResult[8]) : 0,
+                    elDoctor: invResult[9] ? Number(invResult[9]) : 0,
                 };
                 console.log("[Inventory] V15 fetched:", inv);
             } catch (e) {
@@ -1363,6 +1370,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         if (i === 5) inv.shield = num;
                         if (i === 6) inv.attackBoost = num;
                         if (i === 8) inv.cropDuster = num;
+                        if (i === 9) inv.kevlar = num;
+                        if (i === 10) inv.elDoctor = num;
                     } catch {}
                 }
             }
@@ -1371,11 +1380,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 // V14 getActiveBoosts returns 9 values (not 11)
                 const boostResult = await itemShop.getActiveBoosts(userAddress);
                 boosts = {
-                    ak47Expires: Number(boostResult[1]),      // ak47Expires
-                    rpgExpires: Number(boostResult[3]),       // rpgExpires  
-                    attackBoostExpires: Number(boostResult[5]), // attackBoostExpires
-                    nukeExpires: Number(boostResult[7]),      // nukeExpires
-                    shieldExpires: Number(boostResult[8]),    // shieldExpires
+                    ak47Expires: Number(boostResult[1]),
+                    rpgExpires: Number(boostResult[3]),
+                    attackBoostExpires: Number(boostResult[5]),
+                    kevlarExpires: Number(boostResult[7]),
+                    nukeExpires: Number(boostResult[9]),
+                    shieldExpires: Number(boostResult[10]),
                 };
             } catch (e) { console.log("[Inventory] getActiveBoosts failed:", e); }
 
@@ -1387,6 +1397,9 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setInventoryShields(inv.shield);
             setInventoryBoosts(inv.attackBoost);
             setInventoryCropDuster(inv.cropDuster);
+            setInventoryKevlar(inv.kevlar);
+            setInventoryElDoctors(inv.elDoctor);
+            setKevlarExpiry(boosts.kevlarExpires);
             setAk47Expiry(boosts.ak47Expires);
             setRpgExpiry(boosts.rpgExpires);
             setBoostExpiry(boosts.attackBoostExpires);
@@ -1417,7 +1430,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             // V15 ItemShop ABI
             const itemShopAbi = [
                 "function getRemainingSupply(uint256 itemId) view returns (uint256)",
-                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 xFcweedPrice, uint256 usdcPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active, bool fcweedEnabled, bool xFcweedEnabled, bool usdcEnabled, bool dustEnabled)",
+                "function itemConfigs(uint256) view returns (string name, uint256 cartelPrice, uint256 xCartelPrice, uint256 usdcPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active, bool cartelEnabled, bool xCartelEnabled, bool usdcEnabled, bool dustEnabled)",
                 "function getCurrentDay() view returns (uint256)",
             ];
             const itemShop = new ethers.Contract(V6_ITEMSHOP_ADDRESS, itemShopAbi, readProvider);
@@ -1565,6 +1578,29 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
     }
 
+    async function handleActivateKevlar() {
+        if (!userAddress || inventoryKevlar === 0) return;
+        setInventoryLoading(true);
+        setInventoryStatus("Strapping on Kevlar...");
+        try {
+            const iface = new ethers.utils.Interface(["function activateItem(uint256 itemId) external"]);
+            const data = iface.encodeFunctionData("activateItem", [9]);
+            const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120");
+            if (tx) {
+                await tx.wait();
+                setInventoryStatus("Kevlar on. +15% defense for 12h.");
+                fetchInventory();
+                refreshAllData();
+            } else {
+                setInventoryStatus("Transaction rejected");
+            }
+        } catch (e: any) {
+            setInventoryStatus(e?.reason || e?.message || "Failed to activate Kevlar");
+        } finally {
+            setInventoryLoading(false);
+        }
+    }
+
     async function handleActivateBoost() {
         if (!userAddress || inventoryBoosts === 0) return;
         setInventoryLoading(true);
@@ -1671,14 +1707,14 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         // Submit all txs back-to-back without awaiting confirmations, so the wallet
         // queues them and the user can rapidly tap through confirmations.
         const plantIds = [...selectedPlantsForHealthPack];
-        const iface = new ethers.utils.Interface(["function useHealthPack(uint256 plantId) external"]);
+        const iface = new ethers.utils.Interface(["function useHealItem(uint256 itemId, uint256 plantId) external"]);
+        const usingElDoctor = healItemId === 10;
 
-        setInventoryStatus(`Healing ${plantIds.length} plant${plantIds.length !== 1 ? "s" : ""} — confirm ${plantIds.length} tx${plantIds.length !== 1 ? "s" : ""} in your wallet...`);
+        setInventoryStatus(`${usingElDoctor ? "El Doctor visiting" : "Healing"} ${plantIds.length} plant${plantIds.length !== 1 ? "s" : ""} — confirm ${plantIds.length} tx${plantIds.length !== 1 ? "s" : ""} in your wallet...`);
 
-        // Fire all submissions in parallel; each returns a tx promise we'll await separately.
         const submissions = plantIds.map(async (plantId) => {
             try {
-                const data = iface.encodeFunctionData("useHealthPack", [plantId]);
+                const data = iface.encodeFunctionData("useHealItem", [healItemId, plantId]);
                 const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x7A120");
                 if (!tx) return { plantId, ok: false, reason: "rejected" };
                 await tx.wait();
@@ -1694,7 +1730,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
         if (successes > 0) {
             const msg = failures.length === 0
-                ? `✅ Healed ${successes} plant${successes !== 1 ? "s" : ""} to 80%!`
+                ? `✅ Healed ${successes} plant${successes !== 1 ? "s" : ""} to ${usingElDoctor ? "100" : "80"}%!`
                 : `Healed ${successes} of ${plantIds.length} plants — ${failures.length} failed`;
             setInventoryStatus(msg);
             setHealthPackModalOpen(false);
@@ -1759,7 +1795,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
     }, [v5StakingOpen, userAddress]);
 
-    async function handleBuyItem(itemId: number, currency: "dust" | "fcweed" | "xfcweed") {
+    async function handleBuyItem(itemId: number, currency: "dust" | "cartel" | "xcartel") {
         if (!userAddress) return;
         
         // Block shield purchases during The Purge - shields are useless
@@ -1772,10 +1808,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setShopLoading(true);
         setShopStatus(`Buying item...`);
         try {
-            // V15 ItemShop uses buyItem(itemId, PaymentType) where PaymentType enum: 0=FCWEED, 1=XFCWEED, 2=USDC, 3=DUST
+            // V15 ItemShop uses buyItem(itemId, PaymentType) where PaymentType enum: 0=CARTEL, 1=XCARTEL, 2=USDC, 3=DUST
             const itemShopAbi = [
                 "function buyItem(uint256 itemId, uint8 payment) external",
-                "function itemConfigs(uint256) view returns (string name, uint256 fcweedPrice, uint256 xFcweedPrice, uint256 usdcPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active, bool fcweedEnabled, bool xFcweedEnabled, bool usdcEnabled, bool dustEnabled)",
+                "function itemConfigs(uint256) view returns (string name, uint256 cartelPrice, uint256 xCartelPrice, uint256 usdcPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, bool isWeapon, bool isConsumable, bool active, bool cartelEnabled, bool xCartelEnabled, bool usdcEnabled, bool dustEnabled)",
                 "function shopEnabled() view returns (bool)",
             ];
             const itemShopInterface = new ethers.utils.Interface(itemShopAbi);
@@ -1783,15 +1819,15 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             
             const item = await itemShop.itemConfigs(itemId);
             
-            if (currency === "fcweed") {
-                const fcweedPrice = item.fcweedPrice;
-                if (fcweedPrice.eq(0) || !item.fcweedEnabled) {
-                    setShopStatus("This item cannot be purchased with FCWEED");
+            if (currency === "cartel") {
+                const cartelPrice = item.cartelPrice;
+                if (cartelPrice.eq(0) || !item.cartelEnabled) {
+                    setShopStatus("This item cannot be purchased with CARTEL");
                     setShopLoading(false);
                     return;
                 }
                 setShopStatus("Checking allowance...");
-                const approved = await ensureFcweedAllowance(V6_ITEMSHOP_ADDRESS, fcweedPrice);
+                const approved = await ensureCartelAllowance(V6_ITEMSHOP_ADDRESS, cartelPrice);
                 if (!approved) {
                     setShopStatus("Approval canceled or failed");
                     setShopLoading(false);
@@ -1799,7 +1835,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 }
                 
                 setShopStatus("Confirming purchase...");
-                // V15: buyItem(itemId, 0) for FCWEED payment (PaymentType.FCWEED = 0)
+                // V15: buyItem(itemId, 0) for CARTEL payment (PaymentType.CARTEL = 0)
                 const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, 0]);
                 const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
                 if (!tx) {
@@ -1808,25 +1844,25 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     return;
                 }
                 await tx.wait();
-            } else if (currency === "xfcweed") {
-                const xFcweedPrice = item.xFcweedPrice;
-                if (xFcweedPrice.eq(0) || !item.xFcweedEnabled) {
-                    setShopStatus("This item cannot be purchased with xFCWEED");
+            } else if (currency === "xcartel") {
+                const xCartelPrice = item.xCartelPrice;
+                if (xCartelPrice.eq(0) || !item.xCartelEnabled) {
+                    setShopStatus("This item cannot be purchased with xCARTEL");
                     setShopLoading(false);
                     return;
                 }
                 
-                // Check xFCWEED balance
-                if (v6XFcweedBalance.lt(xFcweedPrice)) {
-                    const needed = parseFloat(ethers.utils.formatEther(xFcweedPrice));
-                    const have = parseFloat(ethers.utils.formatEther(v6XFcweedBalance));
-                    setShopStatus(`Insufficient xFCWEED! Need ${needed >= 1000000 ? (needed/1000000).toFixed(1) + "M" : needed >= 1000 ? (needed/1000).toFixed(0) + "K" : needed.toFixed(0)}, have ${have >= 1000000 ? (have/1000000).toFixed(1) + "M" : have >= 1000 ? (have/1000).toFixed(0) + "K" : have.toFixed(0)}`);
+                // Check xCARTEL balance
+                if (v6XCartelBalance.lt(xCartelPrice)) {
+                    const needed = parseFloat(ethers.utils.formatEther(xCartelPrice));
+                    const have = parseFloat(ethers.utils.formatEther(v6XCartelBalance));
+                    setShopStatus(`Insufficient xCARTEL! Need ${needed >= 1000000 ? (needed/1000000).toFixed(1) + "M" : needed >= 1000 ? (needed/1000).toFixed(0) + "K" : needed.toFixed(0)}, have ${have >= 1000000 ? (have/1000000).toFixed(1) + "M" : have >= 1000 ? (have/1000).toFixed(0) + "K" : have.toFixed(0)}`);
                     setShopLoading(false);
                     return;
                 }
                 
                 setShopStatus("Confirming purchase...");
-                // V15: buyItem(itemId, 1) for xFCWEED payment (PaymentType.XFCWEED = 1)
+                // V15: buyItem(itemId, 1) for xCARTEL payment (PaymentType.XCARTEL = 1)
                 const data = itemShopInterface.encodeFunctionData("buyItem", [itemId, 1]);
                 const tx = await sendContractTx(V6_ITEMSHOP_ADDRESS, data, "0x1E8480"); // 2M gas
                 if (!tx) {
@@ -1845,7 +1881,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 setShopStatus("Checking dust balance...");
                 try {
                     const crateVaultAbi = [
-                        "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 xFcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)"
+                        "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 cartelWon, uint256 xCartelWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)"
                     ];
                     const crateVault = new ethers.Contract(CRATE_VAULT_ADDRESS, crateVaultAbi, readProvider);
                     const stats = await crateVault.getUserStats(userAddress);
@@ -2397,7 +2433,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     // Check for first-time user and show onboarding
     useEffect(() => {
         if (typeof window !== 'undefined') {
-            const seen = localStorage.getItem('fcweed_onboarding_seen');
+            const seen = localStorage.getItem('cartel_onboarding_seen');
             if (!seen) {
                 setShowOnboarding(true);
             } else {
@@ -2410,7 +2446,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setShowOnboarding(false);
         setHasSeenOnboarding(true);
         if (typeof window !== 'undefined') {
-            localStorage.setItem('fcweed_onboarding_seen', 'true');
+            localStorage.setItem('cartel_onboarding_seen', 'true');
         }
     };
     
@@ -2429,7 +2465,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     // Detect system preference on mount
     useEffect(() => {
         if (typeof window !== 'undefined') {
-            const savedTheme = localStorage.getItem('fcweed_theme') as "dark" | "light" | null;
+            const savedTheme = localStorage.getItem('cartel_theme') as "dark" | "light" | null;
             if (savedTheme) {
                 setTheme(savedTheme);
             } else if (window.matchMedia?.('(prefers-color-scheme: light)').matches) {
@@ -2441,7 +2477,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     // Save theme preference
     useEffect(() => {
         if (typeof window !== 'undefined') {
-            localStorage.setItem('fcweed_theme', theme);
+            localStorage.setItem('cartel_theme', theme);
         }
     }, [theme]);
 
@@ -2783,16 +2819,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         const ctx = await ensureWallet(); if (!ctx) return;
         try {
             setActionLoading(true); setMintStatus("Preparing upgrade…");
-            const fcweedRead = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+            const cartelRead = new ethers.Contract(CARTEL_ADDRESS, ERC20_ABI, readProvider);
             const landRead = new ethers.Contract(LAND_ADDRESS, ERC721_VIEW_ABI, readProvider);
-            const fcweedBal = await fcweedRead.balanceOf(ctx.userAddress);
-            if (fcweedBal.lt(SUPER_LAND_FCWEED_COST)) { setMintStatus("Need 2M FCWEED."); setActionLoading(false); return; }
+            const cartelBal = await cartelRead.balanceOf(ctx.userAddress);
+            if (cartelBal.lt(SUPER_LAND_CARTEL_COST)) { setMintStatus("Need 2M CARTEL."); setActionLoading(false); return; }
             setMintStatus("Approving Land…");
             const landApproved = await landRead.isApprovedForAll(ctx.userAddress, SUPER_LAND_ADDRESS);
             if (!landApproved) await waitForTx(await txAction().sendContractTx(LAND_ADDRESS, erc721Interface.encodeFunctionData("setApprovalForAll", [SUPER_LAND_ADDRESS, true])));
-            setMintStatus("Approving FCWEED…");
-            const fcweedAllowance = await fcweedRead.allowance(ctx.userAddress, SUPER_LAND_ADDRESS);
-            if (fcweedAllowance.lt(SUPER_LAND_FCWEED_COST)) await waitForTx(await txAction().sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [SUPER_LAND_ADDRESS, ethers.constants.MaxUint256])));
+            setMintStatus("Approving CARTEL…");
+            const cartelAllowance = await cartelRead.allowance(ctx.userAddress, SUPER_LAND_ADDRESS);
+            if (cartelAllowance.lt(SUPER_LAND_CARTEL_COST)) await waitForTx(await txAction().sendContractTx(CARTEL_ADDRESS, erc20Interface.encodeFunctionData("approve", [SUPER_LAND_ADDRESS, ethers.constants.MaxUint256])));
             setMintStatus("Upgrading…");
             await waitForTx(await txAction().sendContractTx(SUPER_LAND_ADDRESS, superLandInterface.encodeFunctionData("upgrade", [selectedLandForUpgrade])));
             setMintStatus("Super Land minted ✅");
@@ -3056,7 +3092,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }, [userAddress]);
 
     // Token supply stats
-    const FCWEED_TOKEN = "0x42ef01219BDb2190F275Cda7956D08822549d224";
+    const CARTEL_TOKEN = "0x42ef01219BDb2190F275Cda7956D08822549d224";
     const DEAD_ADDRESS = "0x000000000000000000000000000000000000dEaD";
     const TREASURY_ADDRESS = "0x5A567898881cef8DF767D192B74d99513cAa6e46";
     const LP_POOL_ADDRESS = "0xA1A1B6b489Ceb413999ccCe73415D4fA92e826A1";
@@ -3072,7 +3108,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 "function totalSupply() view returns (uint256)",
                 "function balanceOf(address) view returns (uint256)",
             ];
-            const tokenContract = new ethers.Contract(FCWEED_TOKEN, fullErc20Abi, readProvider);
+            const tokenContract = new ethers.Contract(CARTEL_TOKEN, fullErc20Abi, readProvider);
             
             const [totalSupply, burnedRaw, treasuryRaw, lpPoolRaw] = await Promise.all([
                 tokenContract.totalSupply(),
@@ -4581,11 +4617,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }
     // ==================== END V5 STAKING ====================
 
-    // ==================== V6 STAKING (xFCWEED) ====================
+    // ==================== V6 STAKING (xCARTEL) ====================
     // V6 Staking ABI for loading data
     const V6_STAKING_READ_ABI = [
         "function pending(address) view returns (uint256)",
-        "function xFcweedBalance(address) view returns (uint256)",
+        "function xCartelBalance(address) view returns (uint256)",
         "function users(address) view returns (uint256 last, uint256 plants, uint256 lands, uint256 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay)",
         "function getUserStakedPlants(address) view returns (uint256[])",
         "function getUserStakedLands(address) view returns (uint256[])",
@@ -4597,8 +4633,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     ];
 
     const V6_STAKING_WRITE_ABI = [
-        "function claimXFcweed()",
-        "function convertToFcweed(uint256 amount)",
+        "function claimXCartel()",
+        "function convertToCartel(uint256 amount)",
         "function stakePlants(uint256[] tokenIds)",
         "function unstakePlants(uint256[] tokenIds)",
         "function stakeLands(uint256[] tokenIds)",
@@ -4628,7 +4664,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 stakedSuperLands,
             ] = await Promise.all([
                 v6Contract.pending(userAddress).catch(() => ethers.BigNumber.from(0)),
-                v6Contract.xFcweedBalance(userAddress).catch(() => ethers.BigNumber.from(0)),
+                v6Contract.xCartelBalance(userAddress).catch(() => ethers.BigNumber.from(0)),
                 v6Contract.users(userAddress).catch(() => null),
                 v6Contract.getUserStakedPlants(userAddress).catch(() => []),
                 v6Contract.getUserStakedLands(userAddress).catch(() => []),
@@ -4639,10 +4675,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             const pendingNum = parseFloat(ethers.utils.formatEther(pending));
             setV6RealTimePending(pendingNum >= 1000000 ? (pendingNum / 1000000).toFixed(2) + "M" : pendingNum >= 1000 ? (pendingNum / 1000).toFixed(2) + "K" : pendingNum.toFixed(2));
             
-            // Format xFCWEED balance
-            setV6XFcweedBalance(xBalance);
+            // Format xCARTEL balance
+            setV6XCartelBalance(xBalance);
             const xBalanceNum = parseFloat(ethers.utils.formatEther(xBalance));
-            setV6XFcweedBalanceFormatted(xBalanceNum >= 1000000 ? (xBalanceNum / 1000000).toFixed(2) + "M" : xBalanceNum >= 1000 ? (xBalanceNum / 1000).toFixed(2) + "K" : xBalanceNum.toFixed(2));
+            setV6XCartelBalanceFormatted(xBalanceNum >= 1000000 ? (xBalanceNum / 1000000).toFixed(2) + "M" : xBalanceNum >= 1000 ? (xBalanceNum / 1000).toFixed(2) + "K" : xBalanceNum.toFixed(2));
             
             // Convert to arrays
             const plantIds = stakedPlants.map((id: ethers.BigNumber) => id.toNumber());
@@ -4750,14 +4786,14 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     async function handleV6Claim() {
         try {
             setActionLoading(true);
-            setV6ActionStatus("Harvesting xFCWEED...");
+            setV6ActionStatus("Harvesting xCARTEL...");
             const iface = new ethers.utils.Interface(V6_STAKING_WRITE_ABI);
-            const data = iface.encodeFunctionData("claimXFcweed", []);
+            const data = iface.encodeFunctionData("claimXCartel", []);
             const tx = await sendContractTx(V6_STAKING_ADDRESS, data, "0x1E8480");
             if (!tx) throw new Error("Tx rejected");
             setV6ActionStatus("Waiting for confirmation...");
             await tx.wait();
-            setV6ActionStatus("✅ Harvested xFCWEED!");
+            setV6ActionStatus("✅ Harvested xCARTEL!");
             emitMission("harvest", 1);
             await loadV6StakingData();
         } catch (err: any) {
@@ -4988,16 +5024,16 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         }
     }, [connected, userAddress, readProvider]);
 
-    // Also load V6 xFCWEED balance on connect for display
+    // Also load V6 xCARTEL balance on connect for display
     useEffect(() => {
         if (userAddress && readProvider && V6_STAKING_ADDRESS) {
             const loadXBalance = async () => {
                 try {
-                    const v6Contract = new ethers.Contract(V6_STAKING_ADDRESS, ["function xFcweedBalance(address) view returns (uint256)"], readProvider);
-                    const xBalance = await v6Contract.xFcweedBalance(userAddress);
-                    setV6XFcweedBalance(xBalance);
+                    const v6Contract = new ethers.Contract(V6_STAKING_ADDRESS, ["function xCartelBalance(address) view returns (uint256)"], readProvider);
+                    const xBalance = await v6Contract.xCartelBalance(userAddress);
+                    setV6XCartelBalance(xBalance);
                     const xBalanceNum = parseFloat(ethers.utils.formatEther(xBalance));
-                    setV6XFcweedBalanceFormatted(xBalanceNum >= 1000000 ? (xBalanceNum / 1000000).toFixed(2) + "M" : xBalanceNum >= 1000 ? (xBalanceNum / 1000).toFixed(2) + "K" : xBalanceNum.toFixed(2));
+                    setV6XCartelBalanceFormatted(xBalanceNum >= 1000000 ? (xBalanceNum / 1000000).toFixed(2) + "M" : xBalanceNum >= 1000 ? (xBalanceNum / 1000).toFixed(2) + "K" : xBalanceNum.toFixed(2));
                 } catch {}
             };
             loadXBalance();
@@ -5009,7 +5045,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         try {
             const WATER_SHOP_ADDR = "0x9A914A4B8268C94b3248Ecc2f5e78A6a5Edd8fFe";
             const waterShop = new ethers.Contract(WATER_SHOP_ADDR, [
-                "function getWaterStatus(address) view returns (tuple(bool enabled, bool windowOpen, bool isDst, uint256 secondsUntilOpen, uint256 secondsUntilClose, uint256 userCap, uint256 userPurchased, uint256 userRemaining, uint256 globalCap, uint256 globalPurchased, uint256 globalRemaining, uint256 xFcweedPrice, uint256 fcweedPrice, uint256 usdcPrice, bool xFcweedEnabled, bool fcweedEnabled, bool usdcEnabled))"
+                "function getWaterStatus(address) view returns (tuple(bool enabled, bool windowOpen, bool isDst, uint256 secondsUntilOpen, uint256 secondsUntilClose, uint256 userCap, uint256 userPurchased, uint256 userRemaining, uint256 globalCap, uint256 globalPurchased, uint256 globalRemaining, uint256 xCartelPrice, uint256 cartelPrice, uint256 usdcPrice, bool xCartelEnabled, bool cartelEnabled, bool usdcEnabled))"
             ], readProvider);
             const v6Staking = new ethers.Contract(V6_STAKING_ADDRESS, [
                 "function users(address) view returns (uint256 last, uint256 plants, uint256 lands, uint256 superLands, uint256 accrued, uint256 bonusBoostBps, uint256 lastClaimTime, uint256 waterBalance, uint256 waterPurchasedToday, uint256 lastWaterPurchaseDay)"
@@ -5037,11 +5073,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 walletRemaining: status.userRemaining.toNumber(),
                 walletLimit: status.userCap.toNumber(),
                 purchasedToday: status.userPurchased.toNumber(),
-                pricePerLiter: parseFloat(ethers.utils.formatUnits(status.fcweedPrice, 18)),
-                xFcweedPricePerLiter: parseFloat(ethers.utils.formatUnits(status.xFcweedPrice, 18)),
+                pricePerLiter: parseFloat(ethers.utils.formatUnits(status.cartelPrice, 18)),
+                xCartelPricePerLiter: parseFloat(ethers.utils.formatUnits(status.xCartelPrice, 18)),
                 usdcPricePerLiter: parseFloat(ethers.utils.formatUnits(status.usdcPrice, 6)),
-                xFcweedEnabled: status.xFcweedEnabled,
-                fcweedEnabled: status.fcweedEnabled,
+                xCartelEnabled: status.xCartelEnabled,
+                cartelEnabled: status.cartelEnabled,
                 usdcEnabled: status.usdcEnabled,
                 stakedPlants: stakedPlantsCount,
                 waterBalance: waterBalance
@@ -5054,7 +5090,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
     }, [activeTab, userAddress]);
 
     async function handleBuyWater(payKind: number = 0) {
-        // payKind: 0=xFCWEED, 1=FCWEED (USDC purposely disabled in UI)
+        // payKind: 0=xCARTEL, 1=CARTEL (USDC purposely disabled in UI)
         if (waterBuyAmount <= 0) return;
         if (payKind !== 0 && payKind !== 1) {
             setWaterStatus("Invalid payment method");
@@ -5065,14 +5101,14 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setWaterLoading(true);
             const ctx = await ensureWallet(); if (!ctx) { setWaterLoading(false); return; }
 
-            // FCWEED needs ERC20 approval; xFCWEED is internal (no approval); USDC needs USDC approval.
+            // CARTEL needs ERC20 approval; xCARTEL is internal (no approval); USDC needs USDC approval.
             if (payKind === 1) {
-                setWaterStatus("Approving FCWEED...");
+                setWaterStatus("Approving CARTEL...");
                 const cost = ethers.utils.parseUnits((waterBuyAmount * (waterShopInfo?.pricePerLiter || 75000)).toString(), 18);
-                const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+                const tokenContract = new ethers.Contract(CARTEL_ADDRESS, ERC20_ABI, readProvider);
                 const allowance = await tokenContract.allowance(userAddress, WATER_SHOP_ADDR);
                 if (allowance.lt(cost)) {
-                    const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [WATER_SHOP_ADDR, ethers.constants.MaxUint256]));
+                    const approveTx = await sendContractTx(CARTEL_ADDRESS, erc20Interface.encodeFunctionData("approve", [WATER_SHOP_ADDR, ethers.constants.MaxUint256]));
                     if (!approveTx) throw new Error("Approval rejected");
                     await waitForTx(approveTx);
                 }
@@ -5088,7 +5124,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 }
             }
 
-            setWaterStatus(payKind === 0 ? "Spending xFCWEED..." : "Buying water...");
+            setWaterStatus(payKind === 0 ? "Spending xCARTEL..." : "Buying water...");
             const iface = new ethers.utils.Interface(["function buyWater(uint256 liters, uint8 pay) external"]);
             const data = iface.encodeFunctionData("buyWater", [waterBuyAmount, payKind]);
             const tx = await sendContractTx(WATER_SHOP_ADDR, data, "0x1E8480");
@@ -5349,12 +5385,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             // Check and request approval for reveal fee (50K)
             const battlesContract = new ethers.Contract(V6_BATTLES_ADDRESS, V3_BATTLES_ABI, readProvider);
             const revealFee = await battlesContract.cartelFee();
-            const tokenContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+            const tokenContract = new ethers.Contract(CARTEL_ADDRESS, ERC20_ABI, readProvider);
             let allowance = await tokenContract.allowance(ctx.userAddress, V6_BATTLES_ADDRESS);
 
             if (allowance.lt(revealFee)) {
-                setWarsStatus("Approving FCWEED (confirm in wallet)...");
-                const approveTx = await sendContractTx(FCWEED_ADDRESS, erc20Interface.encodeFunctionData("approve", [V6_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120", ctx.userAddress); // 500k gas
+                setWarsStatus("Approving CARTEL (confirm in wallet)...");
+                const approveTx = await sendContractTx(CARTEL_ADDRESS, erc20Interface.encodeFunctionData("approve", [V6_BATTLES_ADDRESS, ethers.constants.MaxUint256]), "0x7A120", ctx.userAddress); // 500k gas
                 if (!approveTx) {
                     setWarsStatus("Approval rejected");
                     setWarsSearching(false);
@@ -5370,7 +5406,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setWarsStatus("Paying reveal fee (50K - confirm in wallet)...");
             const treasuryAddress = "0x5a567898881CEf8DF767D192b74d99513CAa6e46";
             const transferTx = await sendContractTx(
-                FCWEED_ADDRESS,
+                CARTEL_ADDRESS,
                 erc20Interface.encodeFunctionData("transfer", [treasuryAddress, revealFee]),
                 "0x30D40", // 200k gas
                 ctx.userAddress
@@ -5535,26 +5571,26 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 }
             } catch {}
             
-            // Cartel fee is paid in xFCWEED (internal balance, no ERC20 approval needed).
-            // The Battles contract calls staking.spendXFcweed(user, cartelFee) directly.
-            // Verify the attacker has enough spendable xFCWEED before submitting.
+            // Cartel fee is paid in xCARTEL (internal balance, no ERC20 approval needed).
+            // The Battles contract calls staking.spendXCartel(user, cartelFee) directly.
+            // Verify the attacker has enough spendable xCARTEL before submitting.
             try {
-                const xAbi = ["function xFcweedBalance(address) view returns (uint256)"];
+                const xAbi = ["function xCartelBalance(address) view returns (uint256)"];
                 const xRead = new ethers.Contract(V6_STAKING_ADDRESS, xAbi, readProvider);
                 const [xBal, attackFee] = await Promise.all([
-                    xRead.xFcweedBalance(effectiveAttacker),
+                    xRead.xCartelBalance(effectiveAttacker),
                     battlesContract.cartelFee(),
                 ]);
                 if (xBal.lt(attackFee)) {
                     const have = parseFloat(ethers.utils.formatEther(xBal));
                     const need = parseFloat(ethers.utils.formatEther(attackFee));
-                    setWarsStatus(`❌ Need ${need.toLocaleString()} xFCWEED — you have ${have.toFixed(0)}. Claim pending rewards first.`);
+                    setWarsStatus(`❌ Need ${need.toLocaleString()} xCARTEL — you have ${have.toFixed(0)}. Claim pending rewards first.`);
                     setWarsSearching(false);
                     warsTransactionInProgress.current = false;
                     return;
                 }
             } catch (e) {
-                console.warn("[Wars] xFCWEED balance preflight failed:", e);
+                console.warn("[Wars] xCARTEL balance preflight failed:", e);
             }
 
             // V14: Check shield but don't manually remove - Battles V4 removes it automatically in cartelAttack()
@@ -5717,12 +5753,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 if (battleResult.won) {
                     const stolenAmount = parseFloat(ethers.utils.formatUnits(rewardsAmount, 18));
                     const stolenFormatted = stolenAmount >= 1000 ? (stolenAmount / 1000).toFixed(1) + "K" : stolenAmount.toFixed(0);
-                    setWarsStatus(`🎉 VICTORY! Stole ${stolenFormatted} FCWEED!`);
+                    setWarsStatus(`🎉 VICTORY! Stole ${stolenFormatted} CARTEL!`);
                     emitMission("cartel_win", 1);
                 } else {
                     const lostAmount = parseFloat(ethers.utils.formatUnits(rewardsAmount, 18));
                     const lostFormatted = lostAmount >= 1000 ? (lostAmount / 1000).toFixed(1) + "K" : lostAmount.toFixed(0);
-                    setWarsStatus(`💀 DEFEAT! Lost ${lostFormatted} FCWEED.`);
+                    setWarsStatus(`💀 DEFEAT! Lost ${lostFormatted} CARTEL.`);
                 }
             } else {
                 setWarsStatus("Battle complete! Check your rewards.");
@@ -5977,18 +6013,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         if (!connected || !userAddress) return;
         (async () => {
             try {
-                const c = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
+                const c = new ethers.Contract(CARTEL_ADDRESS, ERC20_ABI, readProvider);
                 const b = await c.balanceOf(userAddress);
-                setFcweedBalanceRaw(b);
+                setCartelBalanceRaw(b);
                 const f = parseFloat(ethers.utils.formatUnits(b, 18));
-                setFcweedBalance(f >= 1e6 ? (f / 1e6).toFixed(2) + "M" : f >= 1e3 ? (f / 1e3).toFixed(0) + "K" : f.toFixed(0));
-                console.log("[Balance] FCWEED refreshed:", f);
+                setCartelBalance(f >= 1e6 ? (f / 1e6).toFixed(2) + "M" : f >= 1e3 ? (f / 1e3).toFixed(0) + "K" : f.toFixed(0));
+                console.log("[Balance] CARTEL refreshed:", f);
             } catch {}
         })();
     }, [connected, userAddress, readProvider, refreshTrigger]);
 
     // Unified spend-tx refresh fan-out — anything bumped via refreshAllData()
-    // also re-reads on-chain V6 staking stats (water + xFCWEED) and USDC balance.
+    // also re-reads on-chain V6 staking stats (water + xCARTEL) and USDC balance.
     // This way every existing handler that already calls refreshAllData() picks up
     // its post-spend balance changes without a per-call refresh helper.
     useEffect(() => {
@@ -6006,7 +6042,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         (async () => {
             try {
                 const vaultAbi = [
-                    "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 xFcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)"
+                    "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 cartelWon, uint256 xCartelWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)"
                 ];
                 const vaultContract = new ethers.Contract(CRATE_VAULT_ADDRESS, vaultAbi, readProvider);
                 const stats = await vaultContract.getUserStats(userAddress);
@@ -6015,7 +6051,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 
                 const dustBalance = stats.dustBalance ?? stats[0];
                 const cratesOpened = stats.cratesOpened ?? stats[1];
-                const fcweedWon = stats.fcweedWon ?? stats[2];
+                const cartelWon = stats.cartelWon ?? stats[2];
                 const usdcWon = stats.usdcWon ?? stats[4];
                 const nftsWon = stats.nftsWon ?? stats[5];
                 const totalSpent = stats.totalSpent ?? stats[6];
@@ -6023,7 +6059,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 setCrateUserStats({
                     opened: typeof cratesOpened === 'number' ? cratesOpened : cratesOpened.toNumber(),
                     dust: typeof dustBalance === 'number' ? dustBalance : dustBalance.toNumber(),
-                    fcweed: parseFloat(ethers.utils.formatUnits(fcweedWon, 18)),
+                    cartel: parseFloat(ethers.utils.formatUnits(cartelWon, 18)),
                     usdc: parseFloat(ethers.utils.formatUnits(usdcWon, 6)),
                     nfts: typeof nftsWon === 'number' ? nftsWon : nftsWon.toNumber(),
                     totalSpent: parseFloat(ethers.utils.formatUnits(totalSpent, 18)),
@@ -6099,7 +6135,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     console.log("[CratesTab] User stats:", stats);
                     const dustBalance = stats.dustBalance ?? stats[0];
                     const cratesOpened = stats.cratesOpened ?? stats[1];
-                    const fcweedWon = stats.fcweedWon ?? stats[2];
+                    const cartelWon = stats.cartelWon ?? stats[2];
                     const usdcWon = stats.usdcWon ?? stats[4];
                     const nftsWon = stats.nftsWon ?? stats[5];
                     const totalSpent = stats.totalSpent ?? stats[6];
@@ -6107,7 +6143,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     setCrateUserStats({
                         opened: typeof cratesOpened === 'number' ? cratesOpened : cratesOpened.toNumber(),
                         dust: typeof dustBalance === 'number' ? dustBalance : dustBalance.toNumber(),
-                        fcweed: parseFloat(ethers.utils.formatUnits(fcweedWon, 18)),
+                        cartel: parseFloat(ethers.utils.formatUnits(cartelWon, 18)),
                         usdc: parseFloat(ethers.utils.formatUnits(usdcWon, 6)),
                         nfts: typeof nftsWon === 'number' ? nftsWon : nftsWon.toNumber(),
                         totalSpent: parseFloat(ethers.utils.formatUnits(totalSpent, 18)),
@@ -6138,7 +6174,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         return () => clearInterval(globalStatsInterval);
     }, [activeTab, readProvider, userAddress, refreshTrigger]);
 
-    const crateIcon = (t: string) => t === 'DUST' ? <img src="/images/items/dust.gif" alt="Dust" style={{ width: 14, height: 14, verticalAlign: 'middle' }} /> : t === 'FCWEED' ? '🌿' : t === 'USDC' ? '💵' : '🏆';
+    const crateIcon = (t: string) => t === 'DUST' ? <img src="/images/items/dust.gif" alt="Dust" style={{ width: 14, height: 14, verticalAlign: 'middle' }} /> : t === 'CARTEL' ? '🌿' : t === 'USDC' ? '💵' : '🏆';
 
     const onCrateOpen = async () => {
         if (!connected) {
@@ -6148,8 +6184,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
         setCrateError("");
 
 
-        if (fcweedBalanceRaw.lt(CRATE_COST)) {
-            setCrateError("Insufficient FCWEED balance");
+        if (cartelBalanceRaw.lt(CRATE_COST)) {
+            setCrateError("Insufficient CARTEL balance");
             return;
         }
 
@@ -6232,26 +6268,26 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 return;
             }
 
-            setCrateStatus("Checking FCWEED balance...");
-            const fcweedContract = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, readProvider);
-            const tokenBalance = await fcweedContract.balanceOf(ctx.userAddress);
-            console.log("[Crate] FCWEED balance:", ethers.utils.formatUnits(tokenBalance, 18));
+            setCrateStatus("Checking CARTEL balance...");
+            const cartelContract = new ethers.Contract(CARTEL_ADDRESS, ERC20_ABI, readProvider);
+            const tokenBalance = await cartelContract.balanceOf(ctx.userAddress);
+            console.log("[Crate] CARTEL balance:", ethers.utils.formatUnits(tokenBalance, 18));
 
             if (tokenBalance.lt(CRATE_COST)) {
                 clearTimeout(timeoutId);
                 crateTransactionInProgress.current = false;
-                setCrateError("Insufficient FCWEED balance");
+                setCrateError("Insufficient CARTEL balance");
                 setCrateLoading(false);
                 setCrateStatus("");
                 return;
             }
 
             setCrateStatus("Checking approval...");
-            const allowance = await fcweedContract.allowance(ctx.userAddress, CRATE_VAULT_ADDRESS);
+            const allowance = await cartelContract.allowance(ctx.userAddress, CRATE_VAULT_ADDRESS);
             console.log("[Crate] Current allowance:", ethers.utils.formatUnits(allowance, 18));
 
             if (allowance.lt(CRATE_COST)) {
-                setCrateStatus("Approving FCWEED...");
+                setCrateStatus("Approving CARTEL...");
 
                 let approveTx: ethers.providers.TransactionResponse | null = null;
 
@@ -6260,13 +6296,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         console.log("[Crate] Using mini app wallet for approval");
                         approveTx = await txAction().sendWalletCalls(
                             ctx.userAddress,
-                            FCWEED_ADDRESS,
+                            CARTEL_ADDRESS,
                             erc20Interface.encodeFunctionData("approve", [CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256])
                         );
                     } else {
                         console.log("[Crate] Using external wallet for approval via sendContractTx");
                         const approveData = erc20Interface.encodeFunctionData("approve", [CRATE_VAULT_ADDRESS, ethers.constants.MaxUint256]);
-                        approveTx = await sendContractTx(FCWEED_ADDRESS, approveData);
+                        approveTx = await sendContractTx(CARTEL_ADDRESS, approveData);
                     }
                 } catch (approveErr: any) {
                     clearTimeout(timeoutId);
@@ -6327,18 +6363,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             } catch {}
 
 
-            const openCrateAbi = ["function openCrateFcweed() external"];
+            const openCrateAbi = ["function openCrateCartel() external"];
             const openCrateInterface = new ethers.utils.Interface(openCrateAbi);
-            const openCrateData = openCrateInterface.encodeFunctionData("openCrateFcweed", []);
+            const openCrateData = openCrateInterface.encodeFunctionData("openCrateCartel", []);
 
-            console.log("[Crate] openCrateFcweed encoded data:", openCrateData);
+            console.log("[Crate] openCrateCartel encoded data:", openCrateData);
             console.log("[Crate] Target contract:", CRATE_VAULT_ADDRESS);
 
             setCrateStatus("Confirm in wallet...");
 
             if (isMiniAppWallet && miniAppProvider) {
 
-                console.log("[Crate] Using mini app wallet for openCrateFcweed");
+                console.log("[Crate] Using mini app wallet for openCrateCartel");
                 tx = await txAction().sendWalletCalls(
                     ctx.userAddress,
                     CRATE_VAULT_ADDRESS,
@@ -6347,7 +6383,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 );
             } else {
 
-                console.log("[Crate] Using external wallet for openCrateFcweed via sendContractTx");
+                console.log("[Crate] Using external wallet for openCrateCartel via sendContractTx");
                 try {
                     // Use sendContractTx which properly handles wagmi walletClient for Phantom/Base App
                     tx = await sendContractTx(CRATE_VAULT_ADDRESS, openCrateData, "0x4C4B40");
@@ -6358,7 +6394,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     if (openErr?.code === 4001 || openErr?.code === "ACTION_REJECTED") {
                         setCrateError("Transaction rejected");
                     } else if (openErr?.reason?.includes("Insufficient") || openErr?.message?.includes("Insufficient")) {
-                        setCrateError("Insufficient FCWEED balance");
+                        setCrateError("Insufficient CARTEL balance");
                     } else {
                         setCrateError("Transaction failed: " + (openErr?.reason || openErr?.message || "Unknown error").slice(0, 50));
                     }
@@ -6654,10 +6690,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         const dXFcw   = statsAfter[3].sub(statsBefore[3]);
                         const dUsdc   = statsAfter[4].sub(statsBefore[4]);
                         const dNfts   = statsAfter[5].sub(statsBefore[5]);
-                        if (dFcw.gt(0))       { category = 0; amount = dFcw;  rewardName = "FCWEED"; }
+                        if (dFcw.gt(0))       { category = 0; amount = dFcw;  rewardName = "CARTEL"; }
                         else if (dUsdc.gt(0)) { category = 1; amount = dUsdc; rewardName = "USDC"; }
                         else if (dDust.gt(0)) { category = 2; amount = dDust; rewardName = "DUST"; }
-                        else if (dXFcw.gt(0)) { category = 0; amount = dXFcw; rewardName = "xFCWEED"; }
+                        else if (dXFcw.gt(0)) { category = 0; amount = dXFcw; rewardName = "xCARTEL"; }
                         else if (dNfts.gt(0)) { category = 3; amount = ethers.BigNumber.from(1); rewardName = "NFT"; nftTokenId = 0; }
                         eventFound = true;
                         console.log("[Crate] diff result:", { rewardName, amount: amount.toString(), category });
@@ -6687,13 +6723,13 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             let winIsJackpot = false;
 
             if (category === 0) {
-                winToken = 'FCWEED';
-                const fcweedVal = parseFloat(ethers.utils.formatUnits(amount, 18));
-                if (fcweedVal >= 5000000) { winIsJackpot = true; winColor = '#FFD700'; winAmount = '5M'; }
-                else if (fcweedVal >= 1000000) { winColor = '#F59E0B'; winAmount = '1M'; }
-                else if (fcweedVal >= 500000) { winColor = '#A855F7'; winAmount = '500K'; }
-                else if (fcweedVal >= 300000) { winColor = '#3B82F6'; winAmount = '300K'; }
-                else if (fcweedVal >= 150000) { winColor = '#4A9B7F'; winAmount = '150K'; }
+                winToken = 'CARTEL';
+                const cartelVal = parseFloat(ethers.utils.formatUnits(amount, 18));
+                if (cartelVal >= 5000000) { winIsJackpot = true; winColor = '#FFD700'; winAmount = '5M'; }
+                else if (cartelVal >= 1000000) { winColor = '#F59E0B'; winAmount = '1M'; }
+                else if (cartelVal >= 500000) { winColor = '#A855F7'; winAmount = '500K'; }
+                else if (cartelVal >= 300000) { winColor = '#3B82F6'; winAmount = '300K'; }
+                else if (cartelVal >= 150000) { winColor = '#4A9B7F'; winAmount = '150K'; }
                 else { winColor = '#8B9A6B'; winAmount = '50K'; }
             } else if (category === 1) {
                 winToken = 'USDC';
@@ -6736,7 +6772,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             if (errMsg.includes("rejected") || errMsg.includes("denied") || err?.code === 4001) {
                 setCrateError("Transaction rejected");
             } else if (errMsg.includes("insufficient") || errMsg.includes("Insufficient")) {
-                setCrateError("Insufficient FCWEED balance");
+                setCrateError("Insufficient CARTEL balance");
             } else {
                 setCrateError(errMsg.slice(0, 60));
             }
@@ -6750,7 +6786,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             setCrateUserStats(p => {
                 const u = { ...p, opened: p.opened + 1 };
                 if (crateWinItem.token === 'DUST') u.dust += crateResultData.amount.toNumber();
-                else if (crateWinItem.token === 'FCWEED') u.fcweed += parseFloat(ethers.utils.formatUnits(crateResultData.amount, 18));
+                else if (crateWinItem.token === 'CARTEL') u.cartel += parseFloat(ethers.utils.formatUnits(crateResultData.amount, 18));
                 else if (crateWinItem.token === 'USDC') u.usdc += parseFloat(ethers.utils.formatUnits(crateResultData.amount, 6));
                 else if (crateWinItem.isNFT) u.nfts += 1;
                 return u;
@@ -6871,7 +6907,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
 
     const crateWon = crateWinItem;
     const dustRewards = CRATE_REWARDS.filter(r => r.token === 'DUST');
-    const fcweedRewards = CRATE_REWARDS.filter(r => r.token === 'FCWEED');
+    const cartelRewards = CRATE_REWARDS.filter(r => r.token === 'CARTEL');
     const usdcRewards = CRATE_REWARDS.filter(r => r.token === 'USDC');
     const nftRewards = CRATE_REWARDS.filter(r => r.isNFT);
 
@@ -7067,7 +7103,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             marginBottom: 8,
                             color: theme === "light" ? "#1e293b" : "#fff"
                         }}>
-                            Welcome to FCWEED
+                            Welcome to CARTEL
                         </h2>
                         <p style={{ 
                             fontSize: 12, 
@@ -7092,7 +7128,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <span style={{ fontSize: 20 }}>🌱</span>
                                 <div>
                                     <div style={{ fontWeight: 600, fontSize: 11, color: theme === "light" ? "#1e293b" : "#fff" }}>Mint Plant NFTs</div>
-                                    <div style={{ fontSize: 10, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Each plant earns FCWEED tokens daily</div>
+                                    <div style={{ fontSize: 10, color: theme === "light" ? "#64748b" : "#94a3b8" }}>Each plant earns CARTEL tokens daily</div>
                                 </div>
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -7163,7 +7199,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                 method: 'wallet_addToMiniApps',
                                                 params: [{
                                                     url: window.location.origin,
-                                                    name: 'FCWEED',
+                                                    name: 'CARTEL',
                                                     iconUrl: 'https://bafybeickwgk2dnzpg7mx3dgz43v2uotxaueu2b3giz57ppx4yoe6ypnbxq.ipfs.dweb.link'
                                                 }]
                                             });
@@ -7178,7 +7214,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                             method: 'wallet_addToMiniApps',
                                             params: [{
                                                 url: window.location.origin,
-                                                name: 'FCWEED',
+                                                name: 'CARTEL',
                                                 iconUrl: 'https://bafybeickwgk2dnzpg7mx3dgz43v2uotxaueu2b3giz57ppx4yoe6ypnbxq.ipfs.dweb.link'
                                             }]
                                         }).catch(() => {});
@@ -7411,7 +7447,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
             }}>
                 {/* Row 1: Brand + Notifications + Theme */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ color: theme === "light" ? "#1e293b" : "#fff", fontSize: 16, fontWeight: 700 }}>FCWEED</span>
+                    <span style={{ color: theme === "light" ? "#1e293b" : "#fff", fontSize: 16, fontWeight: 700 }}>CARTEL</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         {/* Notification Bell */}
                         <NotificationSettings 
@@ -7622,25 +7658,25 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <li>Each Land allows you to stake <b style={{ color: "#16a34a" }}>+3 extra Plant Buds</b>.</li>
                                 <li>Each Land grants a <b style={{ color: "#16a34a" }}>+2.5% token boost</b> to all yield earned.</li>
                                 <li>The more Land you stack — the stronger your multiplier will be.</li>
-                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}><b>Super Land</b> — Burn 1 Land + 2M FCWEED to upgrade!</li>
+                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}><b>Super Land</b> — Burn 1 Land + 2M CARTEL to upgrade!</li>
                                 <li>Each Super Land grants <b style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}>+12% token boost</b>.</li>
-                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}><b>Open Crates</b> for Prizes by spending <b>200,000 $FCWEED</b>!</li>
+                                <li style={{ color: theme === "light" ? "#d97706" : "#fbbf24" }}><b>Open Crates</b> for Prizes by spending <b>200,000 $CARTEL</b>!</li>
                                 <li style={{ color: "#ef4444", marginTop: 8 }}><b>Cartel Wars (PvP)</b> — Battle other farmers!</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>50K FCWEED</b> to search for opponents with 200K+ pending</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>50K CARTEL</b> to search for opponents with 200K+ pending</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Combat Power = Plants × Health × Boosts</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Win: steal up to 50% | Lose: lose up to 50%</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>6h cooldown</b> between attacks</li>
-                                <li style={{ color: "#ef4444", marginTop: 8 }}><b>DEA RAIDS (Hunt Sellers)</b> — Target wallets that sold FCWEED!</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>100K FCWEED</b> raid fee to attack sellers</li>
+                                <li style={{ color: "#ef4444", marginTop: 8 }}><b>DEA RAIDS (Hunt Sellers)</b> — Target wallets that sold CARTEL!</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>100K CARTEL</b> raid fee to attack sellers</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>6h cooldown</b> (Same Target) | <b style={{ color: "#fbbf24" }}>2h cooldown</b> (After Successful Raid)</li>
                                 <li style={{ color: "#dc2626", marginTop: 8 }}><b>THE PURGE (Chaos Event) (LIVE)</b> — Weekly chaos mode!</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• Active <b>Saturday 11PM - Sunday 11PM EST</b></li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>250K FCWEED</b> to target ANY wallet directly</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>250K CARTEL</b> to target ANY wallet directly</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>20 min cooldown</b> | <b style={{ color: "#ef4444" }}>All shields BYPASSED</b></li>
                                 <li style={{ color: "#fbbf24", marginTop: 8 }}><b>🌵 DROUGHT (Global Event)</b> — One drought every 48h, first-clicker wins!</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>100M xFCWEED</b> to activate (no approval — internal balance)</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>Steals 30%</b> of every player's pending xFCWEED globally</li>
-                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#10b981" }}>Activator keeps 50%</b> of stolen xFCWEED, treasury gets 50%</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• Pay <b>100M xCARTEL</b> to activate (no approval — internal balance)</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>Steals 30%</b> of every player's pending xCARTEL globally</li>
+                                <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#10b981" }}>Activator keeps 50%</b> of stolen xCARTEL, treasury gets 50%</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#ef4444" }}>Damages every staked plant by 30%</b> health globally</li>
                                 <li style={{ paddingLeft: 16, fontSize: 11 }}>• <b style={{ color: "#fbbf24" }}>48h global cooldown</b> — race to click after window opens</li>
                                 <li style={{ color: "#10b981", marginTop: 8 }}><b>Item Shop</b> — Power-ups for your Farm!</li>
@@ -7655,8 +7691,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             </ul>
                             <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Use of Funds</h2>
                             <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
-                                <li><b>50% of all mint funds</b> are routed to periodic <b>buyback and burns</b> of $FCWEED.</li>
-                                <li>$FCWEED has a <b>3% buy &amp; sell tax</b>:
+                                <li><b>50% of all mint funds</b> are routed to periodic <b>buyback and burns</b> of $CARTEL.</li>
+                                <li>$CARTEL has a <b>3% buy &amp; sell tax</b>:
                     <ul style={{ marginTop: 4, marginLeft: 16 }}>
                         <li><b>2%</b> goes directly into automated <b>buyback &amp; burn</b>.</li>
                         <li><b>1%</b> is set aside for <b>top farmer rewards</b> in USDC, paid out based on the Crime Ladder leaderboard.</li>
@@ -7736,7 +7772,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     <button type="button" className={styles.btnSecondary} onClick={() => window.open("https://opensea.io/collection/x420-plants", "_blank")} style={{ fontSize: 11, padding: "8px 12px" }}>Trade Plant</button>
                     <button type="button" className={styles.btnSecondary} onClick={() => window.open("https://opensea.io/collection/x420-land-763750895", "_blank")} style={{ fontSize: 11, padding: "8px 12px" }}>Trade Land</button>
                     <button type="button" className={styles.btnSecondary} onClick={() => window.open(`https://opensea.io/assets/base/0xAcd70377fF1aaF4E1aE76398C678CBE6ECc35e7d`, "_blank")} style={{ fontSize: 11, padding: "8px 12px" }}>Trade Super Land</button>
-                    <button type="button" className={styles.btnSecondary} onClick={() => window.open("https://dexscreener.com/base/0xa1a1b6b489ceb413999ccce73415d4fa92e826a1", "_blank")} style={{ fontSize: 11, padding: "8px 12px" }}>Trade $FCWEED</button>
+                    <button type="button" className={styles.btnSecondary} onClick={() => window.open("https://dexscreener.com/base/0xa1a1b6b489ceb413999ccce73415d4fa92e826a1", "_blank")} style={{ fontSize: 11, padding: "8px 12px" }}>Trade $CARTEL</button>
                 </div>
             </section>
         )}
@@ -7765,7 +7801,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             <button
                                 type="button"
                                 className={styles.btnPrimary}
-                                onClick={() => setXFcweedConverterOpen(true)}
+                                onClick={() => setXCartelConverterOpen(true)}
                                 style={{
                                     width: "100%",
                                     padding: 14,
@@ -7779,7 +7815,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     gap: 8,
                                 }}
                             >
-                                💎 xFCWEED Converter → 🌿 FCWEED
+                                💎 xCARTEL Converter → 🌿 CARTEL
                             </button>
                         </div>
                     </section>
@@ -7805,7 +7841,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <>
                                     
                                     <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '8px 12px', marginBottom: 10, textAlign: 'center' }}>
-                                        <div style={{ color: '#f87171', fontSize: 9, fontWeight: 600, marginBottom: 2 }}>🔥 GLOBAL FCWEED SPENT</div>
+                                        <div style={{ color: '#f87171', fontSize: 9, fontWeight: 600, marginBottom: 2 }}>🔥 GLOBAL CARTEL SPENT</div>
                                         <div style={{ color: '#f87171', fontWeight: 800, fontSize: 16 }}>{crateGlobalStats.totalBurned}</div>
                                     </div>
                                     
@@ -7815,8 +7851,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 6 }}>
                                             <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
-                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>FCWEED</div>
-                                                <div style={{ color: '#34d399', fontWeight: 700, fontSize: 11 }}>{fcweedBalance}</div>
+                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>CARTEL</div>
+                                                <div style={{ color: '#34d399', fontWeight: 700, fontSize: 11 }}>{cartelBalance}</div>
                                             </div>
                                             <div style={{ background: 'rgba(107,114,128,0.1)', border: '1px solid rgba(107,114,128,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
                                                 <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>DUST</div>
@@ -7830,15 +7866,15 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
                                             <div style={{ background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
-                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>FCWEED WON</div>
-                                                <div style={{ color: '#4ade80', fontWeight: 700, fontSize: 11 }}>{crateUserStats.fcweed >= 1e6 ? (crateUserStats.fcweed / 1e6).toFixed(1) + "M" : crateUserStats.fcweed >= 1e3 ? (crateUserStats.fcweed / 1e3).toFixed(0) + "K" : crateUserStats.fcweed.toFixed(0)}</div>
+                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>CARTEL WON</div>
+                                                <div style={{ color: '#4ade80', fontWeight: 700, fontSize: 11 }}>{crateUserStats.cartel >= 1e6 ? (crateUserStats.cartel / 1e6).toFixed(1) + "M" : crateUserStats.cartel >= 1e3 ? (crateUserStats.cartel / 1e3).toFixed(0) + "K" : crateUserStats.cartel.toFixed(0)}</div>
                                             </div>
                                             <div style={{ background: 'rgba(39,117,202,0.1)', border: '1px solid rgba(39,117,202,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
                                                 <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>USDC WON</div>
                                                 <div style={{ color: '#2775CA', fontWeight: 700, fontSize: 11 }}>${crateUserStats.usdc.toFixed(2)}</div>
                                             </div>
                                             <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
-                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>FCWEED SPENT</div>
+                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>CARTEL SPENT</div>
                                                 <div style={{ color: '#f87171', fontWeight: 700, fontSize: 11 }}>{crateUserStats.totalSpent >= 1e6 ? (crateUserStats.totalSpent / 1e6).toFixed(1) + "M" : crateUserStats.totalSpent >= 1e3 ? (crateUserStats.totalSpent / 1e3).toFixed(0) + "K" : crateUserStats.totalSpent.toFixed(0)}</div>
                                             </div>
                                         </div>
@@ -7852,8 +7888,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     {dustRewards.map(r => <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 5px', background: 'rgba(107,114,128,0.1)', borderRadius: 4, marginBottom: 2 }}><span>{crateIcon(r.token)}</span><span style={{ color: '#fff', flex: 1 }}>{r.name}</span><span style={{ color: r.color }}>{r.amount}</span></div>)}
                                 </div>
                                 <div>
-                                    <div style={{ color: '#4ade80', marginBottom: 2, fontWeight: 700, fontSize: 8, textTransform: 'uppercase' }}>$FCWEED</div>
-                                    {fcweedRewards.map(r => <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 5px', background: r.isJackpot ? 'rgba(255,215,0,0.15)' : 'rgba(74,222,128,0.1)', borderRadius: 4, marginBottom: 2, border: r.isJackpot ? '1px solid rgba(255,215,0,0.3)' : 'none' }}><span>{r.isJackpot ? '🎰' : crateIcon(r.token)}</span><span style={{ color: '#fff', flex: 1 }}>{r.name}</span><span style={{ color: r.color, fontWeight: r.isJackpot ? 700 : 400 }}>{r.amount}</span></div>)}
+                                    <div style={{ color: '#4ade80', marginBottom: 2, fontWeight: 700, fontSize: 8, textTransform: 'uppercase' }}>$CARTEL</div>
+                                    {cartelRewards.map(r => <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 5px', background: r.isJackpot ? 'rgba(255,215,0,0.15)' : 'rgba(74,222,128,0.1)', borderRadius: 4, marginBottom: 2, border: r.isJackpot ? '1px solid rgba(255,215,0,0.3)' : 'none' }}><span>{r.isJackpot ? '🎰' : crateIcon(r.token)}</span><span style={{ color: '#fff', flex: 1 }}>{r.name}</span><span style={{ color: r.color, fontWeight: r.isJackpot ? 700 : 400 }}>{r.amount}</span></div>)}
                                 </div>
                                 <div>
                                     <div style={{ color: '#2775CA', marginBottom: 2, fontWeight: 700, fontSize: 8, textTransform: 'uppercase' }}>USDC</div>
@@ -7896,7 +7932,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 >
                                     {crateLoading ? '⏳ Processing...' : '🎰 OPEN CRATE'}
                                 </button>
-                                <div style={{ marginTop: 6, fontSize: 10, color: '#9ca3af' }}>Cost: <span style={{ color: '#fbbf24', fontWeight: 600 }}>200,000 $FCWEED</span></div>
+                                <div style={{ marginTop: 6, fontSize: 10, color: '#9ca3af' }}>Cost: <span style={{ color: '#fbbf24', fontWeight: 600 }}>200,000 $CARTEL</span></div>
                                 {crateStatus && <div style={{ marginTop: 4, fontSize: 9, color: '#60a5fa', fontStyle: 'italic' }}>{crateStatus}</div>}
                                 {crateError && <div style={{ marginTop: 6, fontSize: 10, color: '#f87171' }}>{crateError}</div>}
                             </div>
@@ -7904,7 +7940,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             {crateUserStats.dust >= 1000 && dustConversionEnabled && (
                                 <div style={{ marginTop: 10, padding: 8, background: 'rgba(16,185,129,0.1)', borderRadius: 6, border: '1px solid rgba(16,185,129,0.2)', textAlign: 'center', fontSize: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                                     <img src="/images/items/dust.gif" alt="Dust" style={{ width: 14, height: 14 }} />
-                                    <span style={{ color: '#34d399' }}>{crateUserStats.dust.toLocaleString()} Dust = <b>{(Math.floor(crateUserStats.dust / 1000) * 60000).toLocaleString()}</b> $FCWEED</span>
+                                    <span style={{ color: '#34d399' }}>{crateUserStats.dust.toLocaleString()} Dust = <b>{(Math.floor(crateUserStats.dust / 1000) * 60000).toLocaleString()}</b> $CARTEL</span>
                                 </div>
                             )}
                         </section>
@@ -7920,7 +7956,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     <img src="/images/items/crate.gif" alt="Crate" style={{ width: 48, height: 48, objectFit: 'contain' }} />
                                 </div>
                                 <h2 style={{ fontSize: 16, color: '#fff', margin: '0 0 6px' }}>Open Crate</h2>
-                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>Pay <span style={{ color: '#fbbf24', fontWeight: 600 }}>200,000 $FCWEED</span> to open?</p>
+                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 12px' }}>Pay <span style={{ color: '#fbbf24', fontWeight: 600 }}>200,000 $CARTEL</span> to open?</p>
                                 <div style={{ display: 'flex', gap: 8 }}>
                                     <button type="button" onClick={() => setCrateConfirmOpen(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #374151', background: 'transparent', color: '#9ca3af', cursor: 'pointer', fontSize: 12 }}>Cancel</button>
                                     <button type="button" onClick={onCrateConfirm} className={styles.btnPrimary} style={{ flex: 1, padding: 10, fontSize: 12, background: 'linear-gradient(135deg, #f59e0b, #fbbf24)', color: '#000' }}>🎰 Open</button>
@@ -7967,8 +8003,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         type="button" 
                                         onClick={() => {
                                             const text = crateWon.isJackpot 
-                                                ? `🎰 JACKPOT on FCWEED Crates! 🎉\n\nWon ${crateWon.amount} ${crateWon.token}! 💰\n\nTry your luck on @base 🌿\n\nhttps://x420ponzi.com`
-                                                : `🎰 Opened a FCWEED Mystery Crate!\n\nWon ${crateWon.amount} ${crateWon.token}! ${crateWon.isNFT ? '🖼️' : '💰'}\n\nTry your luck on @base 🌿\n\nhttps://x420ponzi.com`;
+                                                ? `🎰 JACKPOT on CARTEL Crates! 🎉\n\nWon ${crateWon.amount} ${crateWon.token}! 💰\n\nTry your luck on @base 🌿\n\nhttps://x420ponzi.com`
+                                                : `🎰 Opened a CARTEL Mystery Crate!\n\nWon ${crateWon.amount} ${crateWon.token}! ${crateWon.isNFT ? '🖼️' : '💰'}\n\nTry your luck on @base 🌿\n\nhttps://x420ponzi.com`;
                                             captureAndShare('crate-win-card', text, composeCast);
                                         }}
                                         style={{ padding: 12, fontSize: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(29,161,242,0.2)', color: '#1da1f2', cursor: 'pointer' }}
@@ -8011,7 +8047,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <div>
                                     <div style={{ fontSize: 10, fontWeight: 600, color: "#60a5fa", marginBottom: 4 }}>⚔️ CARTEL WARS (PvP)</div>
                                     <div style={{ fontSize: 9, color: theme === "light" ? "#475569" : "#c0c9f4", lineHeight: 1.5, paddingLeft: 8 }}>
-                                        • Pay <span style={{ color: "#fbbf24" }}>50K FCWEED</span> to search for opponents with 200K+ pending<br/>
+                                        • Pay <span style={{ color: "#fbbf24" }}>50K CARTEL</span> to search for opponents with 200K+ pending<br/>
                                         • Combat Power = Plants × Health × Boosts | Win: steal up to 50% | Lose: lose up to 50%<br/>
                                         • <span style={{ color: "#fbbf24" }}>6h cooldown between attacks</span>
                                     </div>
@@ -8019,24 +8055,24 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <div style={{ borderTop: "1px solid rgba(139,92,246,0.2)", paddingTop: 10 }}>
                                     <div style={{ fontSize: 10, fontWeight: 600, color: "#ef4444", marginBottom: 4 }}>🚔 DEA RAIDS (Hunt Sellers)</div>
                                     <div style={{ fontSize: 9, color: theme === "light" ? "#475569" : "#c0c9f4", lineHeight: 1.5, paddingLeft: 8 }}>
-                                        • Target wallets that sold FCWEED (under investigation)<br/>
-                                        • Pay <span style={{ color: "#fbbf24" }}>100K FCWEED</span> raid fee<br/>
+                                        • Target wallets that sold CARTEL (under investigation)<br/>
+                                        • Pay <span style={{ color: "#fbbf24" }}>100K CARTEL</span> raid fee<br/>
                                         • <span style={{ color: "#fbbf24" }}>6h cooldown</span> (Same Target) | <span style={{ color: "#fbbf24" }}>2h cooldown</span> (After Successful Raid)
                                     </div>
                                 </div>
                                 <div style={{ borderTop: "1px solid rgba(139,92,246,0.2)", paddingTop: 10 }}>
                                     <div style={{ fontSize: 10, fontWeight: 600, color: "#dc2626", marginBottom: 4 }}>🔪 THE PURGE (Chaos Event) (LIVE)</div>
                                     <div style={{ fontSize: 9, color: theme === "light" ? "#475569" : "#c0c9f4", lineHeight: 1.5, paddingLeft: 8 }}>
-                                        • Scheduled chaos events - target ANY wallet directly for <span style={{ color: "#fbbf24" }}>250K FCWEED</span>!<br/>
+                                        • Scheduled chaos events - target ANY wallet directly for <span style={{ color: "#fbbf24" }}>250K CARTEL</span>!<br/>
                                         • <span style={{ color: "#fbbf24" }}>20 min cooldown</span> | <span style={{ color: "#ef4444" }}>All shields BYPASSED</span>. No mercy.
                                     </div>
                                 </div>
                                 <div style={{ borderTop: "1px solid rgba(139,92,246,0.2)", paddingTop: 10 }}>
                                     <div style={{ fontSize: 10, fontWeight: 600, color: "#fbbf24", marginBottom: 4 }}>🌵 DROUGHT (Global Event)</div>
                                     <div style={{ fontSize: 9, color: theme === "light" ? "#475569" : "#c0c9f4", lineHeight: 1.5, paddingLeft: 8 }}>
-                                        • Pay <span style={{ color: "#fbbf24" }}>100M xFCWEED</span> to activate (no approval — internal balance)<br/>
-                                        • Steals <span style={{ color: "#fbbf24" }}>30%</span> of every player's pending xFCWEED globally<br/>
-                                        • <span style={{ color: "#10b981" }}>Activator keeps 50%</span> of stolen xFCWEED, treasury gets 50%<br/>
+                                        • Pay <span style={{ color: "#fbbf24" }}>100M xCARTEL</span> to activate (no approval — internal balance)<br/>
+                                        • Steals <span style={{ color: "#fbbf24" }}>30%</span> of every player's pending xCARTEL globally<br/>
+                                        • <span style={{ color: "#10b981" }}>Activator keeps 50%</span> of stolen xCARTEL, treasury gets 50%<br/>
                                         • <span style={{ color: "#ef4444" }}>Damages every staked plant by 30%</span> health<br/>
                                         • <span style={{ color: "#fbbf24" }}>48h global cooldown</span> — first clicker wins
                                     </div>
@@ -8050,8 +8086,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                         address={userAddress}
                                                         signer={signer}
                                                         provider={readProvider}
-                                                        xFcweedBalance={v6XFcweedBalance}
-                                                        fcweedBalance={fcweedBalanceRaw}
+                                                        xCartelBalance={v6XCartelBalance}
+                                                        cartelBalance={cartelBalanceRaw}
                                                         usdcBalance={usdcBalanceRaw}
                                                         onSuccess={() => {
                                                             emitMission("drought", 1);
@@ -8126,7 +8162,15 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ fontSize: 6, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>HEALTH</div>
                                         <div style={{ fontSize: 14, fontWeight: 700, color: "#10b981", marginBottom: 4 }}>{inventoryHealthPacks}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
-                                            <button onClick={() => setHealthPackModalOpen(true)} disabled={inventoryHealthPacks === 0 || v6StakedPlants.length === 0} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryHealthPacks > 0 && v6StakedPlants.length > 0 ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: "#fff", cursor: inventoryHealthPacks > 0 && v6StakedPlants.length > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Use</button>
+                                            <button onClick={() => { setHealItemId(4); setHealthPackModalOpen(true); }} disabled={inventoryHealthPacks === 0 || v6StakedPlants.length === 0} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryHealthPacks > 0 && v6StakedPlants.length > 0 ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: "#fff", cursor: inventoryHealthPacks > 0 && v6StakedPlants.length > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Use</button>
+                                        </div>
+                                    </div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(16,185,129,0.08)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95, border: "1px solid rgba(52,211,153,0.3)" }}>
+                                        <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4, fontSize: 26 }}>💉</div>
+                                        <div style={{ fontSize: 7, color: "#34d399", fontWeight: 700, marginBottom: 2 }}>EL DOCTOR</div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: "#34d399", marginBottom: 4 }}>{inventoryElDoctors}</div>
+                                        <div style={{ marginTop: "auto", width: "100%" }}>
+                                            <button onClick={() => { setHealItemId(10); setHealthPackModalOpen(true); }} disabled={inventoryElDoctors === 0 || v6StakedPlants.length === 0} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryElDoctors > 0 && v6StakedPlants.length > 0 ? "linear-gradient(135deg, #059669, #34d399)" : "#374151", color: "#fff", cursor: inventoryElDoctors > 0 && v6StakedPlants.length > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Full Heal</button>
                                         </div>
                                     </div>
                                     {/* Shields */}
@@ -8143,6 +8187,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                 <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((shieldExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((shieldExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
                                             ) : (
                                                 <button onClick={handleActivateShield} disabled={inventoryShields === 0 || inventoryLoading || isPurgeActive} title={isPurgeActive ? "Shields are useless during The Purge!" : ""} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: (inventoryShields > 0 && !isPurgeActive) ? "linear-gradient(135deg, #3b82f6, #60a5fa)" : "#374151", color: (inventoryShields > 0 && !isPurgeActive) ? "#fff" : "#6b7280", cursor: (inventoryShields > 0 && !isPurgeActive) ? "pointer" : "not-allowed", fontWeight: 600 }}>{isPurgeActive ? "🔪 Locked" : "Activate"}</button>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95 }}>
+                                        <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4, fontSize: 26 }}>🦺</div>
+                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>KEVLAR</div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa", marginBottom: 4 }}>{inventoryKevlar}</div>
+                                        <div style={{ marginTop: "auto", width: "100%" }}>
+                                            {kevlarExpiry > Math.floor(Date.now() / 1000) ? (
+                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((kevlarExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((kevlarExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
+                                            ) : (
+                                                <button onClick={handleActivateKevlar} disabled={inventoryKevlar === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryKevlar > 0 ? "linear-gradient(135deg, #8b5cf6, #a78bfa)" : "#374151", color: inventoryKevlar > 0 ? "#fff" : "#6b7280", cursor: inventoryKevlar > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
                                             )}
                                         </div>
                                     </div>
@@ -8234,7 +8290,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         
                         {connected && v6StakingStats && (
                             <div style={{ background: theme === "light" ? "rgba(139,92,246,0.08)" : "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)", borderRadius: 10, padding: 12, marginBottom: 12 }}>
-                                <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700, textAlign: "center", marginBottom: 10 }}>🌿 FCWEED FARM COMBAT POWER</div>
+                                <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700, textAlign: "center", marginBottom: 10 }}>🌿 CARTEL FARM COMBAT POWER</div>
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 8 }}>
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 6, padding: 6, textAlign: "center" }}>
                                         <div style={{ fontSize: 8, color: theme === "light" ? "#64748b" : "#9ca3af" }}>PLANTS</div>
@@ -8451,7 +8507,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                     }
                                                 } catch (e) {}
                                                 return amount >= 1000 ? (amount / 1000).toFixed(1) + "K" : amount.toFixed(0);
-                                            })()} FCWEED
+                                            })()} CARTEL
                                         </div>
                                         {warsResult.damageDealt > 0 && (
                                             <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>
@@ -8494,7 +8550,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             theme={theme}
                             readProvider={readProvider}
                             sendContractTx={sendContractTx}
-                            ensureAllowance={ensureFcweedAllowance}
+                            ensureAllowance={ensureCartelAllowance}
                             refreshData={refreshAllData}
                         />
 
@@ -8504,7 +8560,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             theme={theme}
                             readProvider={readProvider}
                             sendContractTx={sendContractTx}
-                            ensureAllowance={ensureFcweedAllowance}
+                            ensureAllowance={ensureCartelAllowance}
                             refreshData={refreshAllData}
                             onRaidResult={(won) => { if (won) emitMission("dea_win", 1); }}
                         />
@@ -8524,6 +8580,18 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     />
                 )}
 
+                {activeTab === "bank" && (
+                    <section className={styles.infoCard} style={getCardStyle({ padding: 16 })}>
+                        <h2 style={{ fontSize: 18, margin: "0 0 4px", color: "#f5a623" }}>🏦 The Bank</h2>
+                        <div style={{ fontSize: 11.5, color: "#7b84a8", marginBottom: 14 }}>Half the street tax. Paid to the members.</div>
+                        <CartelBankPanel
+                            address={userAddress}
+                            provider={readProvider}
+                            sendContractTx={sendContractTx}
+                        />
+                    </section>
+                )}
+
                 {activeTab === "shop" && (
                     <section className={styles.infoCard} style={getCardStyle({ textAlign: "center", padding: 16 })}>
                         <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "#10b981" }}>🛒 Shop</h2>
@@ -8531,12 +8599,12 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600, marginBottom: 8, textAlign: "center" }}>🎒 YOUR INVENTORY</div>
                             <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 12px" }}>
-                                    <div style={{ fontSize: 7, color: "#9ca3af" }}>FCWEED</div>
-                                    <div style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>{fcweedBalance}</div>
+                                    <div style={{ fontSize: 7, color: "#9ca3af" }}>CARTEL</div>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>{cartelBalance}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 12px" }}>
-                                    <div style={{ fontSize: 7, color: "#9ca3af" }}>xFCWEED</div>
-                                    <div style={{ fontSize: 12, fontWeight: 700, color: "#a78bfa" }}>{v6XFcweedBalanceFormatted}</div>
+                                    <div style={{ fontSize: 7, color: "#9ca3af" }}>xCARTEL</div>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: "#a78bfa" }}>{v6XCartelBalanceFormatted}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 12px" }}>
                                     <div style={{ fontSize: 7, color: "#9ca3af" }}>DUST</div>
@@ -8603,6 +8671,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     { key: "mint", icon: "🌱", label: "MINT" },
                     { key: "stake", icon: "⚡", label: "STAKE" },
                     { key: "wars", icon: "⚔️", label: "WARS" },
+                    { key: "bank", icon: "🏦", label: "BANK" },
                     { key: "crates", icon: "📦", label: "CRATES" },
                     { key: "shop", icon: "🛒", label: "SHOP" },
                     { key: "referrals", icon: "📜", label: "QUESTS" },
@@ -8653,7 +8722,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     const superLands = v5StakingStats?.superLands || 0;
                     const boost = v5StakingStats?.boostPct?.toFixed(1) || 0;
                     const daily = v5StakingStats?.dailyRewards || "0";
-                    const text = `🌿 My FCWEED Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://x420ponzi.com`;
+                    const text = `🌿 My CARTEL Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://x420ponzi.com`;
                     captureAndShare('v5-stats-card', text, composeCast);
                 }}
                 theme={theme}
@@ -8692,23 +8761,23 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                     const plants = v6StakingStats?.plants || 0;
                     const lands = v6StakingStats?.lands || 0;
                     const superLands = v6StakingStats?.superLands || 0;
-                    const text = `🌿 My FCWEED V6 Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n💎 ${v6RealTimePending} xFCWEED pending\n\nStart farming: https://x420ponzi.com`;
+                    const text = `🌿 My CARTEL V6 Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n💎 ${v6RealTimePending} xCARTEL pending\n\nStart farming: https://x420ponzi.com`;
                     captureAndShare('v6-stats-card', text, composeCast);
                 }}
                 theme={theme}
-                showXFcweed={true}
-                xFcweedBalance={v6XFcweedBalanceFormatted}
-                fcweedErc20Balance={fcweedBalance}
+                showXCartel={true}
+                xCartelBalance={v6XCartelBalanceFormatted}
+                cartelErc20Balance={cartelBalance}
             />
 
-            {/* xFCWEED Converter Modal */}
-            <XFcweedConverter
-                isOpen={xFcweedConverterOpen}
-                onClose={() => setXFcweedConverterOpen(false)}
+            {/* xCARTEL Converter Modal */}
+            <XCartelConverter
+                isOpen={xCartelConverterOpen}
+                onClose={() => setXCartelConverterOpen(false)}
                 address={userAddress}
                 signer={signer}
                 provider={readProvider}
-                xFcweedBalance={v6XFcweedBalance}
+                xCartelBalance={v6XCartelBalance}
                 conversionRate={3}
                 sendContractTx={sendContractTx}
                 onSuccess={() => {
@@ -8846,7 +8915,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             <p style={{ marginBottom: 10 }}>To mint a <b style={{ color: "#fbbf24" }}>Super Land NFT</b> and reap its benefits:</p>
                             <ul style={{ marginLeft: 16, marginBottom: 10 }}>
                                 <li>Burn <b>1 × Land NFT</b></li>
-                                <li>Burn <b>2,000,000 $FCWEED</b></li>
+                                <li>Burn <b>2,000,000 $CARTEL</b></li>
                             </ul>
                             <p style={{ fontSize: 10, opacity: 0.8 }}>Super Land gives +12% boost!</p>
                         </div>
@@ -8951,7 +9020,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                 userAddress={userAddress}
                 sendContractTx={sendContractTx}
                 provider={readProvider}
-                fcweedBalance={fcweedBalanceRaw}
+                cartelBalance={cartelBalanceRaw}
                 inventoryCount={inventoryCropDuster}
                 onSuccess={() => {
                     fetchInventory();
@@ -9302,11 +9371,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             <h3 style={{ margin: 0, fontSize: 18, color: "#60a5fa", display: "flex", alignItems: "center", gap: 8 }}><img src="/images/items/water.gif" alt="Water" style={{ width: 24, height: 24 }} /> Water Shop</h3>
                             <button onClick={() => setWaterModalOpen(false)} style={{ background: "transparent", border: "none", color: theme === "light" ? "#64748b" : "#9ca3af", fontSize: 24, cursor: "pointer" }}>✕</button>
                         </div>
-                        {/* FCWEED Balance Display */}
+                        {/* CARTEL Balance Display */}
                         <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, padding: "8px 12px", background: "rgba(0,0,0,0.2)", borderRadius: 8 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                 <span style={{ fontSize: 14 }}>🌿</span>
-                                <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>{fcweedBalance} FCWEED</span>
+                                <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>{cartelBalance} CARTEL</span>
                             </div>
                         </div>
                         <p style={{ fontSize: 11, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 16 }}>Water restores plant health. Neglected plants cost more water!</p>
@@ -9321,8 +9390,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                             </div>
                             <div style={{ background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: 10 }}>
                                 <div style={{ fontSize: 9, color: "#9ca3af" }}>PRICE / LITER</div>
-                                <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 600 }}>{waterShopInfo?.xFcweedPricePerLiter ? waterShopInfo.xFcweedPricePerLiter.toLocaleString() : "—"} xFCWEED</div>
-                                <div style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>{waterShopInfo?.pricePerLiter ? waterShopInfo.pricePerLiter.toLocaleString() : "—"} FCWEED</div>
+                                <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 600 }}>{waterShopInfo?.xCartelPricePerLiter ? waterShopInfo.xCartelPricePerLiter.toLocaleString() : "—"} xCARTEL</div>
+                                <div style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>{waterShopInfo?.pricePerLiter ? waterShopInfo.pricePerLiter.toLocaleString() : "—"} CARTEL</div>
                             </div>
                             <div style={{ background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: 10 }}>
                                 <div style={{ fontSize: 9, color: "#9ca3af" }}>YOUR LIMIT</div>
@@ -9351,10 +9420,10 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                 <div style={{ flex: 1, background: theme === "light" ? "#f8fafc" : "rgba(5,8,20,0.5)", borderRadius: 8, padding: "10px 16px", textAlign: "center" }}>
                                                     <div style={{ fontSize: 20, color: "#60a5fa", fontWeight: 700 }}>{waterBuyAmount}L</div>
                                                     {(() => {
-                                                        const xPrice = waterShopInfo?.xFcweedPricePerLiter || 0;
+                                                        const xPrice = waterShopInfo?.xCartelPricePerLiter || 0;
                                                         const fPrice = waterShopInfo?.pricePerLiter || 0;
                                                         const unitPrice = waterPayKind === 0 ? xPrice : fPrice;
-                                                        const symbol = waterPayKind === 0 ? "xFCWEED" : "FCWEED";
+                                                        const symbol = waterPayKind === 0 ? "xCARTEL" : "CARTEL";
                                                         const total = waterBuyAmount * unitPrice;
                                                         return <div style={{ fontSize: 11, color: "#9ca3af" }}>{total.toLocaleString()} {symbol}</div>;
                                                     })()}
@@ -9367,8 +9436,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                 <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 6, fontWeight: 600, letterSpacing: 0.5 }}>PAY WITH</div>
                                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
                                                     {[
-                                                        { kind: 0, label: "xFCWEED", color: "#a78bfa", enabled: waterShopInfo?.xFcweedEnabled !== false },
-                                                        { kind: 1, label: "FCWEED",  color: "#10b981", enabled: waterShopInfo?.fcweedEnabled !== false },
+                                                        { kind: 0, label: "xCARTEL", color: "#a78bfa", enabled: waterShopInfo?.xCartelEnabled !== false },
+                                                        { kind: 1, label: "CARTEL",  color: "#10b981", enabled: waterShopInfo?.cartelEnabled !== false },
                                                     ].map(opt => {
                                                         const active = waterPayKind === opt.kind;
                                                         return (
@@ -9400,7 +9469,7 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                 {waterLoading ? "💧 Buying..." :
                                                     (waterShopInfo?.dailyRemaining || 0) === 0 ? "💧 Sold Out Today" :
                                                     (waterShopInfo?.walletRemaining || 0) === 0 ? "💧 Daily Limit Reached" :
-                                                    `💧 Buy ${waterBuyAmount}L with ${waterPayKind === 0 ? "xFCWEED" : "FCWEED"}`}
+                                                    `💧 Buy ${waterBuyAmount}L with ${waterPayKind === 0 ? "xCARTEL" : "CARTEL"}`}
                                             </button>
                                         </>
                                     );
@@ -9440,11 +9509,11 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                         <div style={{ display: "flex", justifyContent: "center", gap: 12, marginBottom: 12, padding: "8px 12px", background: "rgba(0,0,0,0.2)", borderRadius: 8, flexWrap: "wrap" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                                 <span style={{ fontSize: 12 }}>🌿</span>
-                                <span style={{ fontSize: 11, color: "#10b981", fontWeight: 700 }}>{fcweedBalance} FCWEED</span>
+                                <span style={{ fontSize: 11, color: "#10b981", fontWeight: 700 }}>{cartelBalance} CARTEL</span>
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                                 <span style={{ fontSize: 12 }}>💎</span>
-                                <span style={{ fontSize: 11, color: "#8b5cf6", fontWeight: 700 }}>{parseFloat(ethers.utils.formatEther(v6XFcweedBalance)) >= 1000000 ? (parseFloat(ethers.utils.formatEther(v6XFcweedBalance)) / 1000000).toFixed(2) + "M" : parseFloat(ethers.utils.formatEther(v6XFcweedBalance)) >= 1000 ? (parseFloat(ethers.utils.formatEther(v6XFcweedBalance)) / 1000).toFixed(1) + "K" : parseFloat(ethers.utils.formatEther(v6XFcweedBalance)).toFixed(0)} xFCWEED</span>
+                                <span style={{ fontSize: 11, color: "#8b5cf6", fontWeight: 700 }}>{parseFloat(ethers.utils.formatEther(v6XCartelBalance)) >= 1000000 ? (parseFloat(ethers.utils.formatEther(v6XCartelBalance)) / 1000000).toFixed(2) + "M" : parseFloat(ethers.utils.formatEther(v6XCartelBalance)) >= 1000 ? (parseFloat(ethers.utils.formatEther(v6XCartelBalance)) / 1000).toFixed(1) + "K" : parseFloat(ethers.utils.formatEther(v6XCartelBalance)).toFixed(0)} xCARTEL</span>
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                                 <img src="/images/items/dust.gif" alt="Dust" style={{ width: 16, height: 16, objectFit: "contain" }} />
@@ -9469,8 +9538,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[1]?.remaining ?? 15}/{shopSupply[1]?.total ?? 15}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(1, "dust")} disabled={shopLoading || crateUserStats.dust < 1000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 1000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 1000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 1000 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />1K DUST</button>
-                                            <button onClick={() => handleBuyItem(1, "xfcweed")} disabled={shopLoading || v6XFcweedBalance.lt(SHOP_FCWEED_PRICES.ak47)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.ak47) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.ak47) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.ak47) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 1M xFCWEED</button>
-                                            <button onClick={() => handleBuyItem(1, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.ak47)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "linear-gradient(135deg, #ef4444, #dc2626)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.ak47) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 1M FCWEED</button>
+                                            <button onClick={() => handleBuyItem(1, "xcartel")} disabled={shopLoading || v6XCartelBalance.lt(SHOP_CARTEL_PRICES.ak47)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.ak47) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.ak47) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.ak47) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 1M xCARTEL</button>
+                                            <button onClick={() => handleBuyItem(1, "cartel")} disabled={shopLoading || cartelBalanceRaw.lt(SHOP_CARTEL_PRICES.ak47)} style={{ padding: "6px", borderRadius: 5, border: "none", background: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.ak47) ? "linear-gradient(135deg, #ef4444, #dc2626)" : "#374151", color: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.ak47) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.ak47) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 1M CARTEL</button>
                                         </div>
                                     </>
                                 ) : (
@@ -9494,8 +9563,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[3]?.remaining ?? 1}/{shopSupply[3]?.total ?? 1}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(3, "dust")} disabled={shopLoading || crateUserStats.dust < 10000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 10000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 10000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 10000 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />10K DUST</button>
-                                            <button onClick={() => handleBuyItem(3, "xfcweed")} disabled={shopLoading || v6XFcweedBalance.lt(SHOP_FCWEED_PRICES.nuke)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.nuke) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.nuke) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.nuke) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 10M xFCWEED</button>
-                                            <button onClick={() => handleBuyItem(3, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.nuke)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "linear-gradient(135deg, #dc2626, #b91c1c)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.nuke) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 10M FCWEED</button>
+                                            <button onClick={() => handleBuyItem(3, "xcartel")} disabled={shopLoading || v6XCartelBalance.lt(SHOP_CARTEL_PRICES.nuke)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.nuke) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.nuke) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.nuke) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 10M xCARTEL</button>
+                                            <button onClick={() => handleBuyItem(3, "cartel")} disabled={shopLoading || cartelBalanceRaw.lt(SHOP_CARTEL_PRICES.nuke)} style={{ padding: "6px", borderRadius: 5, border: "none", background: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.nuke) ? "linear-gradient(135deg, #dc2626, #b91c1c)" : "#374151", color: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.nuke) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.nuke) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 10M CARTEL</button>
                                         </div>
                                     </>
                                 ) : (
@@ -9519,8 +9588,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#a855f7", fontWeight: 600 }}>{shopSupply[2]?.remaining ?? 3}/{shopSupply[2]?.total ?? 3}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(2, "dust")} disabled={shopLoading || crateUserStats.dust < 4000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 4000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 4000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 4000 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />4K DUST</button>
-                                            <button onClick={() => handleBuyItem(2, "xfcweed")} disabled={shopLoading || v6XFcweedBalance.lt(SHOP_FCWEED_PRICES.rpg)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.rpg) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.rpg) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.rpg) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 4M xFCWEED</button>
-                                            <button onClick={() => handleBuyItem(2, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.rpg)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.rpg) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 4M FCWEED</button>
+                                            <button onClick={() => handleBuyItem(2, "xcartel")} disabled={shopLoading || v6XCartelBalance.lt(SHOP_CARTEL_PRICES.rpg)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.rpg) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.rpg) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.rpg) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 4M xCARTEL</button>
+                                            <button onClick={() => handleBuyItem(2, "cartel")} disabled={shopLoading || cartelBalanceRaw.lt(SHOP_CARTEL_PRICES.rpg)} style={{ padding: "6px", borderRadius: 5, border: "none", background: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.rpg) ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.rpg) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.rpg) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 4M CARTEL</button>
                                         </div>
                                     </>
                                 ) : (
@@ -9546,8 +9615,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#10b981", fontWeight: 600 }}>{shopSupply[4]?.remaining ?? 20}/{shopSupply[4]?.total ?? 20}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(4, "dust")} disabled={shopLoading || crateUserStats.dust < 2000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2000 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />2K DUST</button>
-                                            <button onClick={() => handleBuyItem(4, "xfcweed")} disabled={shopLoading || v6XFcweedBalance.lt(SHOP_FCWEED_PRICES.healthPack)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.healthPack) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.healthPack) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.healthPack) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 2M xFCWEED</button>
-                                            <button onClick={() => handleBuyItem(4, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.healthPack)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.healthPack) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 2M FCWEED</button>
+                                            <button onClick={() => handleBuyItem(4, "xcartel")} disabled={shopLoading || v6XCartelBalance.lt(SHOP_CARTEL_PRICES.healthPack)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.healthPack) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.healthPack) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.healthPack) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 2M xCARTEL</button>
+                                            <button onClick={() => handleBuyItem(4, "cartel")} disabled={shopLoading || cartelBalanceRaw.lt(SHOP_CARTEL_PRICES.healthPack)} style={{ padding: "6px", borderRadius: 5, border: "none", background: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.healthPack) ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.healthPack) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.healthPack) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 2M CARTEL</button>
                                         </div>
                                     </>
                                 ) : (
@@ -9596,8 +9665,8 @@ export default function FCWeedApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#f59e0b", fontWeight: 600 }}>∞</span></div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                     <button onClick={() => handleBuyItem(6, "dust")} disabled={shopLoading || crateUserStats.dust < 200} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 200 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 200 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 200 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />200 DUST</button>
-                                    <button onClick={() => handleBuyItem(6, "xfcweed")} disabled={shopLoading || v6XFcweedBalance.lt(SHOP_FCWEED_PRICES.attackBoost)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.attackBoost) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.attackBoost) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XFcweedBalance.gte(SHOP_FCWEED_PRICES.attackBoost) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 200K xFCWEED</button>
-                                    <button onClick={() => handleBuyItem(6, "fcweed")} disabled={shopLoading || fcweedBalanceRaw.lt(SHOP_FCWEED_PRICES.attackBoost)} style={{ padding: "6px", borderRadius: 5, border: "none", background: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151", color: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "#000" : "#9ca3af", fontWeight: 600, cursor: fcweedBalanceRaw.gte(SHOP_FCWEED_PRICES.attackBoost) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 200K FCWEED</button>
+                                    <button onClick={() => handleBuyItem(6, "xcartel")} disabled={shopLoading || v6XCartelBalance.lt(SHOP_CARTEL_PRICES.attackBoost)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.attackBoost) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.attackBoost) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.attackBoost) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 200K xCARTEL</button>
+                                    <button onClick={() => handleBuyItem(6, "cartel")} disabled={shopLoading || cartelBalanceRaw.lt(SHOP_CARTEL_PRICES.attackBoost)} style={{ padding: "6px", borderRadius: 5, border: "none", background: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.attackBoost) ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151", color: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.attackBoost) ? "#000" : "#9ca3af", fontWeight: 600, cursor: cartelBalanceRaw.gte(SHOP_CARTEL_PRICES.attackBoost) ? "pointer" : "not-allowed", fontSize: 8 }}>🌿 200K CARTEL</button>
                                 </div>
                                 </div>
                             </div>

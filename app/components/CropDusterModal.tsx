@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
 import { 
     V6_STAKING_ADDRESS,
-    FCWEED_ADDRESS,
+    CARTEL_ADDRESS,
 } from "../lib/constants";
 import { ERC20_ABI } from "../lib/abis";
 
@@ -13,7 +13,7 @@ const CROP_DUSTER_ID = 8;
 const CROP_DUSTER_TARGET_COUNT = 3;
 const CROP_DUSTER_STEAL_PERCENT = 50;
 const CROP_DUSTER_DAMAGE_PERCENT = 50;
-const CROP_DUSTER_EXECUTION_FEE = ethers.utils.parseUnits("500000", 18); // 500K FCWEED
+const CROP_DUSTER_EXECUTION_FEE = ethers.utils.parseUnits("500000", 18); // 500K CARTEL
 
 interface StakerInfo {
     address: string;
@@ -29,7 +29,7 @@ interface CropDusterModalProps {
     userAddress: string | undefined;
     sendContractTx: (to: string, data: string, gasLimit: string, from?: string) => Promise<any>;
     provider: ethers.providers.Provider | null;
-    fcweedBalance?: ethers.BigNumber;
+    cartelBalance?: ethers.BigNumber;
     inventoryCount: number;
     onSuccess?: () => void;
     theme?: "light" | "dark";
@@ -45,7 +45,7 @@ export function CropDusterModal({
     userAddress,
     sendContractTx,
     provider,
-    fcweedBalance,
+    cartelBalance,
     inventoryCount,
     onSuccess,
     theme = "dark",
@@ -230,25 +230,25 @@ export function CropDusterModal({
     const executeAttack = async () => {
         if (!userAddress || selectedTargets.length !== CROP_DUSTER_TARGET_COUNT) return;
         
-        // Check FCWEED balance for execution fee
-        if (fcweedBalance && fcweedBalance.lt(CROP_DUSTER_EXECUTION_FEE)) {
-            setTxStatus("Need 500K FCWEED for execution fee!");
+        // Check CARTEL balance for execution fee
+        if (cartelBalance && cartelBalance.lt(CROP_DUSTER_EXECUTION_FEE)) {
+            setTxStatus("Need 500K CARTEL for execution fee!");
             return;
         }
         
         setStep("executing");
         setLoading(true);
-        setTxStatus("Checking FCWEED approval...");
+        setTxStatus("Checking CARTEL approval...");
         
         try {
-            // First approve FCWEED if needed for the execution fee
-            const fcweed = new ethers.Contract(FCWEED_ADDRESS, ERC20_ABI, provider);
-            const allowance = await fcweed.allowance(userAddress, battlesAddress);
+            // First approve CARTEL if needed for the execution fee
+            const cartel = new ethers.Contract(CARTEL_ADDRESS, ERC20_ABI, provider);
+            const allowance = await cartel.allowance(userAddress, battlesAddress);
             if (allowance.lt(CROP_DUSTER_EXECUTION_FEE)) {
-                setTxStatus("Approving FCWEED...");
+                setTxStatus("Approving CARTEL...");
                 const approveIface = new ethers.utils.Interface(ERC20_ABI);
                 const approveData = approveIface.encodeFunctionData("approve", [battlesAddress, ethers.constants.MaxUint256]);
-                const approveTx = await sendContractTx(FCWEED_ADDRESS, approveData, "0x7A120");
+                const approveTx = await sendContractTx(CARTEL_ADDRESS, approveData, "0x7A120");
                 if (!approveTx) {
                     setTxStatus("Approval cancelled");
                     setStep("select_targets");
@@ -294,7 +294,7 @@ export function CropDusterModal({
     };
     
     // Check affordability for execution fee
-    const canAffordFee = fcweedBalance ? fcweedBalance.gte(CROP_DUSTER_EXECUTION_FEE) : false;
+    const canAffordFee = cartelBalance ? cartelBalance.gte(CROP_DUSTER_EXECUTION_FEE) : false;
     
     // Filter stakers by search
     const filteredStakers = stakers.filter(s => 
@@ -400,11 +400,11 @@ export function CropDusterModal({
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                                 <span style={{ fontSize: 11, color: mutedColor }}>Execution Fee:</span>
                                 <span style={{ fontSize: 12, fontWeight: 600, color: canAffordFee ? "#10b981" : "#ef4444" }}>
-                                    500K FCWEED {canAffordFee ? "✓" : "✗"}
+                                    500K CARTEL {canAffordFee ? "✓" : "✗"}
                                 </span>
                             </div>
                             <div style={{ fontSize: 10, color: "#9ca3af", textAlign: "center" }}>
-                                Fee is charged when attack executes • Your balance: {formatBigNumber(fcweedBalance)}
+                                Fee is charged when attack executes • Your balance: {formatBigNumber(cartelBalance)}
                             </div>
                         </div>
                         

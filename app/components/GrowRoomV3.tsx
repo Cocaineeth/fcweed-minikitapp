@@ -60,10 +60,10 @@ interface IsometricFarmProps {
     // V6 Legacy Mode
     isLegacy?: boolean;
     legacyMessage?: string;
-    // V6 xFCWEED display
-    xFcweedBalance?: string;
-    fcweedErc20Balance?: string;
-    showXFcweed?: boolean;
+    // V6 xCARTEL display
+    xCartelBalance?: string;
+    cartelErc20Balance?: string;
+    showXCartel?: boolean;
     // V5 Health Pack support
     onUseHealthPack?: () => void;
     healthPackInventory?: number;
@@ -333,7 +333,7 @@ export default function IsometricFarm({
     actionStatus, loading, actionLoading,
     onStakePlants, onUnstakePlants, onStakeLands, onUnstakeLands,
     onStakeSuperLands, onUnstakeSuperLands, onClaim, onWaterPlants, onShare,
-    theme, isPurgeActive, isLegacy, legacyMessage, xFcweedBalance, fcweedErc20Balance, showXFcweed,
+    theme, isPurgeActive, isLegacy, legacyMessage, xCartelBalance, cartelErc20Balance, showXCartel,
     onUseHealthPack, healthPackInventory,
 }: IsometricFarmProps) {
     const [selectedStakedPlants, setSelectedStakedPlants] = useState<number[]>([]);
@@ -634,9 +634,9 @@ export default function IsometricFarm({
                 borderBottom: "2px solid #22c55e", flexShrink: 0, minHeight: 50
             }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <img src={PLANT_IMAGE} alt="FCWEED" style={{ width: 32, height: 32, borderRadius: 6 }} />
+                    <img src={PLANT_IMAGE} alt="CARTEL" style={{ width: 32, height: 32, borderRadius: 6 }} />
                     <div>
-                        <h1 style={{ color: "#22c55e", fontSize: 16, margin: 0, fontWeight: 800 }}>FCWEED FARM</h1>
+                        <h1 style={{ color: "#22c55e", fontSize: 16, margin: 0, fontWeight: 800 }}>CARTEL FARM</h1>
                         <span style={{ fontSize: 10, color: "#4ade80" }}>GROW ROOM</span>
                     </div>
                 </div>
@@ -772,17 +772,17 @@ export default function IsometricFarm({
                     <div style={{ width: 1, background: "rgba(34,197,94,0.3)" }} />
                     <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b" }}>{stats?.superLands || 0}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>SUPER</div></div>
                     <div style={{ width: 1, background: "rgba(34,197,94,0.3)" }} />
-                    <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{realTimePending}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>{showXFcweed ? "xFCWEED (EARNINGS)" : "PENDING"}</div></div>
-                    {showXFcweed && xFcweedBalance && (
+                    <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{realTimePending}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>{showXCartel ? "xCARTEL (EARNINGS)" : "PENDING"}</div></div>
+                    {showXCartel && xCartelBalance && (
                         <>
                             <div style={{ width: 1, background: "rgba(139,92,246,0.3)" }} />
-                            <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>{xFcweedBalance}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>xFCWEED Balance</div></div>
+                            <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>{xCartelBalance}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>xCARTEL Balance</div></div>
                         </>
                     )}
-                    {showXFcweed && fcweedErc20Balance && (
+                    {showXCartel && cartelErc20Balance && (
                         <>
                             <div style={{ width: 1, background: "rgba(34,197,94,0.3)" }} />
-                            <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{fcweedErc20Balance}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>FCWEED Balance</div></div>
+                            <div style={{ textAlign: "center" }}><div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>{cartelErc20Balance}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>CARTEL Balance</div></div>
                         </>
                     )}
                 </div>

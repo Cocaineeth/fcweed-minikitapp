@@ -2,8 +2,8 @@
 
 import { ethers } from "ethers";
 
-export const AUTH_TOKEN_KEY = "fcweed_auth_token";
-export const AUTH_ADDRESS_KEY = "fcweed_auth_address";
+export const AUTH_TOKEN_KEY = "cartel_auth_token";
+export const AUTH_ADDRESS_KEY = "cartel_auth_address";
 
 export type AuthState =
 {
@@ -67,7 +67,7 @@ export async function ensureReferralAuth(params:
         return stored.token;
     }
 
-    const domain = params.domain || (typeof window !== "undefined" ? window.location.host : "fcweed");
+    const domain = params.domain || (typeof window !== "undefined" ? window.location.host : "cartel");
     const issuedAt = new Date().toISOString();
 
     // 1) get nonce

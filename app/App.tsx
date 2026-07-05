@@ -5,7 +5,7 @@ import { base } from "wagmi/chains";
 import { OnchainKitProvider } from "@coinbase/onchainkit";
 // Removed: import "@coinbase/onchainkit/styles.css"; - conflicts with Tailwind v3
 import { sdk } from "@farcaster/miniapp-sdk";
-import FCWeedApp from "./FCWeedApp";
+import CartelApp from "./CartelApp";
 import { autoRefreshManager } from "./lib/autoRefresh";
 
 // RainbowKit imports
@@ -71,7 +71,7 @@ const connectors = connectorsForWallets(
     },
   ],
   {
-    appName: "FCWEED",
+    appName: "CARTEL",
     projectId,
   }
 );
@@ -127,7 +127,7 @@ export default function App() {
     
     // Log wallet extension detection for debugging multi-wallet conflicts
     const anyWindow = window as any;
-    console.log("[FCWEED] Wallet extensions detected:", {
+    console.log("[CARTEL] Wallet extensions detected:", {
       "window.ethereum": !!anyWindow.ethereum,
       "window.ethereum.isMetaMask": anyWindow.ethereum?.isMetaMask,
       "window.ethereum.isPhantom": anyWindow.ethereum?.isPhantom,
@@ -146,16 +146,16 @@ export default function App() {
     ].filter(Boolean).length;
     
     if (walletCount > 1) {
-      console.warn("[FCWEED] ⚠️ Multiple wallet extensions detected. If connection fails, try disabling other wallet extensions temporarily.");
+      console.warn("[CARTEL] ⚠️ Multiple wallet extensions detected. If connection fails, try disabling other wallet extensions temporarily.");
     }
     
     // Initialize Farcaster SDK
     const init = async () => {
       try {
         await sdk.actions.ready();
-        console.log("[FCWeed] Farcaster SDK ready");
+        console.log("[Cartel] Farcaster SDK ready");
       } catch (e) {
-        console.log("[FCWeed] Not in frame context (normal for standalone)");
+        console.log("[Cartel] Not in frame context (normal for standalone)");
       }
     };
     init();
@@ -184,7 +184,7 @@ export default function App() {
       >
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: "48px", marginBottom: "16px" }}>🌿</div>
-          <div>Loading FCWeed...</div>
+          <div>Loading Cartel...</div>
         </div>
       </div>
     );
@@ -192,7 +192,7 @@ export default function App() {
 
   return (
     <Providers theme={theme}>
-      <FCWeedApp onThemeChange={setTheme} />
+      <CartelApp onThemeChange={setTheme} />
     </Providers>
   );
 }

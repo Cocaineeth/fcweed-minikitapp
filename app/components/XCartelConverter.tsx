@@ -5,29 +5,29 @@ import { ethers } from "ethers";
 import { V6_STAKING_ADDRESS } from "../lib/constants";
 import { V6_STAKING_ABI } from "../lib/abis";
 
-interface XFcweedConverterProps {
+interface XCartelConverterProps {
     isOpen: boolean;
     onClose: () => void;
     address: string | undefined;
     signer: ethers.Signer | null;
     provider: ethers.providers.Provider;
-    xFcweedBalance: ethers.BigNumber;
+    xCartelBalance: ethers.BigNumber;
     conversionRate: number; // 3 = 3:1 ratio
     onSuccess?: () => void;
     sendContractTx?: (to: string, data: string, gasLimit?: string) => Promise<ethers.providers.TransactionResponse | null>;
 }
 
-export function XFcweedConverter({
+export function XCartelConverter({
     isOpen,
     onClose,
     address,
     signer,
     provider,
-    xFcweedBalance,
+    xCartelBalance,
     conversionRate = 3,
     onSuccess,
     sendContractTx,
-}: XFcweedConverterProps) {
+}: XCartelConverterProps) {
     const [convertAmount, setConvertAmount] = useState<string>("");
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState("");
@@ -43,7 +43,7 @@ export function XFcweedConverter({
         return num.toFixed(2);
     };
 
-    // Calculate output FCWEED
+    // Calculate output CARTEL
     const calculateOutput = () => {
         if (!convertAmount || isNaN(parseFloat(convertAmount))) return "0";
         const input = parseFloat(convertAmount);
@@ -100,7 +100,7 @@ export function XFcweedConverter({
 
     // Quick select percentages
     const handleQuickSelect = (percentage: number) => {
-        const amount = xFcweedBalance.mul(percentage).div(100);
+        const amount = xCartelBalance.mul(percentage).div(100);
         setConvertAmount(ethers.utils.formatEther(amount));
     };
 
@@ -109,8 +109,8 @@ export function XFcweedConverter({
         if (!signer || !address || !convertAmount) return;
         
         const amountWei = ethers.utils.parseEther(convertAmount);
-        if (amountWei.gt(xFcweedBalance)) {
-            setStatus("Insufficient xFCWEED balance");
+        if (amountWei.gt(xCartelBalance)) {
+            setStatus("Insufficient xCARTEL balance");
             return;
         }
         
@@ -120,11 +120,11 @@ export function XFcweedConverter({
         }
         
         setLoading(true);
-        setStatus("Converting xFCWEED to FCWEED...");
+        setStatus("Converting xCARTEL to CARTEL...");
         
         try {
-            const iface = new ethers.utils.Interface(["function convertToFcweed(uint256 xAmount) external"]);
-            const data = iface.encodeFunctionData("convertToFcweed", [amountWei]);
+            const iface = new ethers.utils.Interface(["function convertToCartel(uint256 xAmount) external"]);
+            const data = iface.encodeFunctionData("convertToCartel", [amountWei]);
             let tx: ethers.providers.TransactionResponse | null = null;
 
             if (sendContractTx) {
@@ -132,21 +132,21 @@ export function XFcweedConverter({
                 if (!tx) throw new Error("Transaction rejected");
             } else {
                 const v6Contract = new ethers.Contract(V6_STAKING_ADDRESS, V6_STAKING_ABI, signer);
-                tx = await v6Contract.convertToFcweed(amountWei);
+                tx = await v6Contract.convertToCartel(amountWei);
             }
 
             setStatus("Waiting for confirmation...");
             await tx.wait();
             
-            const outputFcweed = amountWei.div(conversionRate);
-            const formatted = parseFloat(ethers.utils.formatEther(outputFcweed));
+            const outputCartel = amountWei.div(conversionRate);
+            const formatted = parseFloat(ethers.utils.formatEther(outputCartel));
             const displayAmount = formatted >= 1_000_000 
                 ? `${(formatted / 1_000_000).toFixed(2)}M` 
                 : formatted >= 1_000 
                     ? `${(formatted / 1_000).toFixed(2)}K` 
                     : formatted.toFixed(2);
             
-            setStatus(`✅ Converted to ${displayAmount} FCWEED!`);
+            setStatus(`✅ Converted to ${displayAmount} CARTEL!`);
             setConvertAmount("");
             onSuccess?.();
             
@@ -165,7 +165,7 @@ export function XFcweedConverter({
     if (!isOpen) return null;
 
     const canConvert = cooldownRemaining === 0;
-    const hasBalance = !xFcweedBalance.isZero();
+    const hasBalance = !xCartelBalance.isZero();
 
     return (
         <div 
@@ -198,8 +198,8 @@ export function XFcweedConverter({
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <div style={{ fontSize: 36 }}>💎</div>
                         <div>
-                            <h2 style={{ margin: 0, fontSize: 20, color: "#a78bfa" }}>xFCWEED Converter</h2>
-                            <div style={{ fontSize: 12, color: "#9ca3af" }}>Convert to FCWEED at {conversionRate}:1 ratio</div>
+                            <h2 style={{ margin: 0, fontSize: 20, color: "#a78bfa" }}>xCARTEL Converter</h2>
+                            <div style={{ fontSize: 12, color: "#9ca3af" }}>Convert to CARTEL at {conversionRate}:1 ratio</div>
                         </div>
                     </div>
                     <button
@@ -228,15 +228,15 @@ export function XFcweedConverter({
                 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <div>
-                            <div style={{ fontSize: 11, color: "#a78bfa", marginBottom: 4 }}>YOUR xFCWEED BALANCE</div>
+                            <div style={{ fontSize: 11, color: "#a78bfa", marginBottom: 4 }}>YOUR xCARTEL BALANCE</div>
                             <div style={{ fontSize: 28, fontWeight: 700, color: "#e9d5ff" }}>
-                                {formatBalance(xFcweedBalance)} 💎
+                                {formatBalance(xCartelBalance)} 💎
                             </div>
                         </div>
                         <div style={{ textAlign: "right" }}>
                             <div style={{ fontSize: 11, color: "#86efac", marginBottom: 4 }}>CONVERTS TO</div>
                             <div style={{ fontSize: 20, fontWeight: 600, color: "#4ade80" }}>
-                                {formatBalance(xFcweedBalance.div(conversionRate))} 🌿
+                                {formatBalance(xCartelBalance.div(conversionRate))} 🌿
                             </div>
                         </div>
                     </div>
@@ -299,7 +299,7 @@ export function XFcweedConverter({
                                     color: "#a78bfa",
                                     fontWeight: 600,
                                 }}>
-                                    xFCWEED
+                                    xCARTEL
                                 </span>
                             </div>
                         </div>
@@ -343,7 +343,7 @@ export function XFcweedConverter({
                                 <div>
                                     <div style={{ fontSize: 11, color: "#86efac" }}>YOU WILL RECEIVE</div>
                                     <div style={{ fontSize: 22, fontWeight: 700, color: "#4ade80" }}>
-                                        {calculateOutput()} FCWEED 🌿
+                                        {calculateOutput()} CARTEL 🌿
                                     </div>
                                 </div>
                                 <div style={{ 
@@ -371,9 +371,9 @@ export function XFcweedConverter({
                         textAlign: "center",
                     }}>
                         <div style={{ fontSize: 32, marginBottom: 8 }}>💎</div>
-                        <div style={{ color: "#9ca3af", fontWeight: 600 }}>No xFCWEED to Convert</div>
+                        <div style={{ color: "#9ca3af", fontWeight: 600 }}>No xCARTEL to Convert</div>
                         <div style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>
-                            Stake NFTs and harvest to earn xFCWEED
+                            Stake NFTs and harvest to earn xCARTEL
                         </div>
                     </div>
                 )}
@@ -428,7 +428,7 @@ export function XFcweedConverter({
                             Converting...
                         </>
                     ) : (
-                        <>💎 → 🌿 Convert to FCWEED</>
+                        <>💎 → 🌿 Convert to CARTEL</>
                     )}
                 </button>
 
@@ -441,7 +441,7 @@ export function XFcweedConverter({
                     border: "1px solid rgba(99, 102, 241, 0.2)",
                 }}>
                     <div style={{ fontSize: 11, color: "#a5b4fc" }}>
-                        💡 <strong>Tip:</strong> xFCWEED is earned by staking. Convert it to FCWEED
+                        💡 <strong>Tip:</strong> xCARTEL is earned by staking. Convert it to CARTEL
                         to trade. Conversion has a {conversionCooldown / 3600}h cooldown.
                     </div>
                 </div>
@@ -457,4 +457,4 @@ export function XFcweedConverter({
     );
 }
 
-export default XFcweedConverter;
+export default XCartelConverter;

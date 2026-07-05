@@ -5,11 +5,11 @@ import { ethers } from "ethers";
 import { 
     V6_BATTLES_ADDRESS, 
     V6_STAKING_ADDRESS,
-    FCWEED_ADDRESS,
+    CARTEL_ADDRESS,
     USDC_ADDRESS,
     DROUGHT_COOLDOWN,
-    DROUGHT_COST_XFCWEED,
-    DROUGHT_COST_FCWEED,
+    DROUGHT_COST_XCARTEL,
+    DROUGHT_COST_CARTEL,
     DROUGHT_COST_USDC,
     DROUGHT_TAKE_PERCENT,
     DROUGHT_REWARD_PERCENT,
@@ -21,8 +21,8 @@ interface DroughtButtonProps {
     signer: ethers.Signer | null;
     provider: ethers.providers.Provider;
     onSuccess?: () => void;
-    xFcweedBalance?: ethers.BigNumber;
-    fcweedBalance?: ethers.BigNumber;
+    xCartelBalance?: ethers.BigNumber;
+    cartelBalance?: ethers.BigNumber;
     usdcBalance?: ethers.BigNumber;
 }
 
@@ -31,8 +31,8 @@ export function DroughtButton({
     signer, 
     provider, 
     onSuccess,
-    xFcweedBalance,
-    fcweedBalance,
+    xCartelBalance,
+    cartelBalance,
     usdcBalance,
 }: DroughtButtonProps) {
     const [showModal, setShowModal] = useState(false);
@@ -105,16 +105,16 @@ export function DroughtButton({
         return () => clearInterval(interval);
     }, [timeToDrought]);
     
-    // Activate drought - Contract ONLY supports xFCWEED
+    // Activate drought - Contract ONLY supports xCARTEL
     const activateDrought = async () => {
         if (!signer || !address) {
             alert("Please connect your wallet");
             return;
         }
         
-        // Check xFCWEED balance
-        if (!canAffordXFcweed) {
-            setTxStatus("Insufficient xFCWEED balance. Need 100M xFCWEED.");
+        // Check xCARTEL balance
+        if (!canAffordXCartel) {
+            setTxStatus("Insufficient xCARTEL balance. Need 100M xCARTEL.");
             return;
         }
         
@@ -124,7 +124,7 @@ export function DroughtButton({
         try {
             const battlesContract = new ethers.Contract(V6_BATTLES_ADDRESS, V5_BATTLES_ABI, signer);
             
-            // Contract uses xFCWEED from staking - no approval needed
+            // Contract uses xCARTEL from staking - no approval needed
             setTxStatus("Activating drought...");
             const tx = await battlesContract.activateDrought(); // No parameters!
             
@@ -148,8 +148,8 @@ export function DroughtButton({
         }
     };
     
-    // Check if user can afford xFCWEED (only payment method)
-    const canAffordXFcweed = xFcweedBalance?.gte(DROUGHT_COST_XFCWEED) || false;
+    // Check if user can afford xCARTEL (only payment method)
+    const canAffordXCartel = xCartelBalance?.gte(DROUGHT_COST_XCARTEL) || false;
     
     if (!droughtOn) {
         return null; // Don't show if drought is disabled
@@ -251,38 +251,38 @@ export function DroughtButton({
                             </div>
                         )}
                         
-                        {/* Payment Option - xFCWEED Only */}
+                        {/* Payment Option - xCARTEL Only */}
                         {canDrought && !loading && (
                             <div className="space-y-3">
                                 <div className="text-sm text-gray-400 text-center mb-2">Payment required:</div>
                                 
-                                {/* xFCWEED Option - ONLY payment method */}
+                                {/* xCARTEL Option - ONLY payment method */}
                                 <button
                                     className={`w-full p-4 rounded-xl flex items-center justify-between transition-all ${
-                                        canAffordXFcweed 
+                                        canAffordXCartel 
                                             ? "bg-gradient-to-r from-purple-900 to-purple-700 hover:from-purple-800 hover:to-purple-600 border border-purple-500"
                                             : "bg-gray-800 opacity-50 cursor-not-allowed border border-gray-600"
                                     }`}
-                                    onClick={() => canAffordXFcweed && activateDrought()}
-                                    disabled={!canAffordXFcweed}
+                                    onClick={() => canAffordXCartel && activateDrought()}
+                                    disabled={!canAffordXCartel}
                                 >
                                     <div className="flex items-center gap-3">
                                         <span className="text-2xl">💎</span>
                                         <div className="text-left">
-                                            <div className="font-bold text-white">100M xFCWEED</div>
+                                            <div className="font-bold text-white">100M xCARTEL</div>
                                             <div className="text-xs text-gray-300">
-                                                Balance: {formatBigNumber(xFcweedBalance)}
+                                                Balance: {formatBigNumber(xCartelBalance)}
                                             </div>
                                         </div>
                                     </div>
-                                    <div className={canAffordXFcweed ? "text-green-400" : "text-red-400"}>
-                                        {canAffordXFcweed ? "✓" : "✗"}
+                                    <div className={canAffordXCartel ? "text-green-400" : "text-red-400"}>
+                                        {canAffordXCartel ? "✓" : "✗"}
                                     </div>
                                 </button>
                                 
-                                {!canAffordXFcweed && (
+                                {!canAffordXCartel && (
                                     <div className="text-center text-sm text-red-400 mt-2">
-                                        Need 100M xFCWEED to activate drought. Stake NFTs to earn xFCWEED!
+                                        Need 100M xCARTEL to activate drought. Stake NFTs to earn xCARTEL!
                                     </div>
                                 )}
                             </div>

@@ -7,16 +7,16 @@ export const USDC_ABI = [
     "function decimals() view returns (uint8)",
 ];
 
-// FCWEEDWaterShopV1 — standalone water shop (replaces staking.buyWaterWith*)
-// payKind enum: 0=XFCWEED, 1=FCWEED, 2=USDC
+// CARTELWaterShopV1 — standalone water shop (replaces staking.buyWaterWith*)
+// payKind enum: 0=XCARTEL, 1=CARTEL, 2=USDC
 export const WATER_SHOP_ABI = [
     "function buyWater(uint256 liters, uint8 pay) external",
-    "function getWaterStatus(address user) external view returns (tuple(bool enabled, bool windowOpen, bool isDst, uint256 secondsUntilOpen, uint256 secondsUntilClose, uint256 userCap, uint256 userPurchased, uint256 userRemaining, uint256 globalCap, uint256 globalPurchased, uint256 globalRemaining, uint256 xFcweedPrice, uint256 fcweedPrice, uint256 usdcPrice, bool xFcweedEnabled, bool fcweedEnabled, bool usdcEnabled) status)",
+    "function getWaterStatus(address user) external view returns (tuple(bool enabled, bool windowOpen, bool isDst, uint256 secondsUntilOpen, uint256 secondsUntilClose, uint256 userCap, uint256 userPurchased, uint256 userRemaining, uint256 globalCap, uint256 globalPurchased, uint256 globalRemaining, uint256 xCartelPrice, uint256 cartelPrice, uint256 usdcPrice, bool xCartelEnabled, bool cartelEnabled, bool usdcEnabled) status)",
     "function isWindowOpen() external view returns (bool)",
     "function isDST() external view returns (bool)",
     "function userDailyCap(address user) external view returns (uint256)",
-    "function xFcweedPricePerLiter() external view returns (uint256)",
-    "function fcweedPricePerLiter() external view returns (uint256)",
+    "function xCartelPricePerLiter() external view returns (uint256)",
+    "function cartelPricePerLiter() external view returns (uint256)",
     "function usdcPricePerLiter() external view returns (uint256)",
     "function enabled() external view returns (bool)",
     "event WaterPurchased(address indexed user, uint256 liters, uint256 cost, uint8 pay)"
@@ -66,7 +66,7 @@ export const STAKING_ABI = [
 ];
 
 // ===============================
-// V6 STAKING ABI (xFCWEED REWARDS)
+// V6 STAKING ABI (xCARTEL REWARDS)
 // ===============================
 export const V6_STAKING_ABI = [
     // Core staking functions
@@ -77,15 +77,15 @@ export const V6_STAKING_ABI = [
     "function stakeSuperLands(uint256[] calldata ids) external",
     "function unstakeSuperLands(uint256[] calldata ids) external",
     
-    // xFCWEED claim/convert
-    "function claimXFcweed() external",
-    "function convertToFcweed(uint256 xAmount) external",
+    // xCARTEL claim/convert
+    "function claimXCartel() external",
+    "function convertToCartel(uint256 xAmount) external",
     "function canHarvest(address user) view returns (bool)",
     
     // View functions
     "function pending(address account) view returns (uint256)",
-    "function xFcweedBalance(address) view returns (uint256)",
-    "function getXFcweedBalance(address) view returns (uint256)",
+    "function xCartelBalance(address) view returns (uint256)",
+    "function getXCartelBalance(address) view returns (uint256)",
     "function getPendingRewards(address) view returns (uint256)",
     "function getUserStakedPlants(address) view returns (uint256[])",
     "function getUserStakedLands(address) view returns (uint256[])",
@@ -100,8 +100,8 @@ export const V6_STAKING_ABI = [
     "function getWaterNeeded(uint256 tokenId) view returns (uint256)",
     
     // Water functions
-    "function buyWaterWithXFcweed(uint256 liters) external",
-    "function buyWaterWithFcweed(uint256 liters) external",
+    "function buyWaterWithXCartel(uint256 liters) external",
+    "function buyWaterWithCartel(uint256 liters) external",
     "function waterPlant(uint256 tokenId) external",
     "function waterAllPlants(uint256[] calldata tokenIds) external",
     "function waterPlantWithAmount(uint256 tokenId, uint256 amount) external",
@@ -141,8 +141,8 @@ export const V6_STAKING_ABI = [
     "event UnstakedLands(address indexed user, uint256[] tokenIds)",
     "event StakedSuperLands(address indexed user, uint256[] tokenIds)",
     "event UnstakedSuperLands(address indexed user, uint256[] tokenIds)",
-    "event XFcweedClaimed(address indexed user, uint256 amount)",
-    "event XFcweedConverted(address indexed user, uint256 xAmount, uint256 fcweedAmount)",
+    "event XCartelClaimed(address indexed user, uint256 amount)",
+    "event XCartelConverted(address indexed user, uint256 xAmount, uint256 cartelAmount)",
     "event WaterPurchased(address indexed user, uint256 liters, uint256 cost)",
     "event PlantWatered(address indexed user, uint256 tokenId, uint256 litersUsed)",
     "event PlantsWatered(address indexed user, uint256[] tokenIds, uint256 totalLitersUsed)",
@@ -310,9 +310,9 @@ export const BATTLE_SYSTEM_V3_ABI = V3_BATTLES_ABI;
 // V11/V14/V15 ITEMSHOP ABI
 // ===============================
 export const V11_ITEMSHOP_ABI = [
-    "function purchaseWithFcweed(uint256 itemId) external",
+    "function purchaseWithCartel(uint256 itemId) external",
     "function purchaseWithDust(uint256 itemId) external",
-    "function purchaseWithXFcweed(uint256 itemId) external",
+    "function purchaseWithXCartel(uint256 itemId) external",
     "function purchaseWithUsdc(uint256 itemId) external",
     "function activateAK47() external",
     "function activateRPG() external",
@@ -325,7 +325,7 @@ export const V11_ITEMSHOP_ABI = [
     "function inventory(address,uint256) view returns (uint256)",
     "function getUserInventory(address) view returns (uint256 ak47, uint256 rpg, uint256 nuke, uint256 healthPack, uint256 shield, uint256 attackBoost)",
     "function getUserActiveBoosts(address) view returns (uint256 ak47Boost, uint256 ak47Expires, uint256 rpgBoost, uint256 rpgExpires, uint256 attackBoostBps, uint256 attackBoostExpires, bool nukeReady, uint256 nukeExpires, bool shieldActive, uint256 shieldExpires, uint256 totalBoost)",
-    "function getItemConfig(uint256 itemId) view returns (string name, uint256 fcweedPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, uint256 soldToday, bool isWeapon)",
+    "function getItemConfig(uint256 itemId) view returns (string name, uint256 cartelPrice, uint256 dustPrice, uint256 boostBps, uint256 duration, uint256 dailySupply, uint256 soldToday, bool isWeapon)",
     "function getDailyStock(uint256 itemId) view returns (uint256 remaining, uint256 total)",
     "function getTimeUntilReset() view returns (uint256)",
     "function hasActiveShield(address) view returns (bool active, uint256 expiresAt)",
@@ -404,18 +404,18 @@ export const BATTLE_SYSTEM_V2_ABI = [
 
 export const CRATE_VAULT_ABI = [
     "function openCrate() external",
-    "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 fcweedWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)",
+    "function getUserStats(address user) external view returns (uint256 dustBalance, uint256 cratesOpened, uint256 cartelWon, uint256 usdcWon, uint256 nftsWon, uint256 totalSpent)",
     "function getUserDustBalance(address user) external view returns (uint256)",
     "function getUserCratesOpened(address user) external view returns (uint256)",
-    "function getGlobalStats() external view returns (uint256 totalCratesOpened, uint256 totalFcweedBurned, uint256 totalFcweedRewarded, uint256 totalUsdcRewarded, uint256 totalDustRewarded, uint256 totalNftsRewarded, uint256 uniqueUsers)",
+    "function getGlobalStats() external view returns (uint256 totalCratesOpened, uint256 totalCartelBurned, uint256 totalCartelRewarded, uint256 totalUsdcRewarded, uint256 totalDustRewarded, uint256 totalNftsRewarded, uint256 uniqueUsers)",
     "function getVaultInventory() external view returns (uint256 plants, uint256 lands, uint256 superLands)",
     "function getAllRewards() external view returns (tuple(string name, uint8 category, uint256 amount, uint16 probability, bool enabled)[])",
     "function crateCost() external view returns (uint256)",
     "function dustConversionEnabled() external view returns (bool)",
     "function dustShopEnabled() external view returns (bool)",
-    "function dustToFcweedRate() external view returns (uint256)",
-    "function dustToFcweedAmount() external view returns (uint256)",
-    "function convertDustToFcweed(uint256 dustAmount) external",
+    "function dustToCartelRate() external view returns (uint256)",
+    "function dustToCartelAmount() external view returns (uint256)",
+    "function convertDustToCartel(uint256 dustAmount) external",
     "function spendDustOnBehalf(address user, uint256 dustAmount, uint256 itemId) external returns (bool)",
     "function itemShop() external view returns (address)",
     "event CrateOpened(address indexed player, uint256 indexed rewardIndex, string rewardName, uint8 category, uint256 amount, uint256 nftTokenId, uint256 timestamp)",

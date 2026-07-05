@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ethers } from "ethers";
-import { V5_BATTLES_ADDRESS, WARS_BACKEND_URL, V5_STAKING_ADDRESS, FCWEED_ADDRESS, MULTICALL3_ADDRESS } from "../lib/constants";
+import { V5_BATTLES_ADDRESS, WARS_BACKEND_URL, V5_STAKING_ADDRESS, CARTEL_ADDRESS, MULTICALL3_ADDRESS } from "../lib/constants";
 
 const BATTLES_ABI = [
     "function purgeAttack(address target) external",
@@ -509,39 +509,39 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             }
             
             // Check balance first
-            setStatus("Checking FCWEED balance...");
-            const fcweedContract = new ethers.Contract(
-                FCWEED_ADDRESS,
+            setStatus("Checking CARTEL balance...");
+            const cartelContract = new ethers.Contract(
+                CARTEL_ADDRESS,
                 ["function balanceOf(address) view returns (uint256)", "function allowance(address,address) view returns (uint256)"],
                 readProvider
             );
             
-            const balance = await fcweedContract.balanceOf(userAddress);
+            const balance = await cartelContract.balanceOf(userAddress);
             console.log("[Purge] Balance:", ethers.utils.formatUnits(balance, 18), "Required:", ethers.utils.formatUnits(purgeFeeRaw, 18));
             
             if (balance.lt(purgeFeeRaw)) {
                 const have = parseFloat(ethers.utils.formatUnits(balance, 18)).toLocaleString();
                 const need = parseFloat(ethers.utils.formatUnits(purgeFeeRaw, 18)).toLocaleString();
-                setStatus(`Insufficient FCWEED: have ${have}, need ${need}`);
+                setStatus(`Insufficient CARTEL: have ${have}, need ${need}`);
                 setAttacking(false);
                 return;
             }
             
             // Check allowance
-            const currentAllowance = await fcweedContract.allowance(userAddress, V5_BATTLES_ADDRESS);
+            const currentAllowance = await cartelContract.allowance(userAddress, V5_BATTLES_ADDRESS);
             console.log("[Purge] Allowance:", ethers.utils.formatUnits(currentAllowance, 18));
             
             if (currentAllowance.lt(purgeFeeRaw)) {
-                setStatus("Approving FCWEED...");
+                setStatus("Approving CARTEL...");
                 const hasAllowance = await ensureAllowance(V5_BATTLES_ADDRESS, purgeFeeRaw);
                 if (!hasAllowance) {
-                    setStatus("FCWEED approval failed or rejected");
+                    setStatus("CARTEL approval failed or rejected");
                     setAttacking(false);
                     return;
                 }
                 
                 // Verify approval
-                const newAllowance = await fcweedContract.allowance(userAddress, V5_BATTLES_ADDRESS);
+                const newAllowance = await cartelContract.allowance(userAddress, V5_BATTLES_ADDRESS);
                 if (newAllowance.lt(purgeFeeRaw)) {
                     setStatus("Approval did not complete. Please try again.");
                     setAttacking(false);
@@ -663,7 +663,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             if (msg.includes("Not authorized")) {
                 setStatus("Battles contract not authorized - contact admin");
             } else if (msg.includes("insufficient allowance") || msg.includes("ERC20")) {
-                setStatus("FCWEED not approved. Please try again.");
+                setStatus("CARTEL not approved. Please try again.");
             } else if (msg.includes("!cd")) {
                 setStatus("Still on cooldown!");
             } else if (msg.includes("!on")) {
@@ -671,7 +671,7 @@ export function ThePurge({ connected, userAddress, theme, readProvider, sendCont
             } else if (msg.includes("!p")) {
                 setStatus("You or target need staked NFTs to purge");
             } else if (msg.includes("!fee")) {
-                setStatus("Transfer failed - check FCWEED balance & approval");
+                setStatus("Transfer failed - check CARTEL balance & approval");
             } else if (msg.includes("rejected") || msg.includes("denied") || err?.code === 4001) {
                 setStatus("Transaction rejected");
             } else if (msg.includes("insufficient funds") || msg.includes("gas")) {

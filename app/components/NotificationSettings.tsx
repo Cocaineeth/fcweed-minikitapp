@@ -129,7 +129,7 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
 
     // Load preferences from localStorage on mount
     useEffect(() => {
-        const stored = localStorage.getItem("fcweed_notification_prefs");
+        const stored = localStorage.getItem("cartel_notification_prefs");
         if (stored) {
             try {
                 const parsed = JSON.parse(stored);
@@ -137,10 +137,10 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
             } catch {}
         }
         
-        const enabled = localStorage.getItem("fcweed_notifications_enabled") === "true";
+        const enabled = localStorage.getItem("cartel_notifications_enabled") === "true";
         setNotificationsEnabled(enabled);
         
-        const savedFid = localStorage.getItem("fcweed_fid");
+        const savedFid = localStorage.getItem("cartel_fid");
         if (savedFid) {
             setFid(Number(savedFid));
             setManualFid(savedFid);
@@ -154,7 +154,7 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
                     setFid(context.user.fid);
                     setManualFid(String(context.user.fid));
                     setInFarcasterContext(true);
-                    localStorage.setItem("fcweed_fid", String(context.user.fid));
+                    localStorage.setItem("cartel_fid", String(context.user.fid));
                 }
             } catch {}
         };
@@ -163,7 +163,7 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
 
     // Save preferences to localStorage whenever they change
     useEffect(() => {
-        localStorage.setItem("fcweed_notification_prefs", JSON.stringify(preferences));
+        localStorage.setItem("cartel_notification_prefs", JSON.stringify(preferences));
     }, [preferences]);
 
     // Request notification permission from Farcaster
@@ -195,8 +195,8 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
                 
                 if (response.ok) {
                     setNotificationsEnabled(true);
-                    localStorage.setItem("fcweed_notifications_enabled", "true");
-                    localStorage.setItem("fcweed_fid", String(effectiveFid));
+                    localStorage.setItem("cartel_notifications_enabled", "true");
+                    localStorage.setItem("cartel_fid", String(effectiveFid));
                     setFid(effectiveFid);
                     setStatus("✅ Notifications enabled!");
                 } else {
@@ -206,8 +206,8 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
             } else {
                 // Just save locally if no backend or no wallet
                 setNotificationsEnabled(true);
-                localStorage.setItem("fcweed_notifications_enabled", "true");
-                localStorage.setItem("fcweed_fid", String(effectiveFid));
+                localStorage.setItem("cartel_notifications_enabled", "true");
+                localStorage.setItem("cartel_fid", String(effectiveFid));
                 setFid(effectiveFid);
                 setStatus("✅ Preferences saved!");
             }
@@ -215,8 +215,8 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
             console.error("[Notifications] Enable failed:", e);
             // Still enable locally even if backend fails
             setNotificationsEnabled(true);
-            localStorage.setItem("fcweed_notifications_enabled", "true");
-            localStorage.setItem("fcweed_fid", String(effectiveFid));
+            localStorage.setItem("cartel_notifications_enabled", "true");
+            localStorage.setItem("cartel_fid", String(effectiveFid));
             setFid(effectiveFid);
             setStatus("✅ Saved locally (backend unavailable)");
         }
@@ -227,7 +227,7 @@ export function NotificationSettings({ theme, userAddress, backendUrl }: Props) 
 
     const disableNotifications = async () => {
         setNotificationsEnabled(false);
-        localStorage.setItem("fcweed_notifications_enabled", "false");
+        localStorage.setItem("cartel_notifications_enabled", "false");
         setStatus("Notifications disabled");
         
         // Unregister from backend

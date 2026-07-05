@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { ethers } from "ethers";
 import { V5_BATTLES_ADDRESS, WARS_BACKEND_URL, MULTICALL3_ADDRESS, V5_STAKING_ADDRESS, V5_ITEMSHOP_ADDRESS } from "../lib/constants";
 
-const FCWEED_ADDRESS = "0x42ef01219BDb2190F275Cda7956D08822549d224";
+const CARTEL_ADDRESS = "0x42ef01219BDb2190F275Cda7956D08822549d224";
 
 const MULTICALL3_ABI = ["function tryAggregate(bool requireSuccess, tuple(address target, bytes callData)[] calls) view returns (tuple(bool success, bytes returnData)[])"];
 
@@ -1115,11 +1115,11 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             // ==================== EXECUTE RAID ====================
             
             // Step 2: Check balance and ensure allowance for raid fee
-            setStatus("Checking FCWEED balance...");
+            setStatus("Checking CARTEL balance...");
             
             try {
-                const fcweedContract = new ethers.Contract(
-                    FCWEED_ADDRESS,
+                const cartelContract = new ethers.Contract(
+                    CARTEL_ADDRESS,
                     [
                         "function balanceOf(address) view returns (uint256)",
                         "function allowance(address,address) view returns (uint256)"
@@ -1127,30 +1127,30 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                     readProvider
                 );
                 
-                const balance = await fcweedContract.balanceOf(userAddress);
+                const balance = await cartelContract.balanceOf(userAddress);
                 console.log("[DEA] Balance:", ethers.utils.formatUnits(balance, 18), "Required:", ethers.utils.formatUnits(raidFeeRaw, 18));
                 
                 if (balance.lt(raidFeeRaw)) {
                     const have = parseFloat(ethers.utils.formatUnits(balance, 18)).toLocaleString();
                     const need = parseFloat(ethers.utils.formatUnits(raidFeeRaw, 18)).toLocaleString();
-                    setStatus(`Insufficient FCWEED: have ${have}, need ${need}`);
+                    setStatus(`Insufficient CARTEL: have ${have}, need ${need}`);
                     setRaiding(false);
                     return;
                 }
                 
-                const currentAllowance = await fcweedContract.allowance(userAddress, V5_BATTLES_ADDRESS);
+                const currentAllowance = await cartelContract.allowance(userAddress, V5_BATTLES_ADDRESS);
                 console.log("[DEA] Allowance:", ethers.utils.formatUnits(currentAllowance, 18));
                 
                 if (currentAllowance.lt(raidFeeRaw)) {
-                    setStatus("Approving FCWEED for raids...");
+                    setStatus("Approving CARTEL for raids...");
                     const approved = await ensureAllowance(V5_BATTLES_ADDRESS, raidFeeRaw);
                     if (!approved) {
-                        setStatus("FCWEED approval failed or was rejected");
+                        setStatus("CARTEL approval failed or was rejected");
                         setRaiding(false);
                         return;
                     }
                     
-                    const newAllowance = await fcweedContract.allowance(userAddress, V5_BATTLES_ADDRESS);
+                    const newAllowance = await cartelContract.allowance(userAddress, V5_BATTLES_ADDRESS);
                     if (newAllowance.lt(raidFeeRaw)) {
                         setStatus("Approval did not complete. Please try again.");
                         setRaiding(false);
@@ -1160,7 +1160,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 }
             } catch (checkErr: any) {
                 console.error("[DEA] Balance/allowance check failed:", checkErr);
-                setStatus("Failed to verify FCWEED balance. Please try again.");
+                setStatus("Failed to verify CARTEL balance. Please try again.");
                 setRaiding(false);
                 return;
             }
@@ -1193,7 +1193,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
                 } else if (reason.includes("!p")) {
                     setStatus("❌ You need staked NFTs to raid");
                 } else if (reason.includes("!fee") || reason.includes("ERC20") || reason.includes("allowance")) {
-                    setStatus("❌ Insufficient FCWEED balance or approval");
+                    setStatus("❌ Insufficient CARTEL balance or approval");
                 } else if (reason.includes("!on")) {
                     setStatus("❌ DEA Raids are currently disabled");
                 } else if (reason.includes("call revert exception") || reason.includes("execution reverted")) {
@@ -1318,7 +1318,7 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
             // Parse the error message for better feedback
             const reason = e?.reason || e?.data?.message || e?.message || "Raid failed";
             if (reason.includes("insufficient allowance") || reason.includes("ERC20")) {
-                setStatus("FCWEED not approved. Please try again.");
+                setStatus("CARTEL not approved. Please try again.");
             } else if (reason.includes("Not authorized")) {
                 setStatus("Not authorized - check your staked NFTs and cooldowns");
             } else if (reason.includes("cooldown") || reason.includes("!cd")) {
