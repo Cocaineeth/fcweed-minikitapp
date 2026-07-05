@@ -1351,7 +1351,9 @@ export function DEARaidsLeaderboard({ connected, userAddress, theme, readProvide
     return (
         <>
             <div style={{ padding: 16 }}>
-                {/* Header with title and refresh indicator */}
+                <div style={{ fontSize: 10, color: "#7b84a8", lineHeight: 1.55, marginBottom: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 8, padding: "8px 10px" }}>
+                    Sellers get flagged. Flagged wallets land on this board with their farms exposed. Pay the raid fee, hit their pending stash — 6h per target, 2h after a clean bust. Shields hold unless it&apos;s Purge night.
+                </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <h2 style={{ fontSize: 18, fontWeight: 700, color: textPrimary, margin: 0 }}>🚔 DEA Raids</h2>

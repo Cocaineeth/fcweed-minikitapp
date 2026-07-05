@@ -207,7 +207,7 @@ export function CartelBankPanel({ address, provider, sendContractTx, onSuccess }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(92px, 1fr))", gap: 10 }}>
         <div style={card}>
           <div style={label}>Vault Total</div>
           <div style={big}>${stats ? fmtUsd(stats.lockedValueUsdc) : "—"}</div>

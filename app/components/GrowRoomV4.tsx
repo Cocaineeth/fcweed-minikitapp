@@ -214,7 +214,7 @@ function PlantSlot({
                             <button
                                 onClick={(e) => { e.stopPropagation(); onWaterAmountChange(-0.1); }}
                                 style={{
-                                    width: 16, height: 16,
+                                    width: 28, height: 28,
                                     background: "#1e40af",
                                     border: "none",
                                     borderRadius: 4,
@@ -234,7 +234,7 @@ function PlantSlot({
                             <button
                                 onClick={(e) => { e.stopPropagation(); onWaterAmountChange(0.1); }}
                                 style={{
-                                    width: 16, height: 16,
+                                    width: 28, height: 28,
                                     background: "#1e40af",
                                     border: "none",
                                     borderRadius: 4,
@@ -312,12 +312,12 @@ function NFTCard({ id, type, isSelected, health, waterAmount, onWaterAmountChang
                 >
                     <button 
                         onClick={(e) => { e.stopPropagation(); onWaterAmountChange!(-0.1); }}
-                        style={{ width: 18, height: 18, background: "#1e40af", border: "none", borderRadius: 4, color: "#fff", fontSize: 12, fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                        style={{ width: 28, height: 28, background: "#1e40af", border: "none", borderRadius: 4, color: "#fff", fontSize: 12, fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                     >-</button>
                     <span style={{ fontSize: 9, color: "#93c5fd", fontWeight: 700, minWidth: 32, textAlign: "center" }}>{(waterAmount ?? 0) < 0.1 ? (waterAmount ?? 0).toFixed(3) : (waterAmount ?? 0).toFixed(1)}L</span>
                     <button 
                         onClick={(e) => { e.stopPropagation(); onWaterAmountChange!(0.1); }}
-                        style={{ width: 18, height: 18, background: "#1e40af", border: "none", borderRadius: 4, color: "#fff", fontSize: 12, fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                        style={{ width: 28, height: 28, background: "#1e40af", border: "none", borderRadius: 4, color: "#fff", fontSize: 12, fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                     >+</button>
                 </div>
             )}
@@ -356,11 +356,11 @@ export default function IsometricFarm({
             health: plantHealths[id] ?? 100,
             waterNeeded: waterNeeded[id] ?? 0,
             hasBoost: false
-        })).sort((a, b) => b.health - a.health);
+        })).sort((a, b) => a.health - b.health);
     }, [stakedPlants, plantHealths, waterNeeded]);
-    
-    // Top 20 for display
+
     const displayPlants = allPlantData.slice(0, 20);
+    const hiddenPlantCount = Math.max(0, allPlantData.length - 20);
     const gridCols = displayPlants.length <= 4 ? 2 : displayPlants.length <= 9 ? 3 : displayPlants.length <= 16 ? 4 : 5;
     
     // Water balance - full precision, no rounding
@@ -831,6 +831,11 @@ export default function IsometricFarm({
                     boxShadow: "0 4px 30px rgba(0,0,0,0.5), inset 0 0 20px rgba(0,0,0,0.3)",
                     zIndex: 50
                 }}>
+                    {hiddenPlantCount > 0 && (
+                        <div style={{ gridColumn: "1 / -1", textAlign: "center", fontSize: 10, fontWeight: 700, color: "#fbbf24", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 8, padding: "5px 8px" }}>
+                            Showing the 20 thirstiest of {allPlantData.length} plants — open 📦 INVENTORY for the full crop
+                        </div>
+                    )}
                     {displayPlants.map(plant => (
                         <PlantSlot
                             key={plant.id}
@@ -847,7 +852,7 @@ export default function IsometricFarm({
                 {/* INVENTORY PANEL - BOTTOM */}
                 {showInventory && (
                     <div style={{
-                        position: "absolute", bottom: 0, left: 0, right: 0, height: 210,
+                        position: "absolute", bottom: 0, left: 0, right: 0, height: "min(55vh, 420px)",
                         background: "rgba(10,15,25,0.98)", border: "2px solid #22c55e",
                         borderRadius: "12px 12px 0 0", zIndex: 200, display: "flex", flexDirection: "column",
                         boxShadow: "0 -4px 20px rgba(0,0,0,0.5)"
@@ -957,9 +962,14 @@ export default function IsometricFarm({
                                             >💧 WATER</button>
                                         </>
                                     )}
-                                    <button 
-                                        onClick={handleUnstakeSelected} 
-                                        disabled={actionLoading || isPurgeActive} 
+                                    {selectedStakedPlants.some(id => (plantHealths[id] ?? 100) < 100) && (
+                                        <div style={{ width: "100%", fontSize: 9.5, color: "#38bdf8", fontWeight: 600, textAlign: "center", padding: "2px 4px" }}>
+                                            💧 The water bill settles on the way out — owed liters are auto-charged when you unstake.
+                                        </div>
+                                    )}
+                                    <button
+                                        onClick={handleUnstakeSelected}
+                                        disabled={actionLoading || isPurgeActive}
                                         title={isPurgeActive ? "Unstaking disabled during The Purge" : ""}
                                         style={{ 
                                             padding: "8px 16px", 

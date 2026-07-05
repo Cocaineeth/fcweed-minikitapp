@@ -289,7 +289,7 @@ export function ReferralsPanel(props: Props) {
                                 <input
                                     value={referrerCode}
                                     onChange={(e) => setReferrerCode(e.target.value)}
-                                    placeholder="e.g. X420-ABCD"
+                                    placeholder="e.g. CARTEL-ABCD"
                                     style={{ flex: 1, padding: "12px 14px", borderRadius: 10, border: "1px solid rgba(16,185,129,0.3)", background: "rgba(5,8,20,0.6)", color: "#e5e7eb", fontSize: 13, outline: "none" }}
                                 />
                                 <button

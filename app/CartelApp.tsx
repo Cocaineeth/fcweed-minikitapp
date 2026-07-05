@@ -6946,7 +6946,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
             </div>
             <div style={{ marginTop: 2, fontSize: 9, fontWeight: 600 }}>{name}</div>
             <div style={{ fontSize: 8, opacity: 0.7 }}>#{id}</div>
-            {health !== undefined && <div style={{ fontSize: 7, color: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444" }}>{health}%</div>}
+            {health !== undefined && <div style={{ fontSize: 9, color: health >= 80 ? "#10b981" : health >= 50 ? "#fbbf24" : "#ef4444" }}>{health}%</div>}
         </label>
     );
 
@@ -7694,11 +7694,21 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 <li><b>50% of all mint funds</b> are routed to periodic <b>buyback and burns</b> of $CARTEL.</li>
                                 <li>$CARTEL has a <b>3% buy &amp; sell tax</b>:
                     <ul style={{ marginTop: 4, marginLeft: 16 }}>
-                        <li><b>2%</b> goes directly into automated <b>buyback &amp; burn</b>.</li>
-                        <li><b>1%</b> is set aside for <b>top farmer rewards</b> in USDC, paid out based on the Crime Ladder leaderboard.</li>
+                        <li><b>Half of every tax</b> (1.5% of buys + 1.5% of sells) is swapped to <b>USDC and paid to Bank members</b> who lock liquidity.</li>
+                        <li>The other half funds the <b>treasury</b> — buybacks, rewards, and operations.</li>
                     </ul>
                                 </li>
-                                <li>The more you farm and climb the ladder, the larger your share of <b>USDC rewards</b> from the tax pool.</li>
+                                <li>Lock LP in the <b>🏦 Bank</b> to collect your cut of the street tax in real USDC.</li>
+                            </ul>
+                        </section>
+                        <section className={styles.infoCard} style={getCardStyle()}>
+                            <h2 className={styles.heading} style={{ color: getTextColor("primary") }}>Keeping Plants Alive</h2>
+                            <ul className={styles.bulletList} style={{ color: getTextColor("secondary") }}>
+                                <li>💧 Plants dry out <b>every day they go unwatered</b>. Dry plants earn less — and the longer you wait, the more water the fix costs. Water daily or pay the neglect tax.</li>
+                                <li>📤 Unstaking settles the water bill first — <b>owed liters are auto-charged</b> on the way out.</li>
+                                <li>🦺 <b>Kevlar</b> — strap up for 12h and shave <b>15% off every hit</b> you take. Doesn't stop the raid; makes it hurt less.</li>
+                                <li>💉 <b>El Doctor</b> — the cartel's private medic. One visit, one plant, <b>back to 100%</b>. Starter pack exclusive.</li>
+                                <li>🏦 <b>The Bank</b> — lock CARTEL/USDC LP, collect half the street tax in USDC. Lock <b>$1,500+</b> and convert xCARTEL at <b>2:1</b> while everyone else pays 3.</li>
                             </ul>
                         </section>
                         <section className={styles.infoCard} style={getCardStyle()}>
@@ -7851,30 +7861,30 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 6 }}>
                                             <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
-                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>CARTEL</div>
+                                                <div style={{ color: '#6b7280', fontSize: 9, marginBottom: 2 }}>CARTEL</div>
                                                 <div style={{ color: '#34d399', fontWeight: 700, fontSize: 11 }}>{cartelBalance}</div>
                                             </div>
                                             <div style={{ background: 'rgba(107,114,128,0.1)', border: '1px solid rgba(107,114,128,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
-                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>DUST</div>
+                                                <div style={{ color: '#6b7280', fontSize: 9, marginBottom: 2 }}>DUST</div>
                                                 <div style={{ color: '#d1d5db', fontWeight: 700, fontSize: 11 }}>{crateUserStats.dust.toLocaleString()}</div>
                                             </div>
                                             <div style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
-                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>OPENED</div>
+                                                <div style={{ color: '#6b7280', fontSize: 9, marginBottom: 2 }}>OPENED</div>
                                                 <div style={{ color: '#fbbf24', fontWeight: 700, fontSize: 11 }}>{crateUserStats.opened}</div>
                                             </div>
                                         </div>
                                         
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
                                             <div style={{ background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
-                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>CARTEL WON</div>
+                                                <div style={{ color: '#6b7280', fontSize: 9, marginBottom: 2 }}>CARTEL WON</div>
                                                 <div style={{ color: '#4ade80', fontWeight: 700, fontSize: 11 }}>{crateUserStats.cartel >= 1e6 ? (crateUserStats.cartel / 1e6).toFixed(1) + "M" : crateUserStats.cartel >= 1e3 ? (crateUserStats.cartel / 1e3).toFixed(0) + "K" : crateUserStats.cartel.toFixed(0)}</div>
                                             </div>
                                             <div style={{ background: 'rgba(39,117,202,0.1)', border: '1px solid rgba(39,117,202,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
-                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>USDC WON</div>
+                                                <div style={{ color: '#6b7280', fontSize: 9, marginBottom: 2 }}>USDC WON</div>
                                                 <div style={{ color: '#2775CA', fontWeight: 700, fontSize: 11 }}>${crateUserStats.usdc.toFixed(2)}</div>
                                             </div>
                                             <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
-                                                <div style={{ color: '#6b7280', fontSize: 7, marginBottom: 2 }}>CARTEL SPENT</div>
+                                                <div style={{ color: '#6b7280', fontSize: 9, marginBottom: 2 }}>CARTEL SPENT</div>
                                                 <div style={{ color: '#f87171', fontWeight: 700, fontSize: 11 }}>{crateUserStats.totalSpent >= 1e6 ? (crateUserStats.totalSpent / 1e6).toFixed(1) + "M" : crateUserStats.totalSpent >= 1e3 ? (crateUserStats.totalSpent / 1e3).toFixed(0) + "K" : crateUserStats.totalSpent.toFixed(0)}</div>
                                             </div>
                                         </div>
@@ -8003,8 +8013,8 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         type="button" 
                                         onClick={() => {
                                             const text = crateWon.isJackpot 
-                                                ? `🎰 JACKPOT on CARTEL Crates! 🎉\n\nWon ${crateWon.amount} ${crateWon.token}! 💰\n\nTry your luck on @base 🌿\n\nhttps://x420ponzi.com`
-                                                : `🎰 Opened a CARTEL Mystery Crate!\n\nWon ${crateWon.amount} ${crateWon.token}! ${crateWon.isNFT ? '🖼️' : '💰'}\n\nTry your luck on @base 🌿\n\nhttps://x420ponzi.com`;
+                                                ? `🎰 JACKPOT on CARTEL Crates! 🎉\n\nWon ${crateWon.amount} ${crateWon.token}! 💰\n\nTry your luck on @base 🌿\n\nhttps://fcweed-minikitapp.vercel.app`
+                                                : `🎰 Opened a CARTEL Mystery Crate!\n\nWon ${crateWon.amount} ${crateWon.token}! ${crateWon.isNFT ? '🖼️' : '💰'}\n\nTry your luck on @base 🌿\n\nhttps://fcweed-minikitapp.vercel.app`;
                                             captureAndShare('crate-win-card', text, composeCast);
                                         }}
                                         style={{ padding: 12, fontSize: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(29,161,242,0.2)', color: '#1da1f2', cursor: 'pointer' }}
@@ -8114,13 +8124,13 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
                                             <img src="/images/items/ak47.gif" alt="AK-47" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain" }} />
                                         </div>
-                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>AK-47</div>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>AK-47</div>
                                         <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>{inventoryAK47}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
                                             {ak47Expiry > Math.floor(Date.now() / 1000) ? (
-                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((ak47Expiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((ak47Expiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
+                                                <div style={{ padding: "8px 4px", fontSize: 9, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((ak47Expiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((ak47Expiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
                                             ) : (
-                                                <button onClick={handleActivateAK47} disabled={inventoryAK47 === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryAK47 > 0 ? "linear-gradient(135deg, #ef4444, #dc2626)" : "#374151", color: "#fff", cursor: inventoryAK47 > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
+                                                <button onClick={handleActivateAK47} disabled={inventoryAK47 === 0 || inventoryLoading} style={{ width: "100%", padding: "8px 4px", fontSize: 9, borderRadius: 4, border: "none", background: inventoryAK47 > 0 ? "linear-gradient(135deg, #ef4444, #dc2626)" : "#374151", color: "#fff", cursor: inventoryAK47 > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
                                             )}
                                         </div>
                                     </div>
@@ -8129,13 +8139,13 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
                                             <img src="/images/items/nuke.gif" alt="Nuke" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain" }} />
                                         </div>
-                                        <div style={{ fontSize: 6, color: "#ef4444", fontWeight: 600, marginBottom: 2 }}>NUKE</div>
+                                        <div style={{ fontSize: 9, color: "#ef4444", fontWeight: 600, marginBottom: 2 }}>NUKE</div>
                                         <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444", marginBottom: 4 }}>{inventoryNuke}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
                                             {nukeExpiry > Math.floor(Date.now() / 1000) ? (
-                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((nukeExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(nukeExpiry - Math.floor(Date.now() / 1000)) % 60}s</div>
+                                                <div style={{ padding: "8px 4px", fontSize: 9, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((nukeExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(nukeExpiry - Math.floor(Date.now() / 1000)) % 60}s</div>
                                             ) : (
-                                                <button onClick={() => setNukeConfirmOpen(true)} disabled={inventoryNuke === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryNuke > 0 ? "linear-gradient(135deg, #ef4444, #b91c1c)" : "#374151", color: "#fff", cursor: inventoryNuke > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
+                                                <button onClick={() => setNukeConfirmOpen(true)} disabled={inventoryNuke === 0 || inventoryLoading} style={{ width: "100%", padding: "8px 4px", fontSize: 9, borderRadius: 4, border: "none", background: inventoryNuke > 0 ? "linear-gradient(135deg, #ef4444, #b91c1c)" : "#374151", color: "#fff", cursor: inventoryNuke > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
                                             )}
                                         </div>
                                     </div>
@@ -8144,13 +8154,13 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
                                             <img src="/images/items/rpg.gif" alt="RPG" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain" }} />
                                         </div>
-                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>RPG</div>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>RPG</div>
                                         <div style={{ fontSize: 14, fontWeight: 700, color: "#a855f7", marginBottom: 4 }}>{inventoryRPG}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
                                             {rpgExpiry > Math.floor(Date.now() / 1000) ? (
-                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((rpgExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(rpgExpiry - Math.floor(Date.now() / 1000)) % 60}s</div>
+                                                <div style={{ padding: "8px 4px", fontSize: 9, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((rpgExpiry - Math.floor(Date.now() / 1000)) / 60)}m {(rpgExpiry - Math.floor(Date.now() / 1000)) % 60}s</div>
                                             ) : (
-                                                <button onClick={handleActivateRPG} disabled={inventoryRPG === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryRPG > 0 ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: "#fff", cursor: inventoryRPG > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
+                                                <button onClick={handleActivateRPG} disabled={inventoryRPG === 0 || inventoryLoading} style={{ width: "100%", padding: "8px 4px", fontSize: 9, borderRadius: 4, border: "none", background: inventoryRPG > 0 ? "linear-gradient(135deg, #a855f7, #8b5cf6)" : "#374151", color: "#fff", cursor: inventoryRPG > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
                                             )}
                                         </div>
                                     </div>
@@ -8159,18 +8169,18 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
                                             <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain" }} />
                                         </div>
-                                        <div style={{ fontSize: 6, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>HEALTH</div>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>HEALTH</div>
                                         <div style={{ fontSize: 14, fontWeight: 700, color: "#10b981", marginBottom: 4 }}>{inventoryHealthPacks}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
-                                            <button onClick={() => { setHealItemId(4); setHealthPackModalOpen(true); }} disabled={inventoryHealthPacks === 0 || v6StakedPlants.length === 0} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryHealthPacks > 0 && v6StakedPlants.length > 0 ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: "#fff", cursor: inventoryHealthPacks > 0 && v6StakedPlants.length > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Use</button>
+                                            <button onClick={() => { setHealItemId(4); setHealthPackModalOpen(true); }} disabled={inventoryHealthPacks === 0 || v6StakedPlants.length === 0} style={{ width: "100%", padding: "8px 4px", fontSize: 9, borderRadius: 4, border: "none", background: inventoryHealthPacks > 0 && v6StakedPlants.length > 0 ? "linear-gradient(135deg, #10b981, #34d399)" : "#374151", color: "#fff", cursor: inventoryHealthPacks > 0 && v6StakedPlants.length > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Use</button>
                                         </div>
                                     </div>
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(16,185,129,0.08)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95, border: "1px solid rgba(52,211,153,0.3)" }}>
                                         <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4, fontSize: 26 }}>💉</div>
-                                        <div style={{ fontSize: 7, color: "#34d399", fontWeight: 700, marginBottom: 2 }}>EL DOCTOR</div>
+                                        <div style={{ fontSize: 9, color: "#34d399", fontWeight: 700, marginBottom: 2 }}>EL DOCTOR</div>
                                         <div style={{ fontSize: 14, fontWeight: 700, color: "#34d399", marginBottom: 4 }}>{inventoryElDoctors}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
-                                            <button onClick={() => { setHealItemId(10); setHealthPackModalOpen(true); }} disabled={inventoryElDoctors === 0 || v6StakedPlants.length === 0} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryElDoctors > 0 && v6StakedPlants.length > 0 ? "linear-gradient(135deg, #059669, #34d399)" : "#374151", color: "#fff", cursor: inventoryElDoctors > 0 && v6StakedPlants.length > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Full Heal</button>
+                                            <button onClick={() => { setHealItemId(10); setHealthPackModalOpen(true); }} disabled={inventoryElDoctors === 0 || v6StakedPlants.length === 0} style={{ width: "100%", padding: "8px 4px", fontSize: 9, borderRadius: 4, border: "none", background: inventoryElDoctors > 0 && v6StakedPlants.length > 0 ? "linear-gradient(135deg, #059669, #34d399)" : "#374151", color: "#fff", cursor: inventoryElDoctors > 0 && v6StakedPlants.length > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Full Heal</button>
                                         </div>
                                     </div>
                                     {/* Shields */}
@@ -8178,27 +8188,27 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
                                             <img src="/images/items/shield.gif" alt="Shield" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain", filter: isPurgeActive ? "grayscale(100%)" : "none" }} />
                                         </div>
-                                        <div style={{ fontSize: 7, color: isPurgeActive ? "#ef4444" : (theme === "light" ? "#64748b" : "#9ca3af"), fontWeight: 600, marginBottom: 2 }}>{isPurgeActive ? "🔪 USELESS" : "SHIELDS"}</div>
+                                        <div style={{ fontSize: 9, color: isPurgeActive ? "#ef4444" : (theme === "light" ? "#64748b" : "#9ca3af"), fontWeight: 600, marginBottom: 2 }}>{isPurgeActive ? "🔪 USELESS" : "SHIELDS"}</div>
                                         <div style={{ fontSize: 14, fontWeight: 700, color: isPurgeActive ? "#6b7280" : "#3b82f6", marginBottom: 4 }}>{inventoryShields}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
                                             {isPurgeActive ? (
-                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "#374151", color: "#6b7280", fontWeight: 600, textAlign: "center" }}>Purge Active</div>
+                                                <div style={{ padding: "8px 4px", fontSize: 9, borderRadius: 4, background: "#374151", color: "#6b7280", fontWeight: 600, textAlign: "center" }}>Purge Active</div>
                                             ) : shieldExpiry > Math.floor(Date.now() / 1000) ? (
-                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((shieldExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((shieldExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
+                                                <div style={{ padding: "8px 4px", fontSize: 9, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((shieldExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((shieldExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
                                             ) : (
-                                                <button onClick={handleActivateShield} disabled={inventoryShields === 0 || inventoryLoading || isPurgeActive} title={isPurgeActive ? "Shields are useless during The Purge!" : ""} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: (inventoryShields > 0 && !isPurgeActive) ? "linear-gradient(135deg, #3b82f6, #60a5fa)" : "#374151", color: (inventoryShields > 0 && !isPurgeActive) ? "#fff" : "#6b7280", cursor: (inventoryShields > 0 && !isPurgeActive) ? "pointer" : "not-allowed", fontWeight: 600 }}>{isPurgeActive ? "🔪 Locked" : "Activate"}</button>
+                                                <button onClick={handleActivateShield} disabled={inventoryShields === 0 || inventoryLoading || isPurgeActive} title={isPurgeActive ? "Shields are useless during The Purge!" : ""} style={{ width: "100%", padding: "8px 4px", fontSize: 9, borderRadius: 4, border: "none", background: (inventoryShields > 0 && !isPurgeActive) ? "linear-gradient(135deg, #3b82f6, #60a5fa)" : "#374151", color: (inventoryShields > 0 && !isPurgeActive) ? "#fff" : "#6b7280", cursor: (inventoryShields > 0 && !isPurgeActive) ? "pointer" : "not-allowed", fontWeight: 600 }}>{isPurgeActive ? "🔪 Locked" : "Activate"}</button>
                                             )}
                                         </div>
                                     </div>
                                     <div style={{ background: theme === "light" ? "#f1f5f9" : "rgba(5,8,20,0.6)", borderRadius: 8, padding: 8, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 95 }}>
                                         <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4, fontSize: 26 }}>🦺</div>
-                                        <div style={{ fontSize: 7, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>KEVLAR</div>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>KEVLAR</div>
                                         <div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa", marginBottom: 4 }}>{inventoryKevlar}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
                                             {kevlarExpiry > Math.floor(Date.now() / 1000) ? (
-                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((kevlarExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((kevlarExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
+                                                <div style={{ padding: "8px 4px", fontSize: 9, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((kevlarExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((kevlarExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
                                             ) : (
-                                                <button onClick={handleActivateKevlar} disabled={inventoryKevlar === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryKevlar > 0 ? "linear-gradient(135deg, #8b5cf6, #a78bfa)" : "#374151", color: inventoryKevlar > 0 ? "#fff" : "#6b7280", cursor: inventoryKevlar > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
+                                                <button onClick={handleActivateKevlar} disabled={inventoryKevlar === 0 || inventoryLoading} style={{ width: "100%", padding: "8px 4px", fontSize: 9, borderRadius: 4, border: "none", background: inventoryKevlar > 0 ? "linear-gradient(135deg, #8b5cf6, #a78bfa)" : "#374151", color: inventoryKevlar > 0 ? "#fff" : "#6b7280", cursor: inventoryKevlar > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
                                             )}
                                         </div>
                                     </div>
@@ -8207,13 +8217,13 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
                                             <img src="/images/items/attackboost.gif" alt="Attack Boost" style={{ maxWidth: 36, maxHeight: 36, objectFit: "contain" }} />
                                         </div>
-                                        <div style={{ fontSize: 6, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>BOOST</div>
+                                        <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af", fontWeight: 600, marginBottom: 2 }}>BOOST</div>
                                         <div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b", marginBottom: 4 }}>{inventoryBoosts}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
                                             {boostExpiry > Math.floor(Date.now() / 1000) ? (
-                                                <div style={{ padding: "3px 4px", fontSize: 7, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((boostExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((boostExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
+                                                <div style={{ padding: "8px 4px", fontSize: 9, borderRadius: 4, background: "linear-gradient(135deg, #22c55e, #16a34a)", color: "#fff", fontWeight: 700, textAlign: "center" }}>{Math.floor((boostExpiry - Math.floor(Date.now() / 1000)) / 3600)}h {Math.floor(((boostExpiry - Math.floor(Date.now() / 1000)) % 3600) / 60)}m</div>
                                             ) : (
-                                                <button onClick={handleActivateBoost} disabled={inventoryBoosts === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryBoosts > 0 ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151", color: inventoryBoosts > 0 ? "#000" : "#fff", cursor: inventoryBoosts > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
+                                                <button onClick={handleActivateBoost} disabled={inventoryBoosts === 0 || inventoryLoading} style={{ width: "100%", padding: "8px 4px", fontSize: 9, borderRadius: 4, border: "none", background: inventoryBoosts > 0 ? "linear-gradient(135deg, #f59e0b, #fbbf24)" : "#374151", color: inventoryBoosts > 0 ? "#000" : "#fff", cursor: inventoryBoosts > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
                                             )}
                                         </div>
                                     </div>
@@ -8222,10 +8232,10 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
                                             <span style={{ fontSize: 28 }}>✈️</span>
                                         </div>
-                                        <div style={{ fontSize: 6, color: "#f59e0b", fontWeight: 600, marginBottom: 2 }}>CROP DUSTER</div>
+                                        <div style={{ fontSize: 9, color: "#f59e0b", fontWeight: 600, marginBottom: 2 }}>CROP DUSTER</div>
                                         <div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b", marginBottom: 4 }}>{inventoryCropDuster}</div>
                                         <div style={{ marginTop: "auto", width: "100%" }}>
-                                            <button onClick={() => setCropDusterModalOpen(true)} disabled={inventoryCropDuster === 0 || inventoryLoading} style={{ width: "100%", padding: "3px 4px", fontSize: 7, borderRadius: 4, border: "none", background: inventoryCropDuster > 0 ? "linear-gradient(135deg, #f59e0b, #ea580c)" : "#374151", color: "#fff", cursor: inventoryCropDuster > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
+                                            <button onClick={() => setCropDusterModalOpen(true)} disabled={inventoryCropDuster === 0 || inventoryLoading} style={{ width: "100%", padding: "8px 4px", fontSize: 9, borderRadius: 4, border: "none", background: inventoryCropDuster > 0 ? "linear-gradient(135deg, #f59e0b, #ea580c)" : "#374151", color: "#fff", cursor: inventoryCropDuster > 0 ? "pointer" : "not-allowed", fontWeight: 600 }}>Activate</button>
                                         </div>
                                     </div>
                                 </div>
@@ -8588,6 +8598,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                             address={userAddress}
                             provider={readProvider}
                             sendContractTx={sendContractTx}
+                            onSuccess={() => refreshAllData()}
                         />
                     </section>
                 )}
@@ -8599,15 +8610,15 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                             <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600, marginBottom: 8, textAlign: "center" }}>🎒 YOUR INVENTORY</div>
                             <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 12px" }}>
-                                    <div style={{ fontSize: 7, color: "#9ca3af" }}>CARTEL</div>
+                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>CARTEL</div>
                                     <div style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>{cartelBalance}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 12px" }}>
-                                    <div style={{ fontSize: 7, color: "#9ca3af" }}>xCARTEL</div>
+                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>xCARTEL</div>
                                     <div style={{ fontSize: 12, fontWeight: 700, color: "#a78bfa" }}>{v6XCartelBalanceFormatted}</div>
                                 </div>
                                 <div style={{ textAlign: "center", background: "rgba(5,8,20,0.4)", borderRadius: 8, padding: "6px 12px" }}>
-                                    <div style={{ fontSize: 7, color: "#9ca3af" }}>DUST</div>
+                                    <div style={{ fontSize: 9, color: "#9ca3af" }}>DUST</div>
                                     <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24" }}>{crateUserStats.dust.toLocaleString()}</div>
                                 </div>
                             </div>
@@ -8722,7 +8733,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                     const superLands = v5StakingStats?.superLands || 0;
                     const boost = v5StakingStats?.boostPct?.toFixed(1) || 0;
                     const daily = v5StakingStats?.dailyRewards || "0";
-                    const text = `🌿 My CARTEL Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://x420ponzi.com`;
+                    const text = `🌿 My CARTEL Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n📈 +${boost}% Boost\n💰 ${daily} Daily Rewards\n\nStart farming: https://fcweed-minikitapp.vercel.app`;
                     captureAndShare('v5-stats-card', text, composeCast);
                 }}
                 theme={theme}
@@ -8761,7 +8772,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                     const plants = v6StakingStats?.plants || 0;
                     const lands = v6StakingStats?.lands || 0;
                     const superLands = v6StakingStats?.superLands || 0;
-                    const text = `🌿 My CARTEL V6 Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n💎 ${v6RealTimePending} xCARTEL pending\n\nStart farming: https://x420ponzi.com`;
+                    const text = `🌿 My CARTEL V6 Farm on @base:\n\n🌱 ${plants} Plants\n🏠 ${lands} Lands\n🔥 ${superLands} Super Lands\n💎 ${v6RealTimePending} xCARTEL pending\n\nStart farming: https://fcweed-minikitapp.vercel.app`;
                     captureAndShare('v6-stats-card', text, composeCast);
                 }}
                 theme={theme}
@@ -9160,7 +9171,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                             })}
                         </div>
 
-                        {v5StakedPlants.length === 0 && (
+                        {v6StakedPlants.length === 0 && (
                             <div style={{ textAlign: "center", padding: 20 }}>
                                 <div style={{ fontSize: 40, marginBottom: 8 }}>🌱</div>
                                 <p style={{ fontSize: 12, color: theme === "light" ? "#64748b" : "#9ca3af" }}>No staked plants found</p>
@@ -9410,6 +9421,9 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                         <div style={{ fontSize: 14, color: (waterShopInfo?.walletRemaining || 0) > 0 ? "#60a5fa" : "#ef4444", fontWeight: 700 }}>{waterShopInfo?.walletRemaining || 0}L</div>
                                     </div>
                                 </div>
+                                <div style={{ fontSize: 9.5, color: "#7b84a8", textAlign: "center", marginBottom: 10, lineHeight: 1.5 }}>
+                                    The well holds half a liter per staked plant, counted when the shop opens at noon ET. When it's dry, it's dry until tomorrow.
+                                </div>
                                 {(() => {
                                     const maxCanBuy = Math.min(waterShopInfo?.dailyRemaining || 0, waterShopInfo?.walletRemaining || 0);
                                     const canBuy = maxCanBuy > 0;
@@ -9531,11 +9545,11 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 </div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>AK-47</div>
                                 <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+100% Combat</div>
-                                <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 12 hours</div>
+                                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 3 }}>Lasts 12 hours</div>
                                 <div style={{ marginTop: "auto" }}>
                                 {(shopSupply[1]?.remaining ?? 15) > 0 ? (
                                     <>
-                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[1]?.remaining ?? 15}/{shopSupply[1]?.total ?? 15}</span></div>
+                                        <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[1]?.remaining ?? 15}/{shopSupply[1]?.total ?? 15}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(1, "dust")} disabled={shopLoading || crateUserStats.dust < 1000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 1000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 1000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 1000 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />1K DUST</button>
                                             <button onClick={() => handleBuyItem(1, "xcartel")} disabled={shopLoading || v6XCartelBalance.lt(SHOP_CARTEL_PRICES.ak47)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.ak47) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.ak47) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.ak47) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 1M xCARTEL</button>
@@ -9556,11 +9570,11 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 </div>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444", marginBottom: 2 }}>TACTICAL NUKE</div>
                                 <div style={{ fontSize: 8, color: "#fca5a5", marginBottom: 2 }}>+10,000% Combat</div>
-                                <div style={{ fontSize: 7, color: "#fca5a5", marginBottom: 3 }}>10 min (1 attack)</div>
+                                <div style={{ fontSize: 9, color: "#fca5a5", marginBottom: 3 }}>10 min (1 attack)</div>
                                 <div style={{ marginTop: "auto" }}>
                                 {(shopSupply[3]?.remaining ?? 1) > 0 ? (
                                     <>
-                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[3]?.remaining ?? 1}/{shopSupply[3]?.total ?? 1}</span></div>
+                                        <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#ef4444", fontWeight: 600 }}>{shopSupply[3]?.remaining ?? 1}/{shopSupply[3]?.total ?? 1}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(3, "dust")} disabled={shopLoading || crateUserStats.dust < 10000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 10000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 10000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 10000 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />10K DUST</button>
                                             <button onClick={() => handleBuyItem(3, "xcartel")} disabled={shopLoading || v6XCartelBalance.lt(SHOP_CARTEL_PRICES.nuke)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.nuke) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.nuke) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.nuke) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 10M xCARTEL</button>
@@ -9581,11 +9595,11 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 </div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: "#a855f7", marginBottom: 2 }}>RPG</div>
                                 <div style={{ fontSize: 8, color: "#c4b5fd", marginBottom: 2 }}>+500% Combat</div>
-                                <div style={{ fontSize: 7, color: "#9ca3af", marginBottom: 3 }}>Lasts 3 hours</div>
+                                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 3 }}>Lasts 3 hours</div>
                                 <div style={{ marginTop: "auto" }}>
                                 {(shopSupply[2]?.remaining ?? 3) > 0 ? (
                                     <>
-                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#a855f7", fontWeight: 600 }}>{shopSupply[2]?.remaining ?? 3}/{shopSupply[2]?.total ?? 3}</span></div>
+                                        <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#a855f7", fontWeight: 600 }}>{shopSupply[2]?.remaining ?? 3}/{shopSupply[2]?.total ?? 3}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(2, "dust")} disabled={shopLoading || crateUserStats.dust < 4000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 4000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 4000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 4000 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />4K DUST</button>
                                             <button onClick={() => handleBuyItem(2, "xcartel")} disabled={shopLoading || v6XCartelBalance.lt(SHOP_CARTEL_PRICES.rpg)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.rpg) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.rpg) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.rpg) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 4M xCARTEL</button>
@@ -9608,11 +9622,11 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     <img src="/images/items/healthpack.gif" alt="Health Pack" style={{ width: 36, height: 36, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#10b981", marginBottom: 2 }}>HEALTH PACK</div>
-                                <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>Heals one Plant Max to 80%<br/>Usage: 1 Per Plant</div>
+                                <div style={{ fontSize: 9, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>Heals one Plant Max to 80%<br/>Usage: 1 Per Plant</div>
                                 <div style={{ marginTop: "auto" }}>
                                 {(shopSupply[4]?.remaining ?? 20) > 0 ? (
                                     <>
-                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#10b981", fontWeight: 600 }}>{shopSupply[4]?.remaining ?? 20}/{shopSupply[4]?.total ?? 20}</span></div>
+                                        <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#10b981", fontWeight: 600 }}>{shopSupply[4]?.remaining ?? 20}/{shopSupply[4]?.total ?? 20}</span></div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                             <button onClick={() => handleBuyItem(4, "dust")} disabled={shopLoading || crateUserStats.dust < 2000} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2000 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2000 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2000 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />2K DUST</button>
                                             <button onClick={() => handleBuyItem(4, "xcartel")} disabled={shopLoading || v6XCartelBalance.lt(SHOP_CARTEL_PRICES.healthPack)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.healthPack) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.healthPack) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.healthPack) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 2M xCARTEL</button>
@@ -9635,7 +9649,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                 {isPurgeActive ? (
                                     <div style={{ fontSize: 8, color: "#ef4444", lineHeight: 1.3, marginBottom: 4, fontWeight: 600 }}>🔪 USELESS<br/>DURING PURGE</div>
                                 ) : (
-                                    <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>24h Protection<br/>Purge Bypasses Shields</div>
+                                    <div style={{ fontSize: 9, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>24h Protection<br/>Purge Bypasses Shields</div>
                                 )}
                                 <div style={{ marginTop: "auto" }}>
                                 {isPurgeActive ? (
@@ -9644,7 +9658,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     </div>
                                 ) : (shopSupply[5]?.remaining ?? 25) > 0 ? (
                                     <>
-                                        <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#3b82f6", fontWeight: 600 }}>{shopSupply[5]?.remaining ?? 25}/{shopSupply[5]?.total ?? 25}</span></div>
+                                        <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#3b82f6", fontWeight: 600 }}>{shopSupply[5]?.remaining ?? 25}/{shopSupply[5]?.total ?? 25}</span></div>
                                         <button onClick={() => handleBuyItem(5, "dust")} disabled={shopLoading || crateUserStats.dust < 2500} style={{ width: "100%", padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 2500 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 2500 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 2500 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />2.5K DUST</button>
                                     </>
                                 ) : (
@@ -9660,9 +9674,9 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                     <img src="/images/items/attackboost.gif" alt="Attack Boost" style={{ width: 36, height: 36, objectFit: "contain" }} />
                                 </div>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", marginBottom: 2 }}>ATTACK BOOST</div>
-                                <div style={{ fontSize: 7, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>+20% Combat<br/>Lasts 6 hours</div>
+                                <div style={{ fontSize: 9, color: "#9ca3af", lineHeight: 1.2, marginBottom: 4 }}>+20% Combat<br/>Lasts 6 hours</div>
                                 <div style={{ marginTop: "auto" }}>
-                                <div style={{ fontSize: 7, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#f59e0b", fontWeight: 600 }}>∞</span></div>
+                                <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 4 }}>STOCK: <span style={{ color: "#f59e0b", fontWeight: 600 }}>∞</span></div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                     <button onClick={() => handleBuyItem(6, "dust")} disabled={shopLoading || crateUserStats.dust < 200} style={{ padding: "6px", borderRadius: 5, border: "none", background: crateUserStats.dust >= 200 ? "linear-gradient(135deg, #fbbf24, #f59e0b)" : "#374151", color: crateUserStats.dust >= 200 ? "#000" : "#9ca3af", fontWeight: 600, cursor: crateUserStats.dust >= 200 ? "pointer" : "not-allowed", fontSize: 8 }}><img src="/images/items/dust.gif" alt="Dust" style={{ width: 12, height: 12, marginRight: 2, verticalAlign: 'middle' }} />200 DUST</button>
                                     <button onClick={() => handleBuyItem(6, "xcartel")} disabled={shopLoading || v6XCartelBalance.lt(SHOP_CARTEL_PRICES.attackBoost)} style={{ padding: "6px", borderRadius: 5, border: "none", background: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.attackBoost) ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "#374151", color: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.attackBoost) ? "#fff" : "#9ca3af", fontWeight: 600, cursor: v6XCartelBalance.gte(SHOP_CARTEL_PRICES.attackBoost) ? "pointer" : "not-allowed", fontSize: 8 }}>💎 200K xCARTEL</button>
