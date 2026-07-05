@@ -27,6 +27,7 @@ import { PURGE_ADDRESS, DEA_RAIDS_ADDRESS } from "./lib/constants";
 import IsometricFarm from "./components/GrowRoomV4";
 import { XCartelConverter } from "./components/XCartelConverter";
 import { CartelBankPanel } from "./components/CartelBankPanel";
+import { CARTEL_TOKEN_ADDRESS } from "./lib/cartelConstants";
 import { DroughtButton } from "./components/DroughtButton";
 import { CropDusterModal } from "./components/CropDusterModal";
 
@@ -7604,38 +7605,44 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                     <>
 
                         
-                        <section style={{ display: "flex", justifyContent: "center", padding: "8px 0" }}>
-                            <div style={{
-                                background: theme === "light" 
-                                    ? "linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.1))"
-                                    : "linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(59, 130, 246, 0.15))",
-                                border: `1px solid ${theme === "light" ? "rgba(16, 185, 129, 0.2)" : "rgba(16, 185, 129, 0.3)"}`,
-                                borderRadius: 12,
-                                padding: "12px 20px",
-                                display: "flex",
-                                flexWrap: "wrap",
-                                justifyContent: "center",
-                                gap: 16,
-                                maxWidth: 420
-                            }}>
-                                <div style={{ textAlign: "center", minWidth: 80 }}>
-                                    <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 2 }}>🔥 Burned</div>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#ef4444" }}>{tokenStats.loading ? "..." : tokenStats.burned}</div>
+                        {(() => {
+                            const s2Live = CARTEL_TOKEN_ADDRESS !== "";
+                            const statCell = (emoji: string, label: string, value: string, color: string, dim: boolean) => (
+                                <div style={{ textAlign: "center", minWidth: 68, flex: "1 1 68px" }}>
+                                    <div style={{ fontSize: 9, color: "#7b84a8", marginBottom: 2 }}>{emoji} {label}</div>
+                                    <div style={{ fontSize: 14, fontWeight: 800, color: dim ? "#5c6484" : color }}>{value}</div>
                                 </div>
-                                <div style={{ textAlign: "center", minWidth: 80 }}>
-                                    <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 2 }}>🏦 Treasury</div>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: theme === "light" ? "#d97706" : "#fbbf24" }}>{tokenStats.loading ? "..." : tokenStats.treasury}</div>
-                                </div>
-                                <div style={{ textAlign: "center", minWidth: 80 }}>
-                                    <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 2 }}>🔒 Controlled</div>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#a855f7" }}>{tokenStats.loading ? "..." : tokenStats.controlledPct + "%"}</div>
-                                </div>
-                                <div style={{ textAlign: "center", minWidth: 80 }}>
-                                    <div style={{ fontSize: 9, color: theme === "light" ? "#64748b" : "#9ca3af", marginBottom: 2 }}>💰 Circulating</div>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: "#10b981" }}>{tokenStats.loading ? "..." : tokenStats.circulatingPct + "%"}</div>
-                                </div>
-                            </div>
-                        </section>
+                            );
+                            const badge = (text: string, live: boolean) => (
+                                <div style={{ display: "inline-block", fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", padding: "3px 10px", borderRadius: 999, marginBottom: 10, color: live ? "#08131a" : "#8d96ba", background: live ? "linear-gradient(180deg,#7ef7c8,#21c48a)" : "rgba(255,255,255,0.06)", border: live ? "none" : "1px solid rgba(255,255,255,0.12)" }}>{text}</div>
+                            );
+                            return (
+                                <section style={{ display: "flex", flexDirection: "column", gap: 10, padding: "8px 0" }}>
+                                    <div style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))", border: "1px solid rgba(255,255,255,0.09)", borderRadius: 14, padding: "12px 14px", opacity: 0.72 }}>
+                                        {badge("SEASON 1 · ENDED", false)}
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                                            {statCell("🔥", "Burned", "3.39B", "#ef4444", true)}
+                                            {statCell("🏦", "Treasury", "2.38B", "#fbbf24", true)}
+                                            {statCell("🔒", "Controlled", "88.31%", "#a855f7", true)}
+                                            {statCell("💰", "Circulating", "11.69%", "#10b981", true)}
+                                        </div>
+                                    </div>
+                                    <div style={{ background: "linear-gradient(180deg, rgba(126,247,200,0.08), rgba(33,196,138,0.03))", border: "1px solid rgba(126,247,200,0.3)", borderRadius: 14, padding: "12px 14px" }}>
+                                        {badge("SEASON 2 · LIVE", true)}
+                                        {s2Live ? (
+                                            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                                                {statCell("🔥", "Burned", tokenStats.loading ? "…" : tokenStats.burned, "#ef4444", false)}
+                                                {statCell("🏦", "Treasury", tokenStats.loading ? "…" : tokenStats.treasury, "#fbbf24", false)}
+                                                {statCell("🔒", "Controlled", tokenStats.loading ? "…" : tokenStats.controlledPct + "%", "#a855f7", false)}
+                                                {statCell("💰", "Circulating", tokenStats.loading ? "…" : tokenStats.circulatingPct + "%", "#10b981", false)}
+                                            </div>
+                                        ) : (
+                                            <div style={{ fontSize: 12, color: "#aab3d6", padding: "4px 2px", lineHeight: 1.5 }}>Season 2 goes live with the new token. Fresh supply, fresh farms, everyone starts from zero.</div>
+                                        )}
+                                    </div>
+                                </section>
+                            );
+                        })()}
 
                         <section className={styles.infoCard} style={getCardStyle()}>
                             <CrimeLadder

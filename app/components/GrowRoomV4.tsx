@@ -812,25 +812,32 @@ export default function IsometricFarm({
                 {/* PLANT GRID - Fixed size, scrollable, no shrink */}
                 <div style={{
                     position: "absolute",
-                    top: showStats ? "27%" : "10%",
+                    top: showStats ? 148 : 12,
+                    bottom: 12,
                     left: "50%",
                     transform: "translateX(-50%)",
                     width: "92%",
                     maxWidth: 540,
                     display: "grid",
                     gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
+                    gridAutoRows: "min-content",
                     gap: 10,
                     padding: 14,
                     background: "rgba(10,15,20,0.85)",
                     borderRadius: 12,
                     border: "1px solid rgba(34,197,94,0.4)",
                     transition: "top 0.3s ease",
-                    height: showStats ? "52%" : "65%",
-                    maxHeight: showStats ? "52%" : "65%",
                     overflowY: "auto",
                     boxShadow: "0 4px 30px rgba(0,0,0,0.5), inset 0 0 20px rgba(0,0,0,0.3)",
                     zIndex: 50
                 }}>
+                    {displayPlants.length === 0 && (
+                        <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "24px 12px", color: "#4ade80" }}>
+                            <div style={{ fontSize: 30, marginBottom: 8 }}>🌱</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#22c55e", marginBottom: 4 }}>Empty grow room</div>
+                            <div style={{ fontSize: 9, color: "#6b7280", lineHeight: 1.5 }}>Open 📦 INVENTORY and stake your plants to start earning.</div>
+                        </div>
+                    )}
                     {hiddenPlantCount > 0 && (
                         <div style={{ gridColumn: "1 / -1", textAlign: "center", fontSize: 10, fontWeight: 700, color: "#fbbf24", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 8, padding: "5px 8px" }}>
                             Showing the 20 thirstiest of {allPlantData.length} plants — open 📦 INVENTORY for the full crop
