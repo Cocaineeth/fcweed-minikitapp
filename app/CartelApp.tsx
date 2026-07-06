@@ -7690,6 +7690,11 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                                 {statCell("💰", "Stolen", s1WarStats.stolen, "#fbbf24", true)}
                                             </div>
                                         )}
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+                                            {statCell("📦", "Crates Opened", crateGlobalStats.totalOpened.toLocaleString(), "#a78bfa", true)}
+                                            {statCell("🔥", "Spent on Crates", crateGlobalStats.totalBurned, "#f87171", true)}
+                                            {statCell("👨‍🌾", "Farmers", crateGlobalStats.uniqueUsers.toLocaleString(), "#34d399", true)}
+                                        </div>
                                     </div>
                                     <div style={{ background: "linear-gradient(180deg, rgba(126,247,200,0.08), rgba(33,196,138,0.03))", border: "1px solid rgba(126,247,200,0.3)", borderRadius: 14, padding: "12px 14px" }}>
                                         {badge("SEASON 2 · LIVE", true)}

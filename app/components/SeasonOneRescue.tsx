@@ -20,6 +20,9 @@ const V6_ABI = [
   "function unstakePlants(uint256[])",
   "function unstakeLands(uint256[])",
   "function unstakeSuperLands(uint256[])",
+  "function getPlantHealth(uint256) view returns (uint256)",
+  "function waterAllPlants(uint256[])",
+  "function waterPlant(uint256)",
 ];
 
 const LEGACY_ABI = [
@@ -96,23 +99,65 @@ export function SeasonOneRescue({ address, provider, sendContractTx, onDone }: P
     const key = `${h.address}-${type}`;
     setBusy(key);
     setStatus("");
+    const iface = h.kind === "v6" ? ifaceV6 : ifaceLegacy;
+    const fn = type === "plants" ? "unstakePlants" : type === "lands" ? "unstakeLands" : "unstakeSuperLands";
+
+    const tryUnstake = async () => {
+      const contract = new ethers.Contract(h.address, h.kind === "v6" ? V6_ABI : LEGACY_ABI, provider);
+      await contract.callStatic[fn](ids, { from: address });
+      const tx = await sendContractTx(h.address, iface.encodeFunctionData(fn, [ids]), "0x2DC6C0");
+      if (!tx) return "cancelled";
+      await tx.wait();
+      return "ok";
+    };
+
     try {
-      const iface = h.kind === "v6" ? ifaceV6 : ifaceLegacy;
-      const fn = type === "plants" ? "unstakePlants" : type === "lands" ? "unstakeLands" : "unstakeSuperLands";
-      const data = iface.encodeFunctionData(fn, [ids]);
-      const tx = await sendContractTx(h.address, data, "0x2DC6C0");
-      if (tx) {
-        await tx.wait();
+      let result: string;
+      try {
+        result = await tryUnstake();
+      } catch (firstErr: any) {
+        if (h.kind !== "v6" || type !== "plants") throw firstErr;
+        const contract = new ethers.Contract(h.address, V6_ABI, provider);
+        const thirsty: number[] = [];
+        for (const id of ids) {
+          try {
+            const hp = await contract.getPlantHealth(id);
+            if (hp.lt(100)) thirsty.push(id);
+          } catch {}
+        }
+        if (thirsty.length === 0) throw firstErr;
+        setStatus(`Watering ${thirsty.length} plant${thirsty.length !== 1 ? "s" : ""} first…`);
+        try {
+          await contract.callStatic.waterAllPlants(thirsty, { from: address });
+          const txW = await sendContractTx(h.address, ifaceV6.encodeFunctionData("waterAllPlants", [thirsty]), "0x2DC6C0");
+          if (!txW) throw new Error("cancelled");
+          await txW.wait();
+        } catch (wErr: any) {
+          if ((wErr?.message || "") === "cancelled") throw wErr;
+          throw new Error("needs-heal");
+        }
+        setStatus("Watered. Pulling plants…");
+        result = await tryUnstake();
+      }
+      if (result === "cancelled") {
+        setStatus("Cancelled.");
+      } else {
         setStatus(`Pulled ${ids.length} from ${h.name}.`);
         setScanned(false);
         await scan();
         onDone?.();
-      } else {
-        setStatus("Cancelled.");
       }
     } catch (e: any) {
       const m = e?.reason || e?.message || "Failed";
-      setStatus(/health|!$|!healthy/.test(m) ? "Plants must be healed to 100% first — the team is running the heal pass. Try again shortly." : m.slice(0, 90));
+      if (m === "needs-heal" || /health|!healthy/.test(m)) {
+        setStatus("Not enough water on this vault to revive these plants — the team is running a free heal pass. Check back soon and pull them then.");
+      } else if (/cancel|denied|rejected/i.test(m)) {
+        setStatus("Cancelled.");
+      } else if (/cap|too many plants|unstake plants/i.test(m)) {
+        setStatus("Pull your Plants out of this vault first, then the Land.");
+      } else {
+        setStatus(m.slice(0, 90));
+      }
     } finally {
       setBusy("");
     }
