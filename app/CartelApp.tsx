@@ -511,7 +511,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
     const [v6AvailableSuperLands, setV6AvailableSuperLands] = useState<number[]>([]);
     const [loadingV6Staking, setLoadingV6Staking] = useState(false);
     const [v6RealTimePending, setV6RealTimePending] = useState<string>("0.00");
-    const [s1WarStats, setS1WarStats] = useState<{ cartel: string; dea: string; purge: string; stolen: string } | null>(null);
+    const [s1PersonalStats, setS1PersonalStats] = useState<{ attacks: number; wins: number; seized: string } | null>(null);
     const [warsBattlePower, setWarsBattlePower] = useState<{ atk: string; def: string } | null>(null);
     const [v6XCartelBalance, setV6XCartelBalance] = useState<ethers.BigNumber>(ethers.BigNumber.from(0));
     const [v6XCartelBalanceFormatted, setV6XCartelBalanceFormatted] = useState<string>("0.00");
@@ -5024,18 +5024,34 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
     // the Wars page Health Pack / shield gates even if the user never opens
     // the Stake modal in this session.
     useEffect(() => {
+        if (!connected || !userAddress) { setS1PersonalStats(null); return; }
         (async () => {
-            const S1_WAR_MEMORIAL: { cartel: string; dea: string; purge: string; stolen: string } | null = { cartel: "2", dea: "0", purge: "0", stolen: "711K" };
-            if (S1_WAR_MEMORIAL) { setS1WarStats(S1_WAR_MEMORIAL); return; }
-            try {
-                const S1_BATTLES = "0xB0e2D0d5794C2e86A57C77EdCD962191670B0dcE";
-                const abi = ["function getGlobal() view returns (uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"];
-                const g = await new ethers.Contract(S1_BATTLES, abi, readProvider).getGlobal();
-                const fmt = (bn: any) => { const n = parseFloat(ethers.utils.formatUnits(bn, 18)); return n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "K" : n.toFixed(0); };
-                setS1WarStats({ cartel: g[0].toString(), dea: g[1].toString(), purge: g[2].toString(), stolen: fmt(g[5]) });
-            } catch {}
+            const S1_BATTLES_ALL = [
+                "0xaea874795C4368B446c8da1A3EA90dB134349Ce3",
+                "0xc023bcE1e9387B3F3BeE91B4E87Cc7A22c225e14",
+                "0xa944070DE111045B9e0F31266Fc39604cDe5FBD4",
+                "0x589cF892e99Ee1aa0D232e2D1D5398A8e54b567C",
+                "0xb17A9451c424c3ae55660cF86795eE3f52877C75",
+                "0x7001478C4D924bf2cB48E5F4e0d66BeC56098a00",
+                "0xB0e2D0d5794C2e86A57C77EdCD962191670B0dcE",
+            ];
+            const abi = ["function getAtkStats(address) view returns (uint256, uint256, uint256, uint256)"];
+            let wins = 0, losses = 0;
+            let seized = ethers.BigNumber.from(0);
+            const reads = S1_BATTLES_ALL.map(async (addr) => {
+                try { return await new ethers.Contract(addr, abi, readProvider).getAtkStats(userAddress); } catch { return null; }
+            });
+            for (const r of await Promise.all(reads)) {
+                if (!r) continue;
+                wins += Number(r[0]);
+                losses += Number(r[1]);
+                seized = seized.add(r[2]);
+            }
+            const n = parseFloat(ethers.utils.formatUnits(seized, 18));
+            const fmt = n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "K" : n.toFixed(0);
+            setS1PersonalStats({ attacks: wins + losses, wins, seized: fmt });
         })();
-    }, [readProvider]);
+    }, [readProvider, connected, userAddress]);
 
     useEffect(() => {
         if (connected && userAddress && readProvider) {
@@ -7682,12 +7698,14 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
                                             {statCell("🔒", "Controlled", "88.31%", "#a855f7", true)}
                                             {statCell("💰", "Circulating", "11.69%", "#10b981", true)}
                                         </div>
-                                        {s1WarStats && (
-                                            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
-                                                {statCell("⚔️", "Cartel Wars", s1WarStats.cartel, "#ef4444", true)}
-                                                {statCell("🚔", "DEA Raids", s1WarStats.dea, "#60a5fa", true)}
-                                                {statCell("🔪", "Purges", s1WarStats.purge, "#a855f7", true)}
-                                                {statCell("💰", "Stolen", s1WarStats.stolen, "#fbbf24", true)}
+                                        {s1PersonalStats && (
+                                            <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+                                                <div style={{ fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "#7b84a8", fontWeight: 800, marginBottom: 8 }}>Your Season 1 Record</div>
+                                                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                                                    {statCell("⚔️", "Your Attacks", s1PersonalStats.attacks.toLocaleString(), "#ef4444", true)}
+                                                    {statCell("🏆", "Your Wins", s1PersonalStats.wins.toLocaleString(), "#34d399", true)}
+                                                    {statCell("💰", "You Seized", s1PersonalStats.seized, "#fbbf24", true)}
+                                                </div>
                                             </div>
                                         )}
                                         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
