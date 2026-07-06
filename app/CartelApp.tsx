@@ -5025,7 +5025,7 @@ export default function CartelApp({ onThemeChange }: { onThemeChange?: (theme: "
     // the Stake modal in this session.
     useEffect(() => {
         (async () => {
-            const S1_WAR_MEMORIAL: { cartel: string; dea: string; purge: string; stolen: string } | null = null;
+            const S1_WAR_MEMORIAL: { cartel: string; dea: string; purge: string; stolen: string } | null = { cartel: "2", dea: "0", purge: "0", stolen: "711K" };
             if (S1_WAR_MEMORIAL) { setS1WarStats(S1_WAR_MEMORIAL); return; }
             try {
                 const S1_BATTLES = "0xB0e2D0d5794C2e86A57C77EdCD962191670B0dcE";
